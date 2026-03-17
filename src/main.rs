@@ -1,3 +1,41 @@
+use gpui::{
+    actions, div, prelude::*, App, Application, Bounds, KeyBinding, Styled, TitlebarOptions,
+    Window, WindowBounds, WindowOptions, px, rgb, size,
+};
+
+actions!(ade, [Quit]);
+
+struct AdeWindow;
+
+impl Render for AdeWindow {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().bg(rgb(0x1e1e1e))
+    }
+}
+
 fn main() {
-    println!("Hello, world!");
+    tracing_subscriber::fmt::init();
+
+    Application::new().run(|cx: &mut App| {
+        // Register Quit action
+        cx.on_action(|_: &Quit, cx| cx.quit());
+        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+
+        // Open centered window with "ADE" title
+        let bounds = Bounds::centered(None, size(px(800.0), px(600.0)), cx);
+        let options = WindowOptions {
+            titlebar: Some(TitlebarOptions {
+                title: Some("ADE".into()),
+                appears_transparent: false,
+                traffic_light_position: None,
+            }),
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            focus: true,
+            show: true,
+            ..Default::default()
+        };
+
+        cx.open_window(options, |_window, cx| cx.new(|_| AdeWindow))
+            .expect("Failed to open window");
+    });
 }
