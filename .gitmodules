@@ -1,0 +1,3 @@
+[submodule "vendor/gpui-ghostty"]
+	path = vendor/gpui-ghostty
+	url = https://github.com/Xuanwo/gpui-ghostty
