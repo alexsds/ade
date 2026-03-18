@@ -31,6 +31,10 @@ pub struct AdeWindow {
     branch_status: git::BranchStatus,
     git_provider: git::GitProvider,
     code_review_panel: gpui::Entity<code_review::CodeReviewPanel>,
+    /// Focus handle for the AdeWindow (used in Code Review mode for Cmd+G)
+    focus_handle: gpui::FocusHandle,
+    /// Terminal's own focus handle (stored so we can re-focus it correctly)
+    terminal_focus_handle: gpui::FocusHandle,
 }
 
 impl AdeWindow {
@@ -66,11 +70,15 @@ impl AdeWindow {
             Mode::Terminal => Mode::CodeReview,
             Mode::CodeReview => Mode::Terminal,
         };
-        // When switching back to Terminal, re-focus terminal view so keyboard input works
-        if self.mode == Mode::Terminal {
-            self.terminal_view.update(cx, |_view, cx| {
-                cx.focus_handle().focus(window, cx);
-            });
+        match self.mode {
+            Mode::Terminal => {
+                // Re-focus terminal's original focus handle so keyboard input works
+                self.terminal_focus_handle.focus(window, cx);
+            }
+            Mode::CodeReview => {
+                // Focus our own handle so Cmd+G can toggle back
+                self.focus_handle.focus(window, cx);
+            }
         }
         cx.notify();
     }
@@ -79,6 +87,8 @@ impl AdeWindow {
 impl Render for AdeWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
+            .key_context("AdeWindow")
+            .track_focus(&self.focus_handle)
             .size_full()
             .flex()
             .flex_col()
@@ -158,7 +168,8 @@ fn main() {
             let code_review_panel = cx.new(|_| code_review::CodeReviewPanel::new());
 
             // Create AdeWindow entity
-            let window_entity = cx.new(|_| AdeWindow {
+            let terminal_focus_handle = spawned.focus_handle;
+            let window_entity = cx.new(|cx| AdeWindow {
                 terminal_view: spawned.view,
                 stdin_tx: spawned.stdin_tx,
                 mode: Mode::Terminal,
@@ -168,6 +179,8 @@ fn main() {
                 },
                 git_provider,
                 code_review_panel,
+                focus_handle: cx.focus_handle(),
+                terminal_focus_handle,
             });
 
             // Poll for git responses every 100ms

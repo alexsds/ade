@@ -176,8 +176,9 @@ impl Render for CodeReviewPanel {
             "Changed Files".to_string()
         };
 
-        let mut left_panel = div()
+        let left_panel = div()
             .w(px(280.0))
+            .flex_shrink_0()
             .h_full()
             .flex()
             .flex_col()
@@ -204,11 +205,23 @@ impl Render for CodeReviewPanel {
                     .child(commit_list_content),
             );
 
-        // Commit detail section at bottom if a commit is selected
-        if let Some(detail) = commit_detail {
-            left_panel = left_panel.child(detail);
-        }
+        // Commit detail with max height and scroll (like GitHub Desktop)
+        let commit_detail_section: Option<gpui::AnyElement> = commit_detail.map(|detail| {
+            div()
+                .id("commit-detail-scroll")
+                .w_full()
+                .max_h(px(150.0))
+                .overflow_y_scroll()
+                .border_b_1()
+                .border_color(rgba(0x333333ff))
+                .child(detail)
+                .into_any_element()
+        });
 
+        // Build the full 3-panel layout
+        // Outer: full size, row direction
+        // Left: commit list (280px)
+        // Right: column with [commit detail (max 150px, scrollable)] + [row of file list + diff]
         div()
             .size_full()
             .flex()
@@ -216,49 +229,64 @@ impl Render for CodeReviewPanel {
             .bg(rgba(0x1e1e1eff))
             // Left: commit list (~280px)
             .child(left_panel)
-            // Middle: file list (~240px)
+            // Right area: commit detail on top, then file list + diff below
             .child(
                 div()
-                    .w(px(240.0))
-                    .h_full()
+                    .id("right-area")
+                    .flex_1()
+                    .size_full()
                     .flex()
                     .flex_col()
-                    .border_r_1()
-                    .border_color(rgba(0x333333ff))
-                    // Header: "Changed Files (N)"
+                    // Commit detail (optional, max 150px, scrollable)
+                    .children(commit_detail_section)
+                    // File list + diff viewer (fills remaining space)
                     .child(
                         div()
-                            .w_full()
-                            .px(px(12.0))
-                            .py(px(8.0))
-                            .border_b_1()
-                            .border_color(rgba(0x333333ff))
-                            .text_sm()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(rgba(0xccccccff))
-                            .child(files_header_text),
-                    )
-                    // File list
-                    .child(
-                        div()
+                            .id("files-and-diff")
                             .flex_1()
+                            .w_full()
                             .overflow_hidden()
-                            .child(file_list_content),
-                    ),
-            )
-            // Right: diff viewer (remaining space)
-            .child(
-                div()
-                    .id("diff-scroll")
-                    .flex_1()
-                    .h_full()
-                    .overflow_y_scroll()
-                    .child(
-                        if let Some(file_diff) = self.selected_file_diff() {
-                            diff_view::render_diff_view(file_diff, &self.syntax_highlighter).into_any_element()
-                        } else {
-                            diff_view::render_diff_empty().into_any_element()
-                        }
+                            .flex()
+                            .flex_row()
+                            // Middle: file list (fixed 240px)
+                            .child(
+                                div()
+                                    .w(px(240.0))
+                                    .flex_shrink_0()
+                                    .h_full()
+                                    .flex()
+                                    .flex_col()
+                                    .border_r_1()
+                                    .border_color(rgba(0x333333ff))
+                                    // Header: "Changed Files (N)"
+                                    .child(
+                                        div()
+                                            .w_full()
+                                            .px(px(12.0))
+                                            .py(px(8.0))
+                                            .border_b_1()
+                                            .border_color(rgba(0x333333ff))
+                                            .text_sm()
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(rgba(0xccccccff))
+                                            .child(files_header_text),
+                                    )
+                                    // File list
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .overflow_hidden()
+                                            .child(file_list_content),
+                                    ),
+                            )
+                            // Right: diff viewer (remaining space, uniform_list handles scroll)
+                            .child(
+                                if let Some(file_diff) = self.selected_file_diff() {
+                                    diff_view::render_diff_view(file_diff, &self.syntax_highlighter).into_any_element()
+                                } else {
+                                    diff_view::render_diff_empty().into_any_element()
+                                }
+                            ),
                     ),
             )
     }

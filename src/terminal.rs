@@ -9,10 +9,11 @@ use gpui_ghostty_terminal::view::{TerminalInput, TerminalView};
 use gpui_ghostty_terminal::{TerminalConfig, TerminalSession};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
-/// Result of spawning a terminal: the view entity and the stdin sender.
+/// Result of spawning a terminal: the view entity, stdin sender, and focus handle.
 pub struct SpawnedTerminal {
     pub view: gpui::Entity<TerminalView>,
     pub stdin_tx: mpsc::Sender<Vec<u8>>,
+    pub focus_handle: gpui::FocusHandle,
 }
 
 /// Spawn a PTY-backed terminal inside the given GPUI window.
@@ -93,9 +94,11 @@ pub fn spawn_terminal(window: &mut Window, cx: &mut App) -> SpawnedTerminal {
 
     // --- Create TerminalView ---
     let stdin_tx_for_input = stdin_tx.clone();
+    let mut terminal_focus_handle: Option<gpui::FocusHandle> = None;
     let view: gpui::Entity<TerminalView> = cx.new(|cx: &mut Context<TerminalView>| {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
+        terminal_focus_handle = Some(focus_handle.clone());
 
         let session = TerminalSession::new(config).expect("vt init");
         let stdin_tx_clone = stdin_tx_for_input.clone();
@@ -187,5 +190,5 @@ pub fn spawn_terminal(window: &mut Window, cx: &mut App) -> SpawnedTerminal {
         })
         .detach();
 
-    SpawnedTerminal { view, stdin_tx }
+    SpawnedTerminal { view, stdin_tx, focus_handle: terminal_focus_handle.unwrap() }
 }

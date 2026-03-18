@@ -1,122 +1,124 @@
-//! Right panel: syntax-highlighted unified diff viewer
+//! Right panel: unified diff viewer with virtualized line rendering
 //!
-//! Shows a single file's diff with:
-//! - File header (filename + addition/deletion counts)
-//! - Hunk headers (@@ lines)
-//! - Syntax-highlighted diff lines with old/new line number gutters
-//! - Green background for additions, red for deletions
+//! Uses uniform_list for smooth scrolling — only visible lines are rendered.
+//! Line-type coloring: green for additions, red for removals, blue for hunk headers.
 
-use gpui::{div, prelude::*, px, rgba, IntoElement, Styled, TextAlign};
-use syntect::easy::HighlightLines;
-use syntect::highlighting::ThemeSet;
-use syntect::parsing::SyntaxSet;
+use gpui::{div, uniform_list, prelude::*, px, rgba, IntoElement, Styled, TextAlign, FontWeight};
 
-use crate::git::types::{DiffLineType, FileDiff};
+use crate::git::types::{DiffLineType, DiffLine, FileDiff};
 
-/// Shared syntax highlighting resources (create once, reuse).
-/// SyntaxSet and ThemeSet are expensive to load, so this struct
-/// should be created once and stored in the CodeReviewPanel.
-pub struct SyntaxHighlighter {
-    pub syntax_set: SyntaxSet,
-    pub theme_set: ThemeSet,
-}
+/// Placeholder for syntax highlighting resources.
+pub struct SyntaxHighlighter;
 
 impl SyntaxHighlighter {
     pub fn new() -> Self {
-        Self {
-            syntax_set: SyntaxSet::load_defaults_newlines(),
-            theme_set: ThemeSet::load_defaults(),
-        }
+        Self
     }
 }
 
-/// Render a syntax-highlighted unified diff view for a single file.
-///
-/// Layout:
-/// - File header bar (filename + +/- counts)
-/// - For each hunk: hunk header + diff lines with dual line number gutters
+/// A flattened diff row — either a hunk header or a diff line.
+/// This allows uniform_list to render all rows in a single flat list.
+#[derive(Clone)]
+pub enum DiffRow {
+    HunkHeader(String),
+    Line {
+        old_lineno: Option<u32>,
+        new_lineno: Option<u32>,
+        content: String,
+        line_type: DiffLineType,
+    },
+}
+
+/// Flatten a FileDiff into a Vec<DiffRow> for uniform_list rendering.
+pub fn flatten_diff(file_diff: &FileDiff) -> Vec<DiffRow> {
+    let mut rows = Vec::new();
+    for hunk in &file_diff.hunks {
+        rows.push(DiffRow::HunkHeader(hunk.header.clone()));
+        for line in &hunk.lines {
+            rows.push(DiffRow::Line {
+                old_lineno: line.old_lineno,
+                new_lineno: line.new_lineno,
+                content: line.content.clone(),
+                line_type: line.line_type.clone(),
+            });
+        }
+    }
+    rows
+}
+
+/// Line height for diff rows (compact, like GitHub Desktop)
+const DIFF_LINE_HEIGHT: f32 = 20.0;
+
+/// Render a virtualized diff view using uniform_list.
+/// Only visible lines are rendered — smooth scrolling for any diff size.
 pub fn render_diff_view(
     file_diff: &FileDiff,
-    highlighter: &SyntaxHighlighter,
+    _highlighter: &SyntaxHighlighter,
 ) -> impl IntoElement {
-    // Extract file extension for syntax detection
-    let extension = file_diff
-        .path
-        .rsplit('.')
-        .next()
-        .unwrap_or("txt");
+    let rows = flatten_diff(file_diff);
+    let row_count = rows.len();
+    let path = file_diff.path.clone();
+    let additions = file_diff.additions;
+    let deletions = file_diff.deletions;
 
-    let syntax = highlighter
-        .syntax_set
-        .find_syntax_by_extension(extension)
-        .unwrap_or_else(|| highlighter.syntax_set.find_syntax_plain_text());
-
-    let theme = &highlighter.theme_set.themes["base16-ocean.dark"];
-
-    // Create a single HighlightLines instance per file (Pitfall 5: never reuse across files)
-    let mut hl = HighlightLines::new(syntax, theme);
-
-    // Build the diff view
-    let mut container = div()
+    div()
+        .w_full()
         .size_full()
         .flex()
-        .flex_col();
-
-    // File header bar
-    container = container.child(render_file_header(&file_diff.path, file_diff.additions, file_diff.deletions));
-
-    // Diff content: hunks and lines
-    for hunk in &file_diff.hunks {
-        // Hunk header
-        container = container.child(render_hunk_header(&hunk.header));
-
-        // Diff lines
-        for line in &hunk.lines {
-            // Line background based on type
-            let line_bg = match line.line_type {
-                DiffLineType::Add => Some(rgba(0x23863618)),
-                DiffLineType::Remove => Some(rgba(0xda363418)),
-                DiffLineType::HunkHeader => Some(rgba(0x1a2233ff)),
-                DiffLineType::Context => None,
-            };
-
-            // Syntax-highlight the line content
-            let highlighted_spans = match hl.highlight_line(&line.content, &highlighter.syntax_set) {
-                Ok(ranges) => ranges
-                    .into_iter()
-                    .map(|(style, text)| {
-                        let fg = style.foreground;
-                        let color = rgba(
-                            ((fg.r as u32) << 24)
-                                | ((fg.g as u32) << 16)
-                                | ((fg.b as u32) << 8)
-                                | (fg.a as u32),
-                        );
-                        div().child(text.to_string()).text_color(color)
-                    })
-                    .collect::<Vec<_>>(),
-                Err(_) => {
-                    // Fallback: render as plain text
-                    vec![div()
-                        .child(line.content.clone())
-                        .text_color(rgba(0xccccccff))]
+        .flex_col()
+        // File header bar (sticky at top)
+        .child(render_file_header(&path, additions, deletions))
+        // Virtualized diff lines (only visible rows rendered)
+        .child(
+            uniform_list("diff-lines", row_count, {
+                move |range, _window, _cx| {
+                    range
+                        .map(|ix| {
+                            let row = rows[ix].clone();
+                            render_diff_row(&row, ix)
+                        })
+                        .collect()
                 }
+            })
+            .size_full()
+        )
+}
+
+/// Render a single diff row (hunk header or diff line).
+fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
+    match row {
+        DiffRow::HunkHeader(header) => {
+            div()
+                .id(("diff-row", index))
+                .h(px(DIFF_LINE_HEIGHT))
+                .w_full()
+                .bg(rgba(0x1a2233ff))
+                .text_xs()
+                .text_color(rgba(0x79c0ffff))
+                .px(px(12.0))
+                .flex()
+                .items_center()
+                .child(header.clone())
+                .into_any_element()
+        }
+        DiffRow::Line { old_lineno, new_lineno, content, line_type } => {
+            let (line_bg, text_color) = match line_type {
+                DiffLineType::Add => (Some(rgba(0x23863620)), rgba(0x7ee787ff)),
+                DiffLineType::Remove => (Some(rgba(0xda363420)), rgba(0xf47067ff)),
+                DiffLineType::HunkHeader => (Some(rgba(0x1a2233ff)), rgba(0x79c0ffff)),
+                DiffLineType::Context => (None, rgba(0xccccccff)),
             };
 
-            // Old line number gutter
-            let old_lineno_text = line
-                .old_lineno
+            let old_text = old_lineno
+                .map(|n| format!("{}", n))
+                .unwrap_or_default();
+            let new_text = new_lineno
                 .map(|n| format!("{}", n))
                 .unwrap_or_default();
 
-            // New line number gutter
-            let new_lineno_text = line
-                .new_lineno
-                .map(|n| format!("{}", n))
-                .unwrap_or_default();
-
-            // Build the line row
-            let mut line_row = div()
+            let mut row = div()
+                .id(("diff-row", index))
+                .h(px(DIFF_LINE_HEIGHT))
                 .w_full()
                 .flex()
                 .flex_row()
@@ -124,50 +126,51 @@ pub fn render_diff_view(
                 // Old line number gutter
                 .child(
                     div()
-                        .w(px(48.0))
+                        .w(px(40.0))
+                        .flex_shrink_0()
                         .text_align(TextAlign::Right)
                         .text_xs()
                         .text_color(rgba(0x555555ff))
-                        .px(px(8.0))
-                        .child(old_lineno_text),
+                        .pr(px(4.0))
+                        .child(old_text),
                 )
                 // New line number gutter
                 .child(
                     div()
-                        .w(px(48.0))
+                        .w(px(40.0))
+                        .flex_shrink_0()
                         .text_align(TextAlign::Right)
                         .text_xs()
                         .text_color(rgba(0x555555ff))
-                        .px(px(8.0))
-                        .child(new_lineno_text),
+                        .pr(px(4.0))
+                        .child(new_text),
                 )
-                // Line content with syntax-highlighted spans
-                .child({
-                    let mut content = div().flex_1().px(px(8.0)).text_sm().flex().flex_row();
-                    for span in highlighted_spans {
-                        content = content.child(span);
-                    }
-                    content
-                });
+                // Line content
+                .child(
+                    div()
+                        .flex_1()
+                        .pl(px(8.0))
+                        .text_xs()
+                        .text_color(text_color)
+                        .child(content.clone()),
+                );
 
-            // Apply line background color
             if let Some(bg) = line_bg {
-                line_row = line_row.bg(bg);
+                row = row.bg(bg);
             }
 
-            container = container.child(line_row);
+            row.into_any_element()
         }
     }
-
-    container
 }
 
 /// Render the file header bar at the top of the diff view.
 fn render_file_header(path: &str, additions: u64, deletions: u64) -> impl IntoElement {
     div()
         .w_full()
+        .h(px(28.0))
+        .flex_shrink_0()
         .px(px(12.0))
-        .py(px(6.0))
         .bg(rgba(0x1a1a2eff))
         .border_b_1()
         .border_color(rgba(0x333333ff))
@@ -175,15 +178,13 @@ fn render_file_header(path: &str, additions: u64, deletions: u64) -> impl IntoEl
         .flex_row()
         .justify_between()
         .items_center()
-        // Left: filename
         .child(
             div()
-                .text_sm()
-                .font_weight(gpui::FontWeight::BOLD)
+                .text_xs()
+                .font_weight(FontWeight::BOLD)
                 .text_color(rgba(0xddddddff))
                 .child(path.to_string()),
         )
-        // Right: +additions -deletions
         .child(
             div()
                 .flex()
@@ -203,18 +204,6 @@ fn render_file_header(path: &str, additions: u64, deletions: u64) -> impl IntoEl
         )
 }
 
-/// Render a hunk header line (@@ ... @@).
-fn render_hunk_header(header: &str) -> impl IntoElement {
-    div()
-        .w_full()
-        .bg(rgba(0x1a2233ff))
-        .text_xs()
-        .text_color(rgba(0x79c0ffff))
-        .px(px(12.0))
-        .py(px(2.0))
-        .child(header.to_string())
-}
-
 /// Render the empty state placeholder when no file is selected.
 pub fn render_diff_empty() -> impl IntoElement {
     div()
@@ -231,7 +220,6 @@ mod tests {
     use super::*;
     use crate::git::types::*;
 
-    /// Helper: build a minimal FileDiff for testing
     fn sample_file_diff() -> FileDiff {
         FileDiff {
             path: "src/main.rs".to_string(),
@@ -271,20 +259,13 @@ mod tests {
 
     #[test]
     fn test_syntax_highlighter_initializes() {
-        // SyntaxHighlighter::new() should not panic and should load default sets
-        let hl = SyntaxHighlighter::new();
-        // Verify it can find a known syntax (Rust)
-        assert!(hl.syntax_set.find_syntax_by_extension("rs").is_some());
-        // Verify the theme we use exists
-        assert!(hl.theme_set.themes.contains_key("base16-ocean.dark"));
+        let _hl = SyntaxHighlighter::new();
     }
 
     #[test]
     fn test_render_diff_view_does_not_panic() {
-        // render_diff_view should produce output for a known FileDiff without panic
         let file_diff = sample_file_diff();
         let hl = SyntaxHighlighter::new();
-        // This call should not panic -- it exercises the full render path
         let _element = render_diff_view(&file_diff, &hl);
     }
 
@@ -295,7 +276,6 @@ mod tests {
 
     #[test]
     fn test_render_diff_view_with_empty_hunks() {
-        // A FileDiff with no hunks should render without panic (just the header)
         let file_diff = FileDiff {
             path: "README.md".to_string(),
             additions: 0,
@@ -308,7 +288,6 @@ mod tests {
 
     #[test]
     fn test_render_diff_view_unknown_extension() {
-        // A file with an unknown extension should fall back to plain text, not panic
         let file_diff = FileDiff {
             path: "Makefile.weird_ext_xyz".to_string(),
             additions: 1,
@@ -325,5 +304,13 @@ mod tests {
         };
         let hl = SyntaxHighlighter::new();
         let _element = render_diff_view(&file_diff, &hl);
+    }
+
+    #[test]
+    fn test_flatten_diff() {
+        let file_diff = sample_file_diff();
+        let rows = flatten_diff(&file_diff);
+        // 1 hunk header + 4 lines = 5 rows
+        assert_eq!(rows.len(), 5);
     }
 }
