@@ -1,3 +1,4 @@
+mod git;
 mod input;
 mod menu;
 mod terminal;
