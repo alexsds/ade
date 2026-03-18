@@ -2,15 +2,16 @@
 //!
 //! Left panel: commit history list (280px)
 //! Middle panel: changed files for selected commit (240px)
-//! Right panel: diff viewer placeholder (remaining space, wired in Plan 03)
+//! Right panel: syntax-highlighted diff viewer (remaining space)
 
 pub mod commit_list;
+pub mod diff_view;
 pub mod file_list;
 
 use std::sync::Arc;
 
 use gpui::{div, prelude::*, px, rgba, Context, IntoElement, Styled, Window, FontWeight};
-use crate::git::types::{CommitInfo, FileChange, DiffData};
+use crate::git::types::{CommitInfo, FileChange, FileDiff, DiffData};
 
 /// The Code Review panel entity, showing commit history and file changes.
 pub struct CodeReviewPanel {
@@ -22,6 +23,8 @@ pub struct CodeReviewPanel {
     loading: bool,
     /// Set by select_commit; polled by AdeWindow to request diff from GitProvider
     pub pending_diff_request: Option<String>,
+    /// Shared syntax highlighting resources (created once, reused for all diffs)
+    syntax_highlighter: diff_view::SyntaxHighlighter,
 }
 
 impl CodeReviewPanel {
@@ -35,6 +38,7 @@ impl CodeReviewPanel {
             diff_data: None,
             loading: true,
             pending_diff_request: None,
+            syntax_highlighter: diff_view::SyntaxHighlighter::new(),
         }
     }
 
@@ -84,6 +88,13 @@ impl CodeReviewPanel {
     fn selected_commit(&self) -> Option<&CommitInfo> {
         self.selected_commit_index
             .and_then(|i| self.commits.get(i))
+    }
+
+    /// Return the diff for the currently selected file, if any.
+    fn selected_file_diff(&self) -> Option<&FileDiff> {
+        let file_index = self.selected_file_index?;
+        let diff_data = self.diff_data.as_ref()?;
+        diff_data.file_diffs.get(file_index)
     }
 }
 
@@ -235,16 +246,60 @@ impl Render for CodeReviewPanel {
                             .child(file_list_content),
                     ),
             )
-            // Right: diff viewer placeholder (remaining space, wired in Plan 03)
+            // Right: diff viewer (remaining space)
             .child(
                 div()
+                    .id("diff-scroll")
                     .flex_1()
                     .h_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_color(rgba(0x666666ff))
-                    .child("Select a file to view diff"),
+                    .overflow_y_scroll()
+                    .child(
+                        if let Some(file_diff) = self.selected_file_diff() {
+                            diff_view::render_diff_view(file_diff, &self.syntax_highlighter).into_any_element()
+                        } else {
+                            diff_view::render_diff_empty().into_any_element()
+                        }
+                    ),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::git::types::*;
+
+    #[test]
+    fn test_selected_file_diff_returns_correct_file() {
+        let mut panel = CodeReviewPanel::new();
+        let diff_data = DiffData {
+            files: vec![
+                FileChange { path: "a.rs".into(), status_char: 'M', additions: 1, deletions: 0 },
+                FileChange { path: "b.rs".into(), status_char: 'A', additions: 5, deletions: 0 },
+            ],
+            file_diffs: vec![
+                FileDiff { path: "a.rs".into(), additions: 1, deletions: 0, hunks: vec![] },
+                FileDiff { path: "b.rs".into(), additions: 5, deletions: 0, hunks: vec![] },
+            ],
+        };
+        panel.set_diff(diff_data);
+        panel.select_file(1);
+        let selected = panel.selected_file_diff();
+        assert!(selected.is_some());
+        assert_eq!(selected.unwrap().path, "b.rs");
+        assert_eq!(selected.unwrap().additions, 5);
+    }
+
+    #[test]
+    fn test_selected_file_diff_returns_none_when_no_selection() {
+        let panel = CodeReviewPanel::new();
+        assert!(panel.selected_file_diff().is_none());
+    }
+
+    #[test]
+    fn test_selected_file_diff_returns_none_when_no_diff_data() {
+        let mut panel = CodeReviewPanel::new();
+        panel.selected_file_index = Some(0);
+        assert!(panel.selected_file_diff().is_none());
     }
 }
