@@ -30,6 +30,7 @@ pub struct AdeWindow {
     mode: Mode,
     branch_status: git::BranchStatus,
     git_provider: git::GitProvider,
+    code_review_panel: gpui::Entity<code_review::CodeReviewPanel>,
 }
 
 impl AdeWindow {
@@ -105,16 +106,7 @@ impl Render for AdeWindow {
                         d.p(px(4.0)).child(self.terminal_view.clone())
                     })
                     .when(self.mode == Mode::CodeReview, |d| {
-                        // Placeholder until Task 2 wires CodeReviewPanel
-                        d.child(
-                            div()
-                                .size_full()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_color(rgba(0x888888ff))
-                                .child("Code Review mode — panels loading..."),
-                        )
+                        d.child(self.code_review_panel.clone())
                     }),
             )
     }
@@ -158,8 +150,12 @@ fn main() {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let git_provider = git::GitProvider::new(cwd);
 
-            // Request initial branch status so toolbar shows real data quickly
+            // Request initial branch status and commit log
             git_provider.request_status();
+            git_provider.request_log(200);
+
+            // Create CodeReviewPanel entity
+            let code_review_panel = cx.new(|_| code_review::CodeReviewPanel::new());
 
             // Create AdeWindow entity
             let window_entity = cx.new(|_| AdeWindow {
@@ -171,6 +167,7 @@ fn main() {
                     is_dirty: false,
                 },
                 git_provider,
+                code_review_panel,
             });
 
             // Poll for git responses every 100ms
@@ -190,9 +187,31 @@ fn main() {
                                                 this.branch_status = status;
                                                 cx.notify();
                                             }
-                                            // Other responses handled in Task 2
-                                            _ => {}
+                                            git::GitResponse::Log(commits) => {
+                                                this.code_review_panel.update(cx, |panel, _cx| {
+                                                    panel.set_commits(commits);
+                                                });
+                                                cx.notify();
+                                            }
+                                            git::GitResponse::Diff(diff) => {
+                                                this.code_review_panel.update(cx, |panel, _cx| {
+                                                    panel.set_diff(diff);
+                                                });
+                                                cx.notify();
+                                            }
+                                            git::GitResponse::Error(msg) => {
+                                                eprintln!("Git error: {}", msg);
+                                            }
                                         }
+                                    }
+
+                                    // Check if CodeReviewPanel wants a diff fetched
+                                    let pending = this.code_review_panel.read(cx).pending_diff_request.clone();
+                                    if let Some(oid) = pending {
+                                        this.git_provider.request_diff(&oid);
+                                        this.code_review_panel.update(cx, |panel, _cx| {
+                                            panel.pending_diff_request = None;
+                                        });
                                     }
                                 });
                             })
