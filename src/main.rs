@@ -1,23 +1,35 @@
+mod code_review;
 mod git;
 mod input;
 mod menu;
 mod terminal;
+mod toolbar;
 
 use std::sync::mpsc;
+use std::time::Duration;
 
 use gpui::{
-    actions, div, prelude::*, px, size, App, Application, Bounds, KeyBinding, Styled,
+    actions, div, prelude::*, px, rgba, size, App, Application, Bounds, KeyBinding, Styled,
     TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use gpui_ghostty_terminal::view::Copy;
 
-use input::CopyOrInterrupt;
+use input::{CopyOrInterrupt, ToggleCodeReview};
 
 actions!(ade, [Quit, Minimize]);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Mode {
+    Terminal,
+    CodeReview,
+}
 
 pub struct AdeWindow {
     terminal_view: gpui::Entity<gpui_ghostty_terminal::view::TerminalView>,
     stdin_tx: mpsc::Sender<Vec<u8>>,
+    mode: Mode,
+    branch_status: git::BranchStatus,
+    git_provider: git::GitProvider,
 }
 
 impl AdeWindow {
@@ -41,15 +53,70 @@ impl AdeWindow {
             let _ = self.stdin_tx.send(vec![0x03]);
         }
     }
+
+    /// Handle the ToggleCodeReview action: switch between Terminal and Code Review modes.
+    fn on_toggle_code_review(
+        &mut self,
+        _: &ToggleCodeReview,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.mode = match self.mode {
+            Mode::Terminal => Mode::CodeReview,
+            Mode::CodeReview => Mode::Terminal,
+        };
+        // When switching back to Terminal, re-focus terminal view so keyboard input works
+        if self.mode == Mode::Terminal {
+            self.terminal_view.update(cx, |_view, cx| {
+                cx.focus_handle().focus(window, cx);
+            });
+        }
+        cx.notify();
+    }
 }
 
 impl Render for AdeWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
-            .p(px(4.0))
+            .flex()
+            .flex_col()
             .on_action(cx.listener(Self::on_copy_or_interrupt))
-            .child(self.terminal_view.clone())
+            .on_action(cx.listener(Self::on_toggle_code_review))
+            // Toolbar always visible
+            .child(toolbar::render_toolbar(
+                &self.branch_status.branch_name,
+                self.branch_status.is_dirty,
+                cx,
+                |this: &mut Self, _window, cx| {
+                    this.mode = match this.mode {
+                        Mode::Terminal => Mode::CodeReview,
+                        Mode::CodeReview => Mode::Terminal,
+                    };
+                    cx.notify();
+                },
+            ))
+            // Content area
+            .child(
+                div()
+                    .flex_1()
+                    .size_full()
+                    .when(self.mode == Mode::Terminal, |d| {
+                        d.p(px(4.0)).child(self.terminal_view.clone())
+                    })
+                    .when(self.mode == Mode::CodeReview, |d| {
+                        // Placeholder until Task 2 wires CodeReviewPanel
+                        d.child(
+                            div()
+                                .size_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_color(rgba(0x888888ff))
+                                .child("Code Review mode — panels loading..."),
+                        )
+                    }),
+            )
     }
 }
 
@@ -63,10 +130,10 @@ fn main() {
         // Register Quit keybinding (other keybindings set up in input module)
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
 
-        // Set up keybindings (Cmd+C -> CopyOrInterrupt, Cmd+V, Cmd+A)
+        // Set up keybindings (Cmd+C -> CopyOrInterrupt, Cmd+V, Cmd+A, Cmd+G)
         input::setup_keybindings(cx);
 
-        // Set up macOS menu bar (ADE, Edit, Window menus)
+        // Set up macOS menu bar (ADE, Edit, View, Window menus)
         menu::setup_menus(cx);
 
         // Open centered window with "ADE" title
@@ -87,11 +154,57 @@ fn main() {
             // Spawn terminal (PTY, I/O wiring, resize handler, output batching)
             let spawned = terminal::spawn_terminal(window, cx);
 
-            // Wrap in AdeWindow entity for rendering with padding
-            cx.new(|_| AdeWindow {
+            // Create GitProvider for the current working directory
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let git_provider = git::GitProvider::new(cwd);
+
+            // Request initial branch status so toolbar shows real data quickly
+            git_provider.request_status();
+
+            // Create AdeWindow entity
+            let window_entity = cx.new(|_| AdeWindow {
                 terminal_view: spawned.view,
                 stdin_tx: spawned.stdin_tx,
-            })
+                mode: Mode::Terminal,
+                branch_status: git::BranchStatus {
+                    branch_name: "loading...".to_string(),
+                    is_dirty: false,
+                },
+                git_provider,
+            });
+
+            // Poll for git responses every 100ms
+            let window_entity_for_poll = window_entity.clone();
+            window
+                .spawn(cx, async move |cx| {
+                    loop {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(100))
+                            .await;
+                        let should_continue = cx
+                            .update(|_, cx| {
+                                window_entity_for_poll.update(cx, |this: &mut AdeWindow, cx| {
+                                    while let Some(response) = this.git_provider.try_recv() {
+                                        match response {
+                                            git::GitResponse::Status(status) => {
+                                                this.branch_status = status;
+                                                cx.notify();
+                                            }
+                                            // Other responses handled in Task 2
+                                            _ => {}
+                                        }
+                                    }
+                                });
+                            })
+                            .ok();
+                        if should_continue.is_none() {
+                            break;
+                        }
+                    }
+                })
+                .detach();
+
+            window_entity
         })
         .expect("Failed to open window");
     });

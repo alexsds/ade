@@ -1,14 +1,14 @@
 //! macOS menu bar setup for ADE.
 //!
-//! Provides the standard macOS menu structure: ADE (app menu), Edit, and Window.
+//! Provides the standard macOS menu structure: ADE (app menu), Edit, View, and Window.
 
 use gpui::{App, Menu, MenuItem, OsAction};
 use gpui_ghostty_terminal::view::{Paste, SelectAll};
 
 use crate::Quit;
-use crate::input::CopyOrInterrupt;
+use crate::input::{CopyOrInterrupt, ToggleCodeReview};
 
-/// Set up the macOS menu bar with ADE, Edit, and Window menus.
+/// Set up the macOS menu bar with ADE, Edit, View, and Window menus.
 ///
 /// Must be called before `cx.open_window()` to ensure menus are visible
 /// when the window appears.
@@ -33,7 +33,14 @@ pub fn setup_menus(cx: &mut App) {
                 MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
             ],
         },
-        // Menu 3: Window
+        // Menu 3: View
+        Menu {
+            name: "View".into(),
+            items: vec![
+                MenuItem::action("Toggle Code Review", ToggleCodeReview),
+            ],
+        },
+        // Menu 4: Window
         Menu {
             name: "Window".into(),
             items: vec![
