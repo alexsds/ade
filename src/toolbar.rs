@@ -60,7 +60,7 @@ pub fn render_toolbar<V: 'static>(
                 // Branch name
                 .child(
                     div()
-                        .text_sm()
+                        .text_xs()
                         .text_color(rgba(0xccccccff))
                         .child(branch_display),
                 ),
@@ -70,10 +70,10 @@ pub fn render_toolbar<V: 'static>(
             div()
                 .id("code-review-btn")
                 .px(px(8.0))
-                .py(px(4.0))
+                .py(px(3.0))
                 .rounded(px(4.0))
                 .bg(rgba(0x333333ff))
-                .text_sm()
+                .text_xs()
                 .text_color(rgba(0xddddddff))
                 .cursor_pointer()
                 .hover(|style| style.bg(rgba(0x444444ff)))
