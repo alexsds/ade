@@ -5,7 +5,7 @@
 
 use gpui::{div, uniform_list, prelude::*, px, rgba, IntoElement, Styled, TextAlign, FontWeight};
 use syntect::parsing::SyntaxSet;
-use syntect::highlighting::{ThemeSet, Style};
+use syntect::highlighting::ThemeSet;
 use syntect::easy::HighlightLines;
 
 use crate::git::types::{DiffLineType, FileDiff};
@@ -396,5 +396,35 @@ mod tests {
         let rows = flatten_diff(&file_diff);
         // 1 hunk header + 4 lines = 5 rows
         assert_eq!(rows.len(), 5);
+    }
+
+    #[test]
+    fn test_highlight_produces_spans() {
+        let hl = SyntaxHighlighter::new();
+        let file_diff = FileDiff {
+            path: "test.rs".to_string(),
+            additions: 1,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@ -0,0 +1 @@".to_string(),
+                lines: vec![DiffLine {
+                    line_type: DiffLineType::Add,
+                    content: "fn main() {}".to_string(),
+                    old_lineno: None,
+                    new_lineno: Some(1),
+                }],
+            }],
+        };
+        let rows = flatten_and_highlight_diff(&file_diff, &hl);
+        // Row 0 = hunk header, Row 1 = the line
+        assert_eq!(rows.len(), 2);
+        if let DiffRow::Line { highlighted_spans, .. } = &rows[1] {
+            assert!(!highlighted_spans.is_empty(), "should have syntax spans");
+            // The spans should cover the full content
+            let combined: String = highlighted_spans.iter().map(|s| s.text.as_str()).collect();
+            assert_eq!(combined.trim(), "fn main() {}");
+        } else {
+            panic!("Expected DiffRow::Line");
+        }
     }
 }
