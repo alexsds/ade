@@ -117,9 +117,9 @@ pub fn spawn_terminal(window: &mut Window, cx: &mut App) -> SpawnedTerminal {
             let width = f32::from(size.width);
             let height = f32::from(size.height);
 
-            // Apply 4px padding on each side
+            // Apply 4px padding on each side, subtract toolbar height (32px)
             let padded_width = (width - 8.0).max(1.0);
-            let padded_height = (height - 8.0).max(1.0);
+            let padded_height = (height - 32.0 - 8.0).max(1.0);
 
             // Compute font cell metrics (following pty_terminal example pattern)
             let mut style = window.text_style();
@@ -128,9 +128,9 @@ pub fn spawn_terminal(window: &mut Window, cx: &mut App) -> SpawnedTerminal {
             style.font_features = gpui_ghostty_terminal::default_terminal_font_features();
             style.font_fallbacks = font.fallbacks.clone();
 
-            let rem_size = window.rem_size();
-            let font_size = style.font_size.to_pixels(rem_size);
-            let line_height = style.line_height.to_pixels(style.font_size, rem_size);
+            // Use 14px to match text_size(px(14.0)) on the terminal container
+            let font_size = gpui::px(14.0);
+            let line_height = font_size * 1.6; // match Ghostty's default line height ratio
 
             let run = style.to_run(1);
             let Ok(lines) = window.text_system().shape_text(

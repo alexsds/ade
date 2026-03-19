@@ -113,7 +113,7 @@ impl Render for AdeWindow {
                     .flex_1()
                     .size_full()
                     .when(self.mode == Mode::Terminal, |d| {
-                        d.p(px(4.0)).text_size(px(12.0)).child(self.terminal_view.clone())
+                        d.p(px(4.0)).text_size(px(14.0)).child(self.terminal_view.clone())
                     })
                     .when(self.mode == Mode::CodeReview, |d| {
                         d.child(self.code_review_panel.clone())
