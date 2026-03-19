@@ -4,16 +4,39 @@
 //! Line-type coloring: green for additions, red for removals, blue for hunk headers.
 
 use gpui::{div, uniform_list, prelude::*, px, rgba, IntoElement, Styled, TextAlign, FontWeight};
+use syntect::parsing::SyntaxSet;
+use syntect::highlighting::{ThemeSet, Style};
+use syntect::easy::HighlightLines;
 
 use crate::git::types::{DiffLineType, FileDiff};
 
-/// Placeholder for syntax highlighting resources.
-pub struct SyntaxHighlighter;
+/// Syntax highlighting resources backed by syntect.
+/// Holds a SyntaxSet (language grammars) and ThemeSet (color themes).
+/// Created once per CodeReviewPanel session, reused for all diffs.
+pub struct SyntaxHighlighter {
+    pub syntax_set: SyntaxSet,
+    pub theme_set: ThemeSet,
+}
 
 impl SyntaxHighlighter {
     pub fn new() -> Self {
-        Self
+        Self {
+            syntax_set: SyntaxSet::load_defaults_newlines(),
+            theme_set: ThemeSet::load_defaults(),
+        }
     }
+
+    /// Get the theme used for highlighting (base16-ocean.dark).
+    fn theme(&self) -> &syntect::highlighting::Theme {
+        &self.theme_set.themes["base16-ocean.dark"]
+    }
+}
+
+/// A pre-computed syntax highlight span: colored text fragment.
+#[derive(Clone, Debug)]
+pub struct HighlightSpan {
+    pub color: gpui::Rgba,
+    pub text: String,
 }
 
 /// A flattened diff row — either a hunk header or a diff line.
@@ -26,6 +49,7 @@ pub enum DiffRow {
         new_lineno: Option<u32>,
         content: String,
         line_type: DiffLineType,
+        highlighted_spans: Vec<HighlightSpan>,
     },
 }
 
@@ -40,6 +64,51 @@ pub fn flatten_diff(file_diff: &FileDiff) -> Vec<DiffRow> {
                 new_lineno: line.new_lineno,
                 content: line.content.clone(),
                 line_type: line.line_type.clone(),
+                highlighted_spans: vec![],
+            });
+        }
+    }
+    rows
+}
+
+/// Convert a syntect Color to a GPUI Rgba value.
+fn syntect_color_to_rgba(c: syntect::highlighting::Color) -> gpui::Rgba {
+    rgba(((c.r as u32) << 24) | ((c.g as u32) << 16) | ((c.b as u32) << 8) | (c.a as u32))
+}
+
+/// Flatten a FileDiff into highlighted DiffRows using syntect.
+/// Pre-computes syntax highlighting spans for each line so the render path
+/// only needs to iterate pre-colored fragments.
+pub fn flatten_and_highlight_diff(file_diff: &FileDiff, highlighter: &SyntaxHighlighter) -> Vec<DiffRow> {
+    let mut rows = Vec::new();
+    let extension = file_diff.path.rsplit('.').next().unwrap_or("");
+    let syntax = highlighter.syntax_set
+        .find_syntax_by_extension(extension)
+        .unwrap_or_else(|| highlighter.syntax_set.find_syntax_plain_text());
+    let theme = highlighter.theme();
+    let mut hl = HighlightLines::new(syntax, theme);
+
+    for hunk in &file_diff.hunks {
+        rows.push(DiffRow::HunkHeader(hunk.header.clone()));
+        for line in &hunk.lines {
+            let spans = match hl.highlight_line(&line.content, &highlighter.syntax_set) {
+                Ok(ranges) => ranges.iter().map(|(style, text)| {
+                    HighlightSpan {
+                        color: syntect_color_to_rgba(style.foreground),
+                        text: text.to_string(),
+                    }
+                }).collect(),
+                Err(_) => vec![HighlightSpan {
+                    color: rgba(0xccccccff),
+                    text: line.content.clone(),
+                }],
+            };
+            rows.push(DiffRow::Line {
+                old_lineno: line.old_lineno,
+                new_lineno: line.new_lineno,
+                content: line.content.clone(),
+                line_type: line.line_type.clone(),
+                highlighted_spans: spans,
             });
         }
     }
@@ -53,9 +122,9 @@ const DIFF_LINE_HEIGHT: f32 = 20.0;
 /// Only visible lines are rendered — smooth scrolling for any diff size.
 pub fn render_diff_view(
     file_diff: &FileDiff,
-    _highlighter: &SyntaxHighlighter,
+    highlighter: &SyntaxHighlighter,
 ) -> impl IntoElement {
-    let rows = flatten_diff(file_diff);
+    let rows = flatten_and_highlight_diff(file_diff, highlighter);
     let row_count = rows.len();
     let path = file_diff.path.clone();
     let additions = file_diff.additions;
@@ -101,8 +170,8 @@ fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
                 .child(header.clone())
                 .into_any_element()
         }
-        DiffRow::Line { old_lineno, new_lineno, content, line_type } => {
-            let (line_bg, text_color) = match line_type {
+        DiffRow::Line { old_lineno, new_lineno, content, line_type, highlighted_spans } => {
+            let (line_bg, fallback_color) = match line_type {
                 DiffLineType::Add => (Some(rgba(0x23863620)), rgba(0x7ee787ff)),
                 DiffLineType::Remove => (Some(rgba(0xda363420)), rgba(0xf47067ff)),
                 DiffLineType::HunkHeader => (Some(rgba(0x1a2233ff)), rgba(0x79c0ffff)),
@@ -145,15 +214,27 @@ fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
                         .pr(px(4.0))
                         .child(new_text),
                 )
-                // Line content
-                .child(
-                    div()
+                // Line content with syntax highlighting
+                .child({
+                    let base = div()
                         .flex_1()
                         .pl(px(8.0))
                         .text_xs()
-                        .text_color(text_color)
-                        .child(content.clone()),
-                );
+                        .flex()
+                        .flex_row();
+                    if !highlighted_spans.is_empty() {
+                        // Use pre-computed syntax highlighting spans
+                        base.children(highlighted_spans.iter().map(|span| {
+                            div()
+                                .text_color(span.color)
+                                .child(span.text.clone())
+                                .into_any_element()
+                        }))
+                    } else {
+                        // Fallback to plain text with line-type color
+                        base.text_color(fallback_color).child(content.clone())
+                    }
+                });
 
             if let Some(bg) = line_bg {
                 row = row.bg(bg);
@@ -259,7 +340,10 @@ mod tests {
 
     #[test]
     fn test_syntax_highlighter_initializes() {
-        let _hl = SyntaxHighlighter::new();
+        let hl = SyntaxHighlighter::new();
+        assert!(hl.syntax_set.find_syntax_by_extension("rs").is_some());
+        assert!(hl.syntax_set.find_syntax_by_extension("py").is_some());
+        assert!(hl.theme_set.themes.contains_key("base16-ocean.dark"));
     }
 
     #[test]

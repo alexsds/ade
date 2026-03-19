@@ -47,20 +47,6 @@ fn render_commit_row(
         format_relative_time(commit.time_seconds, commit.time_offset)
     );
 
-    // Fixed height row: 2 lines (summary + author) — no variable height from decorations
-    // Decorations shown inline with summary to keep row compact
-    let summary_with_decoration = if !commit.decorations.is_empty() {
-        // Show first decoration as inline badge after summary
-        let first_dec = &commit.decorations[0];
-        let badge_text = match first_dec {
-            Decoration::Branch { name } => name.clone(),
-            Decoration::Tag { name } => name.clone(),
-        };
-        format!("{} [{}]", commit.summary, badge_text)
-    } else {
-        commit.summary.clone()
-    };
-
     let mut row = div()
         .id(("commit-row", index))
         .w_full()
@@ -85,15 +71,31 @@ fn render_commit_row(
         row = row.hover(|style| style.bg(rgba(0x2a2d2eff)));
     }
 
-    // Summary line (compact, single line truncated)
+    // Summary line with inline decoration badges
     row = row.child(
         div()
-            .text_xs()
-            .font_weight(FontWeight::BOLD)
-            .text_color(rgba(0xddddddff))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(4.0))
             .overflow_hidden()
-            .whitespace_nowrap()
-            .child(summary_with_decoration),
+            // Summary text (truncated, takes remaining space)
+            .child(
+                div()
+                    .flex_shrink()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_xs()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(rgba(0xddddddff))
+                    .child(commit.summary.clone()),
+            )
+            // Decoration badges (all of them, not just the first)
+            .children(
+                commit.decorations.iter().map(|dec| {
+                    render_decoration_badge(dec).into_any_element()
+                })
+            ),
     );
 
     // Author + relative time (dimmed, single line)
@@ -107,6 +109,33 @@ fn render_commit_row(
     );
 
     row
+}
+
+/// Render a single decoration as a small colored rounded badge.
+fn render_decoration_badge(decoration: &Decoration) -> impl IntoElement {
+    let (label, bg_color, text_color) = match decoration {
+        Decoration::Branch { name } => (
+            name.clone(),
+            rgba(0x3fb95030), // green at ~19% opacity
+            rgba(0x3fb950ff), // solid green text
+        ),
+        Decoration::Tag { name } => (
+            name.clone(),
+            rgba(0xd2a64130), // gold at ~19% opacity
+            rgba(0xd2a641ff), // solid gold text
+        ),
+    };
+
+    div()
+        .flex_shrink_0()
+        .px(px(4.0))
+        .py(px(1.0))
+        .rounded(px(3.0))
+        .bg(bg_color)
+        .text_color(text_color)
+        .text_xs()
+        .line_height(px(14.0))
+        .child(label)
 }
 
 /// Render the commit detail section shown below the commit list when a
