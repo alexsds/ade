@@ -47,15 +47,34 @@ fn render_commit_row(
         format_relative_time(commit.time_seconds, commit.time_offset)
     );
 
+    // Fixed height row: 2 lines (summary + author) — no variable height from decorations
+    // Decorations shown inline with summary to keep row compact
+    let summary_with_decoration = if !commit.decorations.is_empty() {
+        // Show first decoration as inline badge after summary
+        let first_dec = &commit.decorations[0];
+        let badge_text = match first_dec {
+            Decoration::Branch { name, .. } => name.clone(),
+            Decoration::Tag { name } => name.clone(),
+        };
+        format!("{} [{}]", commit.summary, badge_text)
+    } else {
+        commit.summary.clone()
+    };
+
     let mut row = div()
         .id(("commit-row", index))
         .w_full()
-        .px(px(12.0))
-        .py(px(6.0))
+        .h(px(44.0))
+        .flex_shrink_0()
+        .overflow_hidden()
+        .px(px(8.0))
         .cursor_pointer()
         .flex()
         .flex_col()
-        .gap(px(2.0))
+        .justify_center()
+        .gap(px(1.0))
+        .border_b_1()
+        .border_color(rgba(0x2a2a2aff))
         .on_click(move |_event, window, cx| {
             on_select(index, window, cx);
         });
@@ -66,26 +85,24 @@ fn render_commit_row(
         row = row.hover(|style| style.bg(rgba(0x2a2d2eff)));
     }
 
-    // Summary line (bold)
-    row = row.child(
-        div()
-            .text_sm()
-            .font_weight(FontWeight::BOLD)
-            .text_color(rgba(0xeeeeeeff))
-            .overflow_hidden()
-            .child(commit.summary),
-    );
-
-    // Decorations (branch/tag badges) if any
-    if !commit.decorations.is_empty() {
-        row = row.child(render_decorations(commit.decorations));
-    }
-
-    // Author + relative time (dimmed)
+    // Summary line (compact, single line truncated)
     row = row.child(
         div()
             .text_xs()
-            .text_color(rgba(0x888888ff))
+            .font_weight(FontWeight::BOLD)
+            .text_color(rgba(0xddddddff))
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .child(summary_with_decoration),
+    );
+
+    // Author + relative time (dimmed, single line)
+    row = row.child(
+        div()
+            .text_xs()
+            .text_color(rgba(0x777777ff))
+            .overflow_hidden()
+            .whitespace_nowrap()
             .child(author_time),
     );
 
@@ -167,7 +184,7 @@ pub fn render_commit_detail(commit: &CommitInfo) -> impl IntoElement {
         if !body.trim().is_empty() {
             detail = detail.child(
                 div()
-                    .text_sm()
+                    .text_xs()
                     .text_color(rgba(0xccccccff))
                     .child(body.clone()),
             );

@@ -188,11 +188,11 @@ impl Render for CodeReviewPanel {
             .child(
                 div()
                     .w_full()
-                    .px(px(12.0))
-                    .py(px(8.0))
+                    .px(px(8.0))
+                    .py(px(6.0))
                     .border_b_1()
                     .border_color(rgba(0x333333ff))
-                    .text_sm()
+                    .text_xs()
                     .font_weight(FontWeight::BOLD)
                     .text_color(rgba(0xccccccff))
                     .child("Commits"),
@@ -262,11 +262,11 @@ impl Render for CodeReviewPanel {
                                     .child(
                                         div()
                                             .w_full()
-                                            .px(px(12.0))
-                                            .py(px(8.0))
+                                            .px(px(8.0))
+                                            .py(px(6.0))
                                             .border_b_1()
                                             .border_color(rgba(0x333333ff))
-                                            .text_sm()
+                                            .text_xs()
                                             .font_weight(FontWeight::BOLD)
                                             .text_color(rgba(0xccccccff))
                                             .child(files_header_text),

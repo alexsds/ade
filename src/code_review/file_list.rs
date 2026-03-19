@@ -24,7 +24,7 @@ pub fn render_file_list(
             .flex()
             .items_center()
             .justify_center()
-            .text_sm()
+            .text_xs()
             .text_color(rgba(0x666666ff))
             .child("Select a commit to view changes");
     }
@@ -105,7 +105,8 @@ fn render_file_row(
         .flex()
         .flex_row()
         .overflow_hidden()
-        .text_sm();
+        .whitespace_nowrap()
+        .text_xs();
 
     if let Some(dir) = dir_part {
         name_container = name_container.child(
