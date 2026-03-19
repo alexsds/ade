@@ -150,7 +150,6 @@ fn walk_commits(
             author_email: author.email().unwrap_or("").to_string(),
             time_seconds: time.seconds(),
             time_offset: time.offset_minutes(),
-            parent_count: commit.parent_count(),
             decorations: commit_decorations,
         });
     }
@@ -164,7 +163,7 @@ fn build_decoration_map(repo: &Repository) -> HashMap<Oid, Vec<Decoration>> {
     // Branches
     if let Ok(branches) = repo.branches(None) {
         for branch_result in branches {
-            if let Ok((branch, branch_type)) = branch_result {
+            if let Ok((branch, _)) = branch_result {
                 let name = match branch.name() {
                     Ok(Some(n)) => n.to_string(),
                     _ => continue,
@@ -176,7 +175,6 @@ fn build_decoration_map(repo: &Repository) -> HashMap<Oid, Vec<Decoration>> {
                 if let Some(oid) = reference.target() {
                     map.entry(oid).or_default().push(Decoration::Branch {
                         name,
-                        is_remote: branch_type == git2::BranchType::Remote,
                     });
                 }
             }
@@ -445,11 +443,6 @@ mod tests {
         assert_eq!(commits[0].summary, "Add line 2");
         assert_eq!(commits[1].summary, "Initial commit");
 
-        // Second commit should have 1 parent
-        assert_eq!(commits[0].parent_count, 1);
-        // First commit (initial) should have 0 parents
-        assert_eq!(commits[1].parent_count, 0);
-
         // Author info
         assert_eq!(commits[0].author_name, "Test Author");
         assert_eq!(commits[0].author_email, "test@example.com");
@@ -531,7 +524,7 @@ mod tests {
         // Find the "feature" branch decoration
         let has_feature = map.values().any(|decorations| {
             decorations.iter().any(|d| {
-                matches!(d, Decoration::Branch { name, is_remote } if name == "feature" && !is_remote)
+                matches!(d, Decoration::Branch { name } if name == "feature")
             })
         });
         assert!(has_feature, "Should find 'feature' branch decoration");

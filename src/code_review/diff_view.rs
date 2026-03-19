@@ -5,7 +5,7 @@
 
 use gpui::{div, uniform_list, prelude::*, px, rgba, IntoElement, Styled, TextAlign, FontWeight};
 
-use crate::git::types::{DiffLineType, DiffLine, FileDiff};
+use crate::git::types::{DiffLineType, FileDiff};
 
 /// Placeholder for syntax highlighting resources.
 pub struct SyntaxHighlighter;

@@ -1,7 +1,7 @@
 /// Branch/tag decoration for a commit
 #[derive(Debug, Clone)]
 pub enum Decoration {
-    Branch { name: String, is_remote: bool },
+    Branch { name: String },
     Tag { name: String },
 }
 
@@ -15,7 +15,6 @@ pub struct CommitInfo {
     pub author_email: String,
     pub time_seconds: i64,     // seconds since epoch (from git2::Time)
     pub time_offset: i32,      // UTC offset in minutes (from git2::Time)
-    pub parent_count: usize,
     pub decorations: Vec<Decoration>,
 }
 
@@ -115,9 +114,8 @@ mod tests {
             author_email: "test@example.com".to_string(),
             time_seconds: 1700000000,
             time_offset: 0,
-            parent_count: 0,
             decorations: vec![
-                Decoration::Branch { name: "main".to_string(), is_remote: false },
+                Decoration::Branch { name: "main".to_string() },
                 Decoration::Tag { name: "v1.0".to_string() },
             ],
         };
@@ -129,7 +127,6 @@ mod tests {
         assert_eq!(commit.author_email, "test@example.com");
         assert_eq!(commit.time_seconds, 1700000000);
         assert_eq!(commit.time_offset, 0);
-        assert_eq!(commit.parent_count, 0);
         assert_eq!(commit.decorations.len(), 2);
     }
 
@@ -250,23 +247,11 @@ mod tests {
 
     #[test]
     fn test_decoration_variants() {
-        let branch = Decoration::Branch { name: "main".to_string(), is_remote: false };
-        let remote = Decoration::Branch { name: "origin/main".to_string(), is_remote: true };
+        let branch = Decoration::Branch { name: "main".to_string() };
         let tag = Decoration::Tag { name: "v1.0".to_string() };
 
-        // Verify they can be matched
         match &branch {
-            Decoration::Branch { name, is_remote } => {
-                assert_eq!(name, "main");
-                assert!(!is_remote);
-            }
-            _ => panic!("Expected Branch"),
-        }
-        match &remote {
-            Decoration::Branch { name, is_remote } => {
-                assert_eq!(name, "origin/main");
-                assert!(is_remote);
-            }
+            Decoration::Branch { name } => assert_eq!(name, "main"),
             _ => panic!("Expected Branch"),
         }
         match &tag {

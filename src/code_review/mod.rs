@@ -77,13 +77,6 @@ impl CodeReviewPanel {
         }
     }
 
-    /// Return the OID of the currently selected commit, if any.
-    pub fn selected_commit_oid(&self) -> Option<String> {
-        self.selected_commit_index
-            .and_then(|i| self.commits.get(i))
-            .map(|c| c.oid.clone())
-    }
-
     /// Return the currently selected commit, if any.
     fn selected_commit(&self) -> Option<&CommitInfo> {
         self.selected_commit_index

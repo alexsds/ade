@@ -53,7 +53,7 @@ fn render_commit_row(
         // Show first decoration as inline badge after summary
         let first_dec = &commit.decorations[0];
         let badge_text = match first_dec {
-            Decoration::Branch { name, .. } => name.clone(),
+            Decoration::Branch { name } => name.clone(),
             Decoration::Tag { name } => name.clone(),
         };
         format!("{} [{}]", commit.summary, badge_text)
@@ -105,44 +105,6 @@ fn render_commit_row(
             .whitespace_nowrap()
             .child(author_time),
     );
-
-    row
-}
-
-/// Render decoration badges (branches and tags) in a flex row.
-fn render_decorations(decorations: Vec<Decoration>) -> impl IntoElement {
-    let mut row = div().flex().flex_row().gap(px(4.0)).flex_wrap();
-
-    for decoration in decorations {
-        let badge = match decoration {
-            Decoration::Branch { name, is_remote } => {
-                let (bg, text_color) = if is_remote {
-                    (rgba(0x388bfd30), rgba(0x79c0ffff)) // blue for remote
-                } else {
-                    (rgba(0x2ea04370), rgba(0x7ee787ff)) // green for local
-                };
-                div()
-                    .px(px(4.0))
-                    .py(px(1.0))
-                    .rounded(px(2.0))
-                    .bg(bg)
-                    .text_xs()
-                    .text_color(text_color)
-                    .child(name)
-            }
-            Decoration::Tag { name } => {
-                div()
-                    .px(px(4.0))
-                    .py(px(1.0))
-                    .rounded(px(2.0))
-                    .bg(rgba(0xd2992230))
-                    .text_xs()
-                    .text_color(rgba(0xe3b341ff))
-                    .child(name)
-            }
-        };
-        row = row.child(badge);
-    }
 
     row
 }

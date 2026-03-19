@@ -9,7 +9,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use gpui::{
-    actions, div, prelude::*, px, rgba, size, App, Application, Bounds, KeyBinding, Styled,
+    actions, div, prelude::*, px, size, App, Application, Bounds, KeyBinding, Styled,
     TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use gpui_ghostty_terminal::view::Copy;
