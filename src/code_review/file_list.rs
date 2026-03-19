@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, px, rgba, IntoElement, Styled, FontWeight, Window, App};
+use gpui::{div, uniform_list, prelude::*, px, rgba, IntoElement, Styled, FontWeight, Window, App};
 use crate::git::types::FileChange;
 
 /// Render the changed files list for a selected commit.
@@ -17,7 +17,7 @@ pub fn render_file_list(
     files: &[FileChange],
     selected_index: Option<usize>,
     on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
-) -> impl IntoElement {
+) -> gpui::AnyElement {
     if files.is_empty() {
         return div()
             .size_full()
@@ -26,17 +26,25 @@ pub fn render_file_list(
             .justify_center()
             .text_xs()
             .text_color(rgba(0x666666ff))
-            .child("Select a commit to view changes");
+            .child("Select a commit to view changes")
+            .into_any_element();
     }
 
-    let mut list = div().size_full().flex().flex_col().overflow_hidden();
+    let files: Vec<FileChange> = files.to_vec();
+    let files_len = files.len();
 
-    for (ix, file) in files.iter().enumerate() {
-        let on_select = on_select.clone();
-        list = list.child(render_file_row(file, Some(ix) == selected_index, ix, on_select));
-    }
-
-    list
+    uniform_list("file-list", files_len, move |range, _window, _cx| {
+        range
+            .map(|ix| {
+                let file = files[ix].clone();
+                let is_selected = Some(ix) == selected_index;
+                let on_select = on_select.clone();
+                render_file_row(&file, is_selected, ix, on_select)
+            })
+            .collect()
+    })
+    .size_full()
+    .into_any_element()
 }
 
 /// Render a single file row with status badge, filename, and +/- stats.
@@ -45,7 +53,7 @@ fn render_file_row(
     is_selected: bool,
     index: usize,
     on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
-) -> impl IntoElement {
+) -> gpui::AnyElement {
     let status_char = file.status_char;
 
     // Status badge colors
@@ -69,13 +77,14 @@ fn render_file_row(
     let mut row = div()
         .id(("file-row", index))
         .w_full()
-        .px(px(12.0))
-        .py(px(4.0))
+        .h(px(28.0))
+        .flex_shrink_0()
+        .px(px(8.0))
         .cursor_pointer()
         .flex()
         .flex_row()
         .items_center()
-        .gap(px(8.0))
+        .gap(px(6.0))
         .on_click(move |_event, window, cx| {
             on_select(index, window, cx);
         });
@@ -148,5 +157,5 @@ fn render_file_row(
         row = row.child(stats);
     }
 
-    row
+    row.into_any_element()
 }
