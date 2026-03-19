@@ -54,6 +54,8 @@ pub enum DiffRow {
 }
 
 /// Flatten a FileDiff into a Vec<DiffRow> for uniform_list rendering.
+/// Used by tests; production code uses flatten_and_highlight_diff instead.
+#[cfg(test)]
 pub fn flatten_diff(file_diff: &FileDiff) -> Vec<DiffRow> {
     let mut rows = Vec::new();
     for hunk in &file_diff.hunks {
