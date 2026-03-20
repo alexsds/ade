@@ -26,8 +26,10 @@ pub enum CloseResult {
 }
 
 /// Minimum flex ratio for any pane (prevents invisible panes).
+#[allow(dead_code)]
 const MIN_FLEX_RATIO: f32 = 0.1;
 
+#[allow(dead_code)]
 impl PaneTree {
     /// Split a leaf pane, creating a new sibling pane.
     ///
@@ -241,6 +243,20 @@ impl PaneTree {
                     left -= correction;
                 }
 
+                flex_ratios[child_index] = left;
+                flex_ratios[child_index + 1] = right;
+            }
+        }
+    }
+
+    /// Directly set flex ratios for a branch at the given path.
+    ///
+    /// Used by divider drag to avoid cumulative delta errors — ratios are
+    /// computed from the original start_ratios each frame and set directly.
+    pub fn set_flex_ratios_at(&mut self, branch_path: &[usize], child_index: usize, left: f32, right: f32) {
+        let node = self.node_at_path(branch_path);
+        if let Some(PaneTree::Branch { flex_ratios, .. }) = node {
+            if child_index + 1 < flex_ratios.len() {
                 flex_ratios[child_index] = left;
                 flex_ratios[child_index + 1] = right;
             }

@@ -373,25 +373,22 @@ impl Render for PaneContainer {
                                     return;
                                 }
 
-                                // Pixel delta from drag start
-                                let pixel_delta = current_pos - drag.start_pos;
-                                // Convert pixel delta to ratio delta
-                                let ratio_delta = pixel_delta / total_dim;
-
-                                // Compute new ratios for the two adjacent children
                                 let ci = drag.child_index;
                                 if ci + 1 < drag.start_ratios.len() {
-                                    let left = (drag.start_ratios[ci] + ratio_delta)
-                                        .clamp(0.1, drag.start_ratios[ci] + drag.start_ratios[ci + 1] - 0.1);
+                                    let pixel_delta = current_pos - drag.start_pos;
+                                    let ratio_delta = pixel_delta / total_dim;
+                                    let sum = drag.start_ratios[ci] + drag.start_ratios[ci + 1];
 
-                                    // Apply via tree's update_flex_ratio
-                                    // tree_delta = how much to subtract from left child
-                                    let tree_delta = drag.start_ratios[ci] - left;
+                                    // Compute desired ratios directly from start_ratios
+                                    let left = (drag.start_ratios[ci] + ratio_delta)
+                                        .clamp(0.1, sum - 0.1);
+                                    let right = sum - left;
+
+                                    // Set ratios directly (avoids cumulative delta bug)
                                     container
                                         .tree
-                                        .update_flex_ratio(&drag.branch_path, ci, tree_delta);
+                                        .set_flex_ratios_at(&drag.branch_path, ci, left, right);
                                 }
-                                // Re-render layout but skip PTY resize (debounce per Pitfall 1)
                                 cx.notify();
                             }
                         })
@@ -449,7 +446,7 @@ fn render_tree_recursive(
                 div()
                     .flex_1()
                     .size_full()
-                    .opacity(if is_active { 1.0 } else { 0.95 })
+                    .opacity(if is_active { 1.0 } else { 0.90 })
                     .text_size(px(14.0))
                     .p(px(4.0))
                     .child(pane.view.clone())
