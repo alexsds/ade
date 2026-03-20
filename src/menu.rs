@@ -36,16 +36,12 @@ pub fn setup_menus(cx: &mut App) {
         // Menu 3: View
         Menu {
             name: "View".into(),
-            items: vec![
-                MenuItem::action("Toggle Code Review", ToggleCodeReview),
-            ],
+            items: vec![MenuItem::action("Toggle Code Review", ToggleCodeReview)],
         },
         // Menu 4: Window
         Menu {
             name: "Window".into(),
-            items: vec![
-                MenuItem::action("Minimize", crate::Minimize),
-            ],
+            items: vec![MenuItem::action("Minimize", crate::Minimize)],
         },
     ]);
 }

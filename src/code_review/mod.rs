@@ -10,8 +10,8 @@ pub mod file_list;
 
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, px, rgba, Context, IntoElement, Styled, Window, FontWeight};
-use crate::git::types::{CommitInfo, FileChange, FileDiff, DiffData};
+use crate::git::types::{CommitInfo, DiffData, FileChange, FileDiff};
+use gpui::{Context, FontWeight, IntoElement, Styled, Window, div, prelude::*, px, rgba};
 
 /// The Code Review panel entity, showing commit history and file changes.
 pub struct CodeReviewPanel {
@@ -79,8 +79,7 @@ impl CodeReviewPanel {
 
     /// Return the currently selected commit, if any.
     fn selected_commit(&self) -> Option<&CommitInfo> {
-        self.selected_commit_index
-            .and_then(|i| self.commits.get(i))
+        self.selected_commit_index.and_then(|i| self.commits.get(i))
     }
 
     /// Return the diff for the currently selected file, if any.
@@ -105,7 +104,8 @@ impl Render for CodeReviewPanel {
                 weak.update(cx, |this, cx| {
                     this.select_commit(ix);
                     cx.notify();
-                }).ok();
+                })
+                .ok();
             })
         };
 
@@ -115,7 +115,8 @@ impl Render for CodeReviewPanel {
                 weak.update(cx, |this, cx| {
                     this.select_file(ix);
                     cx.notify();
-                }).ok();
+                })
+                .ok();
             })
         };
 
@@ -141,26 +142,18 @@ impl Render for CodeReviewPanel {
                 .child("No commits found")
                 .into_any_element()
         } else {
-            commit_list::render_commit_list(
-                &self.commits,
-                selected_commit_index,
-                commit_on_select,
-            )
-            .into_any_element()
+            commit_list::render_commit_list(&self.commits, selected_commit_index, commit_on_select)
+                .into_any_element()
         };
 
         // Build file list content
-        let file_list_content = file_list::render_file_list(
-            &self.files,
-            selected_file_index,
-            file_on_select,
-        );
+        let file_list_content =
+            file_list::render_file_list(&self.files, selected_file_index, file_on_select);
 
         // Build commit detail section
-        let commit_detail: Option<gpui::AnyElement> =
-            self.selected_commit().map(|commit| {
-                commit_list::render_commit_detail(commit).into_any_element()
-            });
+        let commit_detail: Option<gpui::AnyElement> = self
+            .selected_commit()
+            .map(|commit| commit_list::render_commit_detail(commit).into_any_element());
 
         // Changed files header text
         let files_header_text = if file_count > 0 {
@@ -191,12 +184,7 @@ impl Render for CodeReviewPanel {
                     .child("Commits"),
             )
             // Scrollable commit list
-            .child(
-                div()
-                    .flex_1()
-                    .overflow_hidden()
-                    .child(commit_list_content),
-            );
+            .child(div().flex_1().overflow_hidden().child(commit_list_content));
 
         // Commit detail with max height and scroll (like GitHub Desktop)
         let commit_detail_section: Option<gpui::AnyElement> = commit_detail.map(|detail| {
@@ -266,20 +254,16 @@ impl Render for CodeReviewPanel {
                                     )
                                     // File list
                                     .child(
-                                        div()
-                                            .flex_1()
-                                            .overflow_hidden()
-                                            .child(file_list_content),
+                                        div().flex_1().overflow_hidden().child(file_list_content),
                                     ),
                             )
                             // Right: diff viewer (remaining space, uniform_list handles scroll)
-                            .child(
-                                if let Some(file_diff) = self.selected_file_diff() {
-                                    diff_view::render_diff_view(file_diff, &self.syntax_highlighter).into_any_element()
-                                } else {
-                                    diff_view::render_diff_empty().into_any_element()
-                                }
-                            ),
+                            .child(if let Some(file_diff) = self.selected_file_diff() {
+                                diff_view::render_diff_view(file_diff, &self.syntax_highlighter)
+                                    .into_any_element()
+                            } else {
+                                diff_view::render_diff_empty().into_any_element()
+                            }),
                     ),
             )
     }
@@ -295,12 +279,32 @@ mod tests {
         let mut panel = CodeReviewPanel::new();
         let diff_data = DiffData {
             files: vec![
-                FileChange { path: "a.rs".into(), status_char: 'M', additions: 1, deletions: 0 },
-                FileChange { path: "b.rs".into(), status_char: 'A', additions: 5, deletions: 0 },
+                FileChange {
+                    path: "a.rs".into(),
+                    status_char: 'M',
+                    additions: 1,
+                    deletions: 0,
+                },
+                FileChange {
+                    path: "b.rs".into(),
+                    status_char: 'A',
+                    additions: 5,
+                    deletions: 0,
+                },
             ],
             file_diffs: vec![
-                FileDiff { path: "a.rs".into(), additions: 1, deletions: 0, hunks: vec![] },
-                FileDiff { path: "b.rs".into(), additions: 5, deletions: 0, hunks: vec![] },
+                FileDiff {
+                    path: "a.rs".into(),
+                    additions: 1,
+                    deletions: 0,
+                    hunks: vec![],
+                },
+                FileDiff {
+                    path: "b.rs".into(),
+                    additions: 5,
+                    deletions: 0,
+                    hunks: vec![],
+                },
             ],
         };
         panel.set_diff(diff_data);

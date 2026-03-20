@@ -8,13 +8,13 @@ pub enum Decoration {
 /// Single commit metadata
 #[derive(Debug, Clone)]
 pub struct CommitInfo {
-    pub oid: String,           // hex string, e.g. "abc1234..."
-    pub summary: String,       // first line of commit message
-    pub body: Option<String>,  // remaining commit message lines
+    pub oid: String,          // hex string, e.g. "abc1234..."
+    pub summary: String,      // first line of commit message
+    pub body: Option<String>, // remaining commit message lines
     pub author_name: String,
     pub author_email: String,
-    pub time_seconds: i64,     // seconds since epoch (from git2::Time)
-    pub time_offset: i32,      // UTC offset in minutes (from git2::Time)
+    pub time_seconds: i64, // seconds since epoch (from git2::Time)
+    pub time_offset: i32,  // UTC offset in minutes (from git2::Time)
     pub decorations: Vec<Decoration>,
 }
 
@@ -29,7 +29,7 @@ pub struct BranchStatus {
 #[derive(Debug, Clone)]
 pub struct FileChange {
     pub path: String,
-    pub status_char: char,    // 'A' added, 'M' modified, 'D' deleted, 'R' renamed, 'C' copied
+    pub status_char: char, // 'A' added, 'M' modified, 'D' deleted, 'R' renamed, 'C' copied
     pub additions: u64,
     pub deletions: u64,
 }
@@ -55,7 +55,7 @@ pub struct DiffLine {
 /// A diff hunk (section of changes)
 #[derive(Debug, Clone)]
 pub struct DiffHunk {
-    pub header: String,        // e.g. "@@ -10,5 +10,7 @@"
+    pub header: String, // e.g. "@@ -10,5 +10,7 @@"
     pub lines: Vec<DiffLine>,
 }
 
@@ -84,19 +84,39 @@ pub fn format_relative_time(seconds_since_epoch: i64, _offset_minutes: i32) -> S
         "just now".to_string()
     } else if diff < 3600 {
         let mins = diff / 60;
-        if mins == 1 { "1 minute ago".to_string() } else { format!("{} minutes ago", mins) }
+        if mins == 1 {
+            "1 minute ago".to_string()
+        } else {
+            format!("{} minutes ago", mins)
+        }
     } else if diff < 86400 {
         let hours = diff / 3600;
-        if hours == 1 { "1 hour ago".to_string() } else { format!("{} hours ago", hours) }
+        if hours == 1 {
+            "1 hour ago".to_string()
+        } else {
+            format!("{} hours ago", hours)
+        }
     } else if diff < 2592000 {
         let days = diff / 86400;
-        if days == 1 { "1 day ago".to_string() } else { format!("{} days ago", days) }
+        if days == 1 {
+            "1 day ago".to_string()
+        } else {
+            format!("{} days ago", days)
+        }
     } else if diff < 31536000 {
         let months = diff / 2592000;
-        if months == 1 { "1 month ago".to_string() } else { format!("{} months ago", months) }
+        if months == 1 {
+            "1 month ago".to_string()
+        } else {
+            format!("{} months ago", months)
+        }
     } else {
         let years = diff / 31536000;
-        if years == 1 { "1 year ago".to_string() } else { format!("{} years ago", years) }
+        if years == 1 {
+            "1 year ago".to_string()
+        } else {
+            format!("{} years ago", years)
+        }
     }
 }
 
@@ -115,8 +135,12 @@ mod tests {
             time_seconds: 1700000000,
             time_offset: 0,
             decorations: vec![
-                Decoration::Branch { name: "main".to_string() },
-                Decoration::Tag { name: "v1.0".to_string() },
+                Decoration::Branch {
+                    name: "main".to_string(),
+                },
+                Decoration::Tag {
+                    name: "v1.0".to_string(),
+                },
             ],
         };
 
@@ -247,8 +271,12 @@ mod tests {
 
     #[test]
     fn test_decoration_variants() {
-        let branch = Decoration::Branch { name: "main".to_string() };
-        let tag = Decoration::Tag { name: "v1.0".to_string() };
+        let branch = Decoration::Branch {
+            name: "main".to_string(),
+        };
+        let tag = Decoration::Tag {
+            name: "v1.0".to_string(),
+        };
 
         match &branch {
             Decoration::Branch { name } => assert_eq!(name, "main"),

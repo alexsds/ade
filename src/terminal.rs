@@ -2,25 +2,45 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
 
-use gpui::{App, AppContext as _, Context, SharedString, Window};
+use gpui::{App, AppContext as _, Context, Window};
 use gpui_ghostty_terminal::view::{TerminalInput, TerminalView};
 use gpui_ghostty_terminal::{TerminalConfig, TerminalSession};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
-/// Result of spawning a terminal: the view entity, stdin sender, and focus handle.
+/// Result of spawning a terminal: the view entity, stdin sender, stdout receiver,
+/// PTY master handle, and focus handle.
+///
+/// The caller is responsible for:
+/// - Starting the 16ms output batch loop (reading from `stdout_rx` into the view)
+/// - Handling resize (calling `master.resize()` and `view.resize_terminal()`)
 pub struct SpawnedTerminal {
     pub view: gpui::Entity<TerminalView>,
     pub stdin_tx: mpsc::Sender<Vec<u8>>,
+    pub stdout_rx: mpsc::Receiver<Vec<u8>>,
     pub focus_handle: gpui::FocusHandle,
+    pub master: Arc<dyn portable_pty::MasterPty + Send>,
 }
 
-/// Spawn a PTY-backed terminal inside the given GPUI window.
+/// Spawn a PTY-backed terminal inside the given GPUI window, using the
+/// process's current working directory.
 ///
 /// Must be called from the `open_window` closure where `window` is `&mut Window`
 /// and `cx` is `&mut App`.
 pub fn spawn_terminal(window: &mut Window, cx: &mut App) -> SpawnedTerminal {
+    spawn_terminal_with_cwd(window, cx, None)
+}
+
+/// Spawn a PTY-backed terminal inside the given GPUI window, using the
+/// specified working directory (or the process CWD if `None`).
+///
+/// Returns a `SpawnedTerminal` with the view, I/O channels, and master handle.
+/// The caller must start the batch output loop and resize handling.
+pub fn spawn_terminal_with_cwd(
+    window: &mut Window,
+    cx: &mut App,
+    cwd: Option<std::path::PathBuf>,
+) -> SpawnedTerminal {
     let config = TerminalConfig::default();
 
     // --- Open PTY ---
@@ -46,10 +66,11 @@ pub fn spawn_terminal(window: &mut Window, cx: &mut App) -> SpawnedTerminal {
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "ADE");
 
-    // Set working directory to where ADE was launched
-    if let Ok(cwd) = std::env::current_dir() {
-        cmd.cwd(cwd);
-    }
+    // Set working directory
+    let working_dir = cwd.unwrap_or_else(|| {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+    });
+    cmd.cwd(&working_dir);
 
     // Spawn the child process on the slave side
     let mut child = pty_pair
@@ -79,7 +100,7 @@ pub fn spawn_terminal(window: &mut Window, cx: &mut App) -> SpawnedTerminal {
         }
     });
 
-    // PTY reader thread: PTY -> terminal view
+    // PTY reader thread: PTY -> stdout channel
     thread::spawn(move || {
         let mut buf = [0u8; 8192];
         loop {
@@ -109,86 +130,14 @@ pub fn spawn_terminal(window: &mut Window, cx: &mut App) -> SpawnedTerminal {
         TerminalView::new_with_input(session, focus_handle, input)
     });
 
-    // --- Window resize handling ---
-    let master_for_resize = master.clone();
-    let resize_subscription = view.update(cx, |_: &mut TerminalView, cx: &mut Context<TerminalView>| {
-        cx.observe_window_bounds(window, move |this: &mut TerminalView, window: &mut Window, cx: &mut Context<TerminalView>| {
-            let size = window.viewport_size();
-            let width = f32::from(size.width);
-            let height = f32::from(size.height);
+    // Note: Batch output loop and resize handling are NOT started here.
+    // The caller (PaneContainer) manages per-pane batch loops and resize.
 
-            // Apply 4px padding on each side, subtract toolbar height (32px)
-            let padded_width = (width - 8.0).max(1.0);
-            let padded_height = (height - 32.0 - 8.0).max(1.0);
-
-            // Compute font cell metrics (following pty_terminal example pattern)
-            let mut style = window.text_style();
-            let font = gpui_ghostty_terminal::default_terminal_font();
-            style.font_family = font.family.clone();
-            style.font_features = gpui_ghostty_terminal::default_terminal_font_features();
-            style.font_fallbacks = font.fallbacks.clone();
-
-            // Use 14px to match text_size(px(14.0)) on the terminal container
-            let font_size = gpui::px(14.0);
-            let line_height = font_size * 1.6; // match Ghostty's default line height ratio
-
-            let run = style.to_run(1);
-            let Ok(lines) = window.text_system().shape_text(
-                SharedString::from("M"),
-                font_size,
-                &[run],
-                None,
-                Some(1),
-            ) else {
-                return;
-            };
-            let Some(line) = lines.first() else {
-                return;
-            };
-
-            let cell_width = f32::from(line.width()).max(1.0);
-            let cell_height = f32::from(line_height).max(1.0);
-
-            let cols = (padded_width / cell_width).floor().max(1.0) as u16;
-            let rows = (padded_height / cell_height).floor().max(1.0) as u16;
-
-            let _ = master_for_resize.resize(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            });
-
-            this.resize_terminal(cols, rows, cx);
-        })
-    });
-    resize_subscription.detach();
-
-    // --- Batch output at 16ms intervals ---
-    let view_for_task = view.clone();
-    window
-        .spawn(cx, async move |cx| {
-            loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(16))
-                    .await;
-                let mut batch = Vec::new();
-                while let Ok(chunk) = stdout_rx.try_recv() {
-                    batch.extend_from_slice(&chunk);
-                }
-                if batch.is_empty() {
-                    continue;
-                }
-
-                cx.update(|_, cx| {
-                    view_for_task.update(cx, |this: &mut TerminalView, cx: &mut Context<TerminalView>| {
-                        this.queue_output_bytes(&batch, cx);
-                    });
-                })
-                .ok();
-            }
-        })
-        .detach();
-
-    SpawnedTerminal { view, stdin_tx, focus_handle: terminal_focus_handle.unwrap() }
+    SpawnedTerminal {
+        view,
+        stdin_tx,
+        stdout_rx,
+        focus_handle: terminal_focus_handle.unwrap(),
+        master,
+    }
 }

@@ -6,8 +6,8 @@
 
 use std::sync::Arc;
 
-use gpui::{div, uniform_list, prelude::*, px, rgba, IntoElement, Styled, FontWeight, Window, App};
 use crate::git::types::{CommitInfo, Decoration, format_relative_time};
+use gpui::{App, FontWeight, IntoElement, Styled, Window, div, prelude::*, px, rgba, uniform_list};
 
 /// Render a scrollable commit list using GPUI's uniform_list.
 ///
@@ -92,9 +92,10 @@ fn render_commit_row(
             )
             // Decoration badges (all of them, not just the first)
             .children(
-                commit.decorations.iter().map(|dec| {
-                    render_decoration_badge(dec).into_any_element()
-                })
+                commit
+                    .decorations
+                    .iter()
+                    .map(|dec| render_decoration_badge(dec).into_any_element()),
             ),
     );
 

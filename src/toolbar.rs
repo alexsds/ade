@@ -5,7 +5,7 @@
 //! dirty/clean indicator on the left, and a "Code Review" toggle button
 //! on the right.
 
-use gpui::{div, prelude::*, px, rgba, Context, IntoElement, Styled};
+use gpui::{Context, IntoElement, Styled, div, prelude::*, px, rgba};
 
 /// Render the toolbar bar showing branch status and Code Review toggle.
 ///
@@ -50,13 +50,7 @@ pub fn render_toolbar<V: 'static>(
                 .items_center()
                 .gap(px(6.0))
                 // Status dot
-                .child(
-                    div()
-                        .w(px(8.0))
-                        .h(px(8.0))
-                        .rounded(px(4.0))
-                        .bg(dot_color),
-                )
+                .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(dot_color))
                 // Branch name
                 .child(
                     div()

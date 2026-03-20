@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use gpui::{div, uniform_list, prelude::*, px, rgba, IntoElement, Styled, FontWeight, Window, App};
 use crate::git::types::FileChange;
+use gpui::{App, FontWeight, IntoElement, Styled, Window, div, prelude::*, px, rgba, uniform_list};
 
 /// Render the changed files list for a selected commit.
 ///
@@ -118,18 +118,10 @@ fn render_file_row(
         .text_xs();
 
     if let Some(dir) = dir_part {
-        name_container = name_container.child(
-            div()
-                .text_color(rgba(0x666666ff))
-                .child(dir),
-        );
+        name_container = name_container.child(div().text_color(rgba(0x666666ff)).child(dir));
     }
 
-    name_container = name_container.child(
-        div()
-            .text_color(rgba(0xddddddff))
-            .child(file_part),
-    );
+    name_container = name_container.child(div().text_color(rgba(0xddddddff)).child(file_part));
 
     row = row.child(name_container);
 

@@ -63,21 +63,19 @@ impl GitProvider {
                             Err(e) => GitResponse::Error(e.to_string()),
                         }
                     }
-                    GitRequest::FetchDiff { commit_oid } => {
-                        match Oid::from_str(&commit_oid) {
-                            Ok(oid) => match compute_diff(&repo, oid) {
-                                Ok(diff) => GitResponse::Diff(diff),
-                                Err(e) => GitResponse::Error(e.to_string()),
-                            },
-                            Err(e) => GitResponse::Error(format!("Invalid OID '{}': {}", commit_oid, e)),
-                        }
-                    }
-                    GitRequest::FetchStatus => {
-                        match get_branch_status(&repo) {
-                            Ok(status) => GitResponse::Status(status),
+                    GitRequest::FetchDiff { commit_oid } => match Oid::from_str(&commit_oid) {
+                        Ok(oid) => match compute_diff(&repo, oid) {
+                            Ok(diff) => GitResponse::Diff(diff),
                             Err(e) => GitResponse::Error(e.to_string()),
+                        },
+                        Err(e) => {
+                            GitResponse::Error(format!("Invalid OID '{}': {}", commit_oid, e))
                         }
-                    }
+                    },
+                    GitRequest::FetchStatus => match get_branch_status(&repo) {
+                        Ok(status) => GitResponse::Status(status),
+                        Err(e) => GitResponse::Error(e.to_string()),
+                    },
                 };
                 if response_tx.send(response).is_err() {
                     break;
@@ -98,11 +96,9 @@ impl GitProvider {
 
     /// Request the diff for the given commit OID (hex string).
     pub fn request_diff(&self, oid_hex: &str) {
-        let _ = self
-            .request_tx
-            .send(GitRequest::FetchDiff {
-                commit_oid: oid_hex.to_string(),
-            });
+        let _ = self.request_tx.send(GitRequest::FetchDiff {
+            commit_oid: oid_hex.to_string(),
+        });
     }
 
     /// Request the current branch status (name + dirty flag).
@@ -137,10 +133,7 @@ fn walk_commits(
         let author = commit.author();
         let time = commit.time();
 
-        let commit_decorations = decorations
-            .get(&oid)
-            .cloned()
-            .unwrap_or_default();
+        let commit_decorations = decorations.get(&oid).cloned().unwrap_or_default();
 
         commits.push(CommitInfo {
             oid: oid.to_string(),
@@ -173,9 +166,9 @@ fn build_decoration_map(repo: &Repository) -> HashMap<Oid, Vec<Decoration>> {
                     Err(_) => continue,
                 };
                 if let Some(oid) = reference.target() {
-                    map.entry(oid).or_default().push(Decoration::Branch {
-                        name,
-                    });
+                    map.entry(oid)
+                        .or_default()
+                        .push(Decoration::Branch { name });
                 }
             }
         }
@@ -389,8 +382,12 @@ mod tests {
 
         // Configure committer identity for test
         let mut config = repo.config().expect("get config");
-        config.set_str("user.name", "Test Author").expect("set name");
-        config.set_str("user.email", "test@example.com").expect("set email");
+        config
+            .set_str("user.name", "Test Author")
+            .expect("set name");
+        config
+            .set_str("user.email", "test@example.com")
+            .expect("set email");
 
         // First commit: add hello.txt
         let file_path = dir.path().join("hello.txt");
@@ -404,7 +401,8 @@ mod tests {
         // Create a branch "feature" pointing at HEAD
         {
             let head_commit = repo.head().unwrap().peel_to_commit().unwrap();
-            repo.branch("feature", &head_commit, false).expect("create feature branch");
+            repo.branch("feature", &head_commit, false)
+                .expect("create feature branch");
         }
 
         (dir, repo)
@@ -469,9 +467,10 @@ mod tests {
         assert!(!file_diff.hunks.is_empty(), "Expected at least one hunk");
 
         // Check that we have both add and remove (or just add) lines
-        let has_add = file_diff.hunks.iter().any(|h| {
-            h.lines.iter().any(|l| l.line_type == DiffLineType::Add)
-        });
+        let has_add = file_diff
+            .hunks
+            .iter()
+            .any(|h| h.lines.iter().any(|l| l.line_type == DiffLineType::Add));
         assert!(has_add, "Expected at least one Add line in the diff");
     }
 
@@ -492,7 +491,10 @@ mod tests {
         let new_file = dir.path().join("untracked.txt");
         fs::write(&new_file, "new content\n").expect("write untracked");
         let dirty_status = get_branch_status(&repo).expect("get dirty status");
-        assert!(dirty_status.is_dirty, "Repo should be dirty with untracked file");
+        assert!(
+            dirty_status.is_dirty,
+            "Repo should be dirty with untracked file"
+        );
     }
 
     #[test]
@@ -508,9 +510,15 @@ mod tests {
         // This should NOT panic -- initial commits have no parent
         let diff = compute_diff(&repo, initial_oid).expect("compute diff for initial commit");
 
-        assert!(!diff.files.is_empty(), "Initial commit should have file changes");
+        assert!(
+            !diff.files.is_empty(),
+            "Initial commit should have file changes"
+        );
         assert_eq!(diff.files[0].path, "hello.txt");
-        assert_eq!(diff.files[0].status_char, 'A', "Initial commit file should be Added");
+        assert_eq!(
+            diff.files[0].status_char, 'A',
+            "Initial commit file should be Added"
+        );
     }
 
     #[test]
@@ -523,9 +531,9 @@ mod tests {
 
         // Find the "feature" branch decoration
         let has_feature = map.values().any(|decorations| {
-            decorations.iter().any(|d| {
-                matches!(d, Decoration::Branch { name } if name == "feature")
-            })
+            decorations
+                .iter()
+                .any(|d| matches!(d, Decoration::Branch { name } if name == "feature"))
         });
         assert!(has_feature, "Should find 'feature' branch decoration");
     }

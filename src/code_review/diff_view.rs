@@ -3,8 +3,8 @@
 //! Uses uniform_list for smooth scrolling — only visible lines are rendered.
 //! Line-type coloring: green for additions, red for removals, blue for hunk headers.
 
-use gpui::{div, uniform_list, prelude::*, px, rgba, IntoElement, Styled, TextAlign, FontWeight};
 use crate::git::types::{DiffLineType, FileDiff};
+use gpui::{FontWeight, IntoElement, Styled, TextAlign, div, prelude::*, px, rgba, uniform_list};
 
 /// Placeholder for future syntax highlighting.
 /// Line-type coloring used for now (smooth scroll performance).
@@ -51,7 +51,10 @@ pub fn flatten_diff(file_diff: &FileDiff) -> Vec<DiffRow> {
 }
 
 /// Flatten a FileDiff into DiffRows for uniform_list rendering.
-pub fn flatten_and_highlight_diff(file_diff: &FileDiff, _highlighter: &SyntaxHighlighter) -> Vec<DiffRow> {
+pub fn flatten_and_highlight_diff(
+    file_diff: &FileDiff,
+    _highlighter: &SyntaxHighlighter,
+) -> Vec<DiffRow> {
     let mut rows = Vec::new();
     for hunk in &file_diff.hunks {
         rows.push(DiffRow::HunkHeader(hunk.header.clone()));
@@ -72,10 +75,7 @@ const DIFF_LINE_HEIGHT: f32 = 20.0;
 
 /// Render a virtualized diff view using uniform_list.
 /// Only visible lines are rendered — smooth scrolling for any diff size.
-pub fn render_diff_view(
-    file_diff: &FileDiff,
-    highlighter: &SyntaxHighlighter,
-) -> impl IntoElement {
+pub fn render_diff_view(file_diff: &FileDiff, highlighter: &SyntaxHighlighter) -> impl IntoElement {
     let rows = flatten_and_highlight_diff(file_diff, highlighter);
     let row_count = rows.len();
     let path = file_diff.path.clone();
@@ -101,28 +101,32 @@ pub fn render_diff_view(
                         .collect()
                 }
             })
-            .size_full()
+            .size_full(),
         )
 }
 
 /// Render a single diff row (hunk header or diff line).
 fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
     match row {
-        DiffRow::HunkHeader(header) => {
-            div()
-                .id(("diff-row", index))
-                .h(px(DIFF_LINE_HEIGHT))
-                .w_full()
-                .bg(rgba(0x1a2233ff))
-                .text_xs()
-                .text_color(rgba(0x79c0ffff))
-                .px(px(12.0))
-                .flex()
-                .items_center()
-                .child(header.clone())
-                .into_any_element()
-        }
-        DiffRow::Line { old_lineno, new_lineno, content, line_type, .. } => {
+        DiffRow::HunkHeader(header) => div()
+            .id(("diff-row", index))
+            .h(px(DIFF_LINE_HEIGHT))
+            .w_full()
+            .bg(rgba(0x1a2233ff))
+            .text_xs()
+            .text_color(rgba(0x79c0ffff))
+            .px(px(12.0))
+            .flex()
+            .items_center()
+            .child(header.clone())
+            .into_any_element(),
+        DiffRow::Line {
+            old_lineno,
+            new_lineno,
+            content,
+            line_type,
+            ..
+        } => {
             let (line_bg, text_color) = match line_type {
                 DiffLineType::Add => (Some(rgba(0x23863620)), rgba(0x7ee787ff)),
                 DiffLineType::Remove => (Some(rgba(0xda363420)), rgba(0xf47067ff)),
@@ -130,12 +134,8 @@ fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
                 DiffLineType::Context => (None, rgba(0xccccccff)),
             };
 
-            let old_text = old_lineno
-                .map(|n| format!("{}", n))
-                .unwrap_or_default();
-            let new_text = new_lineno
-                .map(|n| format!("{}", n))
-                .unwrap_or_default();
+            let old_text = old_lineno.map(|n| format!("{}", n)).unwrap_or_default();
+            let new_text = new_lineno.map(|n| format!("{}", n)).unwrap_or_default();
 
             let mut row = div()
                 .id(("diff-row", index))
@@ -354,7 +354,10 @@ mod tests {
         };
         let rows = flatten_and_highlight_diff(&file_diff, &hl);
         assert_eq!(rows.len(), 2);
-        if let DiffRow::Line { content, line_type, .. } = &rows[1] {
+        if let DiffRow::Line {
+            content, line_type, ..
+        } = &rows[1]
+        {
             assert_eq!(content, "fn main() {}");
             assert!(matches!(line_type, DiffLineType::Add));
         } else {
