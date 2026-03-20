@@ -494,12 +494,18 @@ fn render_tree_recursive(
                 let child_element =
                     render_tree_recursive(child, panes, active_pane_id, weak.clone(), &child_path);
 
-                let wrapper = div()
+                // Only set cross-axis to full — main axis is controlled by flex_basis.
+                // size_full() conflicts with flex_basis in column layouts (both set height).
+                let mut wrapper = div()
                     .flex_basis(relative(ratio))
                     .flex_grow()
-                    .flex_shrink()
-                    .size_full()
-                    .child(child_element);
+                    .flex_shrink();
+                if is_vertical {
+                    wrapper = wrapper.h_full(); // cross-axis for row layout
+                } else {
+                    wrapper = wrapper.w_full(); // cross-axis for column layout
+                }
+                let wrapper = wrapper.child(child_element);
 
                 container = container.child(wrapper);
             }
