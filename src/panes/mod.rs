@@ -144,8 +144,9 @@ impl PaneContainer {
     /// Close the active pane.
     ///
     /// Drops PaneState (stdin_tx drop kills writer thread, master drop kills
-    /// child process per Pitfall 3). If this was the last pane, quits the app.
-    pub fn close_pane(&mut self, cx: &mut Context<Self>) {
+    /// child process per Pitfall 3). Returns the focus handle of the next pane
+    /// to focus, or None if the app should quit (last pane closed).
+    pub fn close_pane(&mut self, cx: &mut Context<Self>) -> Option<gpui::FocusHandle> {
         let target = self.active_pane_id;
         let result = self.tree.close(target);
 
@@ -153,6 +154,7 @@ impl PaneContainer {
             CloseResult::LastPane => {
                 // Close the window / quit the app (per D-03)
                 cx.quit();
+                None
             }
             CloseResult::Removed => {
                 // Drop the pane state (cleans up PTY threads)
@@ -161,33 +163,33 @@ impl PaneContainer {
                 // Focus the next remaining pane
                 let ids = self.tree.flatten();
                 self.active_pane_id = ids[0];
-                // We need to notify so the UI updates
                 cx.notify();
+                self.panes
+                    .get(&self.active_pane_id)
+                    .map(|p| p.focus_handle.clone())
             }
-            CloseResult::NotFound => {
-                // Should not happen, but handle gracefully
-            }
+            CloseResult::NotFound => None,
         }
     }
 
-    /// Focus the next pane in flatten order (Cmd+]).
-    pub fn focus_next(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Navigate to the next pane in flatten order (Cmd+]).
+    /// Returns the focus handle of the newly active pane.
+    /// The caller is responsible for calling `focus_handle.focus(window, cx)`.
+    pub fn focus_next(&mut self, cx: &mut Context<Self>) -> Option<gpui::FocusHandle> {
         let next = self.tree.next_pane(self.active_pane_id);
         self.active_pane_id = next;
-        if let Some(pane) = self.panes.get(&next) {
-            pane.focus_handle.focus(window, cx);
-        }
         cx.notify();
+        self.panes.get(&next).map(|p| p.focus_handle.clone())
     }
 
-    /// Focus the previous pane in flatten order (Cmd+[).
-    pub fn focus_prev(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Navigate to the previous pane in flatten order (Cmd+[).
+    /// Returns the focus handle of the newly active pane.
+    /// The caller is responsible for calling `focus_handle.focus(window, cx)`.
+    pub fn focus_prev(&mut self, cx: &mut Context<Self>) -> Option<gpui::FocusHandle> {
         let prev = self.tree.prev_pane(self.active_pane_id);
         self.active_pane_id = prev;
-        if let Some(pane) = self.panes.get(&prev) {
-            pane.focus_handle.focus(window, cx);
-        }
         cx.notify();
+        self.panes.get(&prev).map(|p| p.focus_handle.clone())
     }
 
     /// Returns a clone of the active pane's stdin sender (for CopyOrInterrupt routing).
@@ -208,6 +210,11 @@ impl PaneContainer {
     /// Returns the active pane's CWD (for inheriting on split).
     pub fn active_cwd(&self) -> &std::path::PathBuf {
         &self.panes[&self.active_pane_id].cwd
+    }
+
+    /// Returns a mutable reference to a pane by ID (for taking stdout_rx).
+    pub fn pane_mut(&mut self, id: PaneId) -> Option<&mut PaneState> {
+        self.panes.get_mut(&id)
     }
 
     /// Resize all panes based on the available space.

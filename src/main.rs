@@ -6,7 +6,6 @@ mod panes;
 mod terminal;
 mod toolbar;
 
-use std::sync::mpsc;
 use std::time::Duration;
 
 use gpui::{
@@ -15,7 +14,12 @@ use gpui::{
 };
 use gpui_ghostty_terminal::view::Copy;
 
-use input::{CopyOrInterrupt, ToggleCodeReview};
+use input::{
+    ClosePane, CopyOrInterrupt, NextPane, PrevPane, SplitHorizontal, SplitVertical,
+    ToggleCodeReview,
+};
+use panes::PaneContainer;
+use panes::tree::SplitDirection;
 
 actions!(ade, [Quit, Minimize]);
 
@@ -26,16 +30,13 @@ enum Mode {
 }
 
 pub struct AdeWindow {
-    terminal_view: gpui::Entity<gpui_ghostty_terminal::view::TerminalView>,
-    stdin_tx: mpsc::Sender<Vec<u8>>,
+    pane_container: gpui::Entity<PaneContainer>,
     mode: Mode,
     branch_status: git::BranchStatus,
     git_provider: git::GitProvider,
     code_review_panel: gpui::Entity<code_review::CodeReviewPanel>,
     /// Focus handle for the AdeWindow (used in Code Review mode for Cmd+G)
     focus_handle: gpui::FocusHandle,
-    /// Terminal's own focus handle (stored so we can re-focus it correctly)
-    terminal_focus_handle: gpui::FocusHandle,
 }
 
 impl AdeWindow {
@@ -48,15 +49,21 @@ impl AdeWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let has_selection = self.terminal_view.read(cx).has_selection();
+        let has_selection = self
+            .pane_container
+            .read(cx)
+            .active_view()
+            .read(cx)
+            .has_selection();
 
         if has_selection {
             // Dispatch the real Copy action to the focused element (TerminalView),
             // which copies the selected text to the clipboard
             window.dispatch_action(Box::new(Copy), cx);
         } else {
-            // No selection: send interrupt (Ctrl+C = 0x03) to the PTY
-            let _ = self.stdin_tx.send(vec![0x03]);
+            // No selection: send interrupt (Ctrl+C = 0x03) to active pane's PTY
+            let stdin_tx = self.pane_container.read(cx).active_stdin_tx();
+            let _ = stdin_tx.send(vec![0x03]);
         }
     }
 
@@ -73,13 +80,95 @@ impl AdeWindow {
         };
         match self.mode {
             Mode::Terminal => {
-                // Re-focus terminal's original focus handle so keyboard input works
-                self.terminal_focus_handle.focus(window, cx);
+                // Re-focus the active pane's focus handle so keyboard input works
+                self.pane_container
+                    .read(cx)
+                    .active_pane_focus_handle()
+                    .clone()
+                    .focus(window, cx);
             }
             Mode::CodeReview => {
                 // Focus our own handle so Cmd+G can toggle back
                 self.focus_handle.focus(window, cx);
             }
+        }
+        cx.notify();
+    }
+
+    /// Handle Cmd+D: split active pane vertically (side-by-side).
+    fn on_split_vertical(
+        &mut self,
+        _: &SplitVertical,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.do_split(SplitDirection::Vertical, window, cx);
+    }
+
+    /// Handle Cmd+Shift+D: split active pane horizontally (top-bottom).
+    fn on_split_horizontal(
+        &mut self,
+        _: &SplitHorizontal,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.do_split(SplitDirection::Horizontal, window, cx);
+    }
+
+    /// Perform a pane split: spawn a new terminal inheriting the active pane's CWD,
+    /// then pass it to PaneContainer.
+    fn do_split(&mut self, direction: SplitDirection, window: &mut Window, cx: &mut Context<Self>) {
+        // Get the active pane's CWD (per D-12: new pane inherits CWD of split source)
+        let cwd = self.pane_container.read(cx).active_cwd().clone();
+
+        // Spawn a new terminal with the inherited CWD
+        let spawned = terminal::spawn_terminal_with_cwd(window, cx, Some(cwd.clone()));
+
+        // Pass the spawned terminal to PaneContainer for tree insertion + batch loop
+        self.pane_container.update(cx, |container, cx| {
+            container.split_with_terminal(spawned, direction, cwd, window, cx);
+        });
+
+        // Trigger resize for all panes after split
+        let size = window.viewport_size();
+        let width = f32::from(size.width);
+        let height = f32::from(size.height);
+        self.pane_container.update(cx, |container, cx| {
+            container.resize_all(width, height, window, cx);
+        });
+
+        cx.notify();
+    }
+
+    /// Handle Cmd+W: close the active pane.
+    fn on_close_pane(&mut self, _: &ClosePane, window: &mut Window, cx: &mut Context<Self>) {
+        let focus_handle = self
+            .pane_container
+            .update(cx, |container, cx| container.close_pane(cx));
+        if let Some(handle) = focus_handle {
+            handle.focus(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// Handle Cmd+]: focus the next pane.
+    fn on_next_pane(&mut self, _: &NextPane, window: &mut Window, cx: &mut Context<Self>) {
+        let focus_handle = self
+            .pane_container
+            .update(cx, |container, cx| container.focus_next(cx));
+        if let Some(handle) = focus_handle {
+            handle.focus(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// Handle Cmd+[: focus the previous pane.
+    fn on_prev_pane(&mut self, _: &PrevPane, window: &mut Window, cx: &mut Context<Self>) {
+        let focus_handle = self
+            .pane_container
+            .update(cx, |container, cx| container.focus_prev(cx));
+        if let Some(handle) = focus_handle {
+            handle.focus(window, cx);
         }
         cx.notify();
     }
@@ -95,6 +184,11 @@ impl Render for AdeWindow {
             .flex_col()
             .on_action(cx.listener(Self::on_copy_or_interrupt))
             .on_action(cx.listener(Self::on_toggle_code_review))
+            .on_action(cx.listener(Self::on_split_vertical))
+            .on_action(cx.listener(Self::on_split_horizontal))
+            .on_action(cx.listener(Self::on_close_pane))
+            .on_action(cx.listener(Self::on_next_pane))
+            .on_action(cx.listener(Self::on_prev_pane))
             // Toolbar always visible
             .child(toolbar::render_toolbar(
                 &self.branch_status.branch_name,
@@ -114,9 +208,8 @@ impl Render for AdeWindow {
                     .flex_1()
                     .size_full()
                     .when(self.mode == Mode::Terminal, |d| {
-                        d.p(px(4.0))
-                            .text_size(px(14.0))
-                            .child(self.terminal_view.clone())
+                        // PaneContainer handles its own padding and text_size per-pane
+                        d.child(self.pane_container.clone())
                     })
                     .when(self.mode == Mode::CodeReview, |d| {
                         d.child(self.code_review_panel.clone())
@@ -135,7 +228,7 @@ fn main() {
         // Register Quit keybinding (other keybindings set up in input module)
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
 
-        // Set up keybindings (Cmd+C -> CopyOrInterrupt, Cmd+V, Cmd+A, Cmd+G)
+        // Set up keybindings (Cmd+C, Cmd+V, Cmd+A, Cmd+G, Cmd+D, Cmd+Shift+D, Cmd+W, Cmd+], Cmd+[)
         input::setup_keybindings(cx);
 
         // Set up macOS menu bar (ADE, Edit, View, Window menus)
@@ -156,25 +249,42 @@ fn main() {
         };
 
         cx.open_window(options, |window, cx| {
-            // Spawn terminal (PTY, I/O wiring, resize handler, output batching)
+            // Spawn initial terminal (PTY, I/O wiring)
             let spawned = terminal::spawn_terminal(window, cx);
+            let terminal_focus_handle = spawned.focus_handle.clone();
 
             // Create GitProvider for the current working directory
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-            let git_provider = git::GitProvider::new(cwd);
+            let git_provider = git::GitProvider::new(cwd.clone());
 
             // Request initial branch status and commit log
             git_provider.request_status();
             git_provider.request_log(200);
 
+            // Create PaneContainer with the initial terminal
+            let pane_container = cx.new(|_| PaneContainer::new(spawned, cwd));
+
+            // Start the initial pane's batch loop: extract stdout_rx and view
+            // from PaneContainer, then start the loop outside the update closure
+            // to avoid borrow conflicts.
+            let batch_loop_data = pane_container.update(cx, |container, _cx| {
+                if let Some(pane) = container.pane_mut(0) {
+                    if let Some(stdout_rx) = pane.stdout_rx.take() {
+                        return Some((stdout_rx, pane.view.clone()));
+                    }
+                }
+                None
+            });
+            if let Some((stdout_rx, view)) = batch_loop_data {
+                PaneContainer::start_batch_loop(stdout_rx, view, window, cx);
+            }
+
             // Create CodeReviewPanel entity
             let code_review_panel = cx.new(|_| code_review::CodeReviewPanel::new());
 
             // Create AdeWindow entity
-            let terminal_focus_handle = spawned.focus_handle;
             let window_entity = cx.new(|cx| AdeWindow {
-                terminal_view: spawned.view,
-                stdin_tx: spawned.stdin_tx,
+                pane_container: pane_container.clone(),
                 mode: Mode::Terminal,
                 branch_status: git::BranchStatus {
                     branch_name: "loading...".to_string(),
@@ -183,8 +293,29 @@ fn main() {
                 git_provider,
                 code_review_panel,
                 focus_handle: cx.focus_handle(),
-                terminal_focus_handle,
             });
+
+            // Set up window resize observer for pane resizing
+            let pane_container_for_resize = pane_container.clone();
+            let resize_subscription = window_entity.update(cx, |_this, cx| {
+                cx.observe_window_bounds(
+                    window,
+                    move |_this: &mut AdeWindow,
+                          window: &mut Window,
+                          cx: &mut Context<AdeWindow>| {
+                        let size = window.viewport_size();
+                        let width = f32::from(size.width);
+                        let height = f32::from(size.height);
+                        pane_container_for_resize.update(cx, |container, cx| {
+                            container.resize_all(width, height, window, cx);
+                        });
+                    },
+                )
+            });
+            resize_subscription.detach();
+
+            // Focus the initial terminal
+            terminal_focus_handle.focus(window, cx);
 
             // Poll for git responses every 100ms
             let window_entity_for_poll = window_entity.clone();
