@@ -1,3 +1,4 @@
+pub mod divider;
 pub mod tree;
 
 use std::collections::HashMap;
@@ -5,8 +6,8 @@ use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use gpui::{
-    self, AnyElement, App, Context, SharedString, Styled, Window, div, prelude::*, px, relative,
-    rgba,
+    self, AnyElement, App, Context, MouseButton, SharedString, Styled, Window, div, prelude::*, px,
+    relative,
 };
 use gpui_ghostty_terminal::view::TerminalView;
 use portable_pty::PtySize;
@@ -31,6 +32,8 @@ pub struct PaneContainer {
     panes: HashMap<PaneId, PaneState>,
     active_pane_id: PaneId,
     next_id: PaneId,
+    /// Tracks an active divider drag operation (set on mouse_down, cleared on mouse_up).
+    pub dragging_divider: Option<divider::DividerDrag>,
 }
 
 impl PaneContainer {
@@ -54,6 +57,7 @@ impl PaneContainer {
             panes,
             active_pane_id: pane_id,
             next_id: 1,
+            dragging_divider: None,
         }
     }
 
@@ -305,7 +309,8 @@ impl PaneContainer {
                 children,
                 flex_ratios,
             } => {
-                let divider_space = (children.len() as f32 - 1.0).max(0.0);
+                // Each divider is 8px wide (hit area), not 1px
+                let divider_space = (children.len() as f32 - 1.0).max(0.0) * 8.0;
 
                 for (i, child) in children.iter().enumerate() {
                     let ratio = flex_ratios
@@ -328,99 +333,114 @@ impl PaneContainer {
         }
     }
 
-    /// Render the pane tree recursively into GPUI elements.
-    fn render_tree(&self, node: &PaneTree) -> AnyElement {
-        match node {
-            PaneTree::Leaf(id) => {
-                let is_active = *id == self.active_pane_id;
-                if let Some(pane) = self.panes.get(id) {
-                    div()
-                        .flex_1()
-                        .size_full()
-                        .opacity(if is_active { 1.0 } else { 0.95 })
-                        .text_size(px(14.0))
-                        .p(px(4.0))
-                        .child(pane.view.clone())
-                        .into_any_element()
-                } else {
-                    // Fallback: empty div for missing pane
-                    div().flex_1().size_full().into_any_element()
-                }
-            }
-            PaneTree::Branch {
-                direction,
-                children,
-                flex_ratios,
-            } => {
-                let is_vertical = *direction == SplitDirection::Vertical;
-                let mut container = div().flex_1().size_full().flex();
-
-                if is_vertical {
-                    container = container.flex_row();
-                } else {
-                    container = container.flex_col();
-                }
-
-                for (i, child) in children.iter().enumerate() {
-                    // Add divider before each child except the first
-                    if i > 0 {
-                        let divider = if is_vertical {
-                            div()
-                                .flex_shrink_0()
-                                .w(px(1.0))
-                                .h_full()
-                                .bg(rgba(0x333333ff))
-                        } else {
-                            div()
-                                .flex_shrink_0()
-                                .h(px(1.0))
-                                .w_full()
-                                .bg(rgba(0x333333ff))
-                        };
-                        container = container.child(divider);
-                    }
-
-                    // Add child with proportional sizing via flex_basis
-                    let ratio = flex_ratios
-                        .get(i)
-                        .copied()
-                        .unwrap_or(1.0 / children.len() as f32);
-                    let child_element = self.render_tree(child);
-
-                    // Wrap child in a div with flex_basis(relative(ratio)) for proportional sizing
-                    let wrapper = div()
-                        .flex_basis(relative(ratio))
-                        .flex_grow()
-                        .flex_shrink()
-                        .size_full()
-                        .child(child_element);
-
-                    container = container.child(wrapper);
-                }
-
-                container.into_any_element()
-            }
-        }
-    }
 }
 
 impl Render for PaneContainer {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        // We can borrow self immutably in render_tree since Render gives us &mut self
-        // and render_tree takes &self. We need to reborrow.
-        let tree_ref = &self.tree;
-        // Build the element tree - this works because render_tree only needs &self
-        // for reading panes and tree.
-        render_tree_standalone(tree_ref, &self.panes, self.active_pane_id)
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let weak = cx.weak_entity();
+        let tree_element =
+            render_tree_standalone(&self.tree, &self.panes, self.active_pane_id, weak.clone());
+
+        // Clone for move into mouse_move closure
+        let weak_move = weak.clone();
+        let weak_up = weak;
+
+        div()
+            .size_full()
+            .on_mouse_move(
+                move |event: &gpui::MouseMoveEvent,
+                      window: &mut gpui::Window,
+                      cx: &mut gpui::App| {
+                    // Read viewport size before borrowing through weak entity
+                    let viewport_size = window.viewport_size();
+                    let pos_x = f32::from(event.position.x);
+                    let pos_y = f32::from(event.position.y);
+
+                    weak_move
+                        .update(cx, |container, cx| {
+                            if let Some(ref drag) = container.dragging_divider {
+                                let current_pos = match drag.direction {
+                                    SplitDirection::Vertical => pos_x,
+                                    SplitDirection::Horizontal => pos_y,
+                                };
+
+                                let total_dim = match drag.direction {
+                                    SplitDirection::Vertical => f32::from(viewport_size.width),
+                                    SplitDirection::Horizontal => f32::from(viewport_size.height),
+                                };
+
+                                if total_dim < 1.0 {
+                                    return;
+                                }
+
+                                // Pixel delta from drag start
+                                let pixel_delta = current_pos - drag.start_pos;
+                                // Convert pixel delta to ratio delta
+                                let ratio_delta = pixel_delta / total_dim;
+
+                                // Compute new ratios for the two adjacent children
+                                let ci = drag.child_index;
+                                if ci + 1 < drag.start_ratios.len() {
+                                    let left = (drag.start_ratios[ci] + ratio_delta)
+                                        .clamp(0.1, drag.start_ratios[ci] + drag.start_ratios[ci + 1] - 0.1);
+
+                                    // Apply via tree's update_flex_ratio
+                                    // tree_delta = how much to subtract from left child
+                                    let tree_delta = drag.start_ratios[ci] - left;
+                                    container
+                                        .tree
+                                        .update_flex_ratio(&drag.branch_path, ci, tree_delta);
+                                }
+                                // Re-render layout but skip PTY resize (debounce per Pitfall 1)
+                                cx.notify();
+                            }
+                        })
+                        .ok();
+                },
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                move |_event: &gpui::MouseUpEvent,
+                      window: &mut gpui::Window,
+                      cx: &mut gpui::App| {
+                    let size = window.viewport_size();
+                    let width = f32::from(size.width);
+                    let height = f32::from(size.height);
+                    weak_up
+                        .update(cx, |container, cx| {
+                            if container.dragging_divider.take().is_some() {
+                                // Finalize: trigger PTY resize for all panes
+                                // (debounced per Pitfall 1 -- only on mouse_up)
+                                container.resize_all(width, height, window, cx);
+                                cx.notify();
+                            }
+                        })
+                        .ok();
+                },
+            )
+            .child(tree_element)
     }
 }
 
 /// Standalone tree rendering function that takes separate borrows to avoid
 /// borrow checker conflicts in the Render impl.
+///
+/// `branch_path` tracks the path from the root to the current node for divider identity.
 fn render_tree_standalone(
     node: &PaneTree,
     panes: &HashMap<PaneId, PaneState>,
     active_pane_id: PaneId,
+    weak: gpui::WeakEntity<PaneContainer>,
+) -> AnyElement {
+    render_tree_recursive(node, panes, active_pane_id, weak, &[])
+}
+
+fn render_tree_recursive(
+    node: &PaneTree,
+    panes: &HashMap<PaneId, PaneState>,
+    active_pane_id: PaneId,
+    weak: gpui::WeakEntity<PaneContainer>,
+    branch_path: &[usize],
 ) -> AnyElement {
     match node {
         PaneTree::Leaf(id) => {
@@ -454,27 +474,28 @@ fn render_tree_standalone(
 
             for (i, child) in children.iter().enumerate() {
                 if i > 0 {
-                    let divider = if is_vertical {
-                        div()
-                            .flex_shrink_0()
-                            .w(px(1.0))
-                            .h_full()
-                            .bg(rgba(0x333333ff))
-                    } else {
-                        div()
-                            .flex_shrink_0()
-                            .h(px(1.0))
-                            .w_full()
-                            .bg(rgba(0x333333ff))
-                    };
-                    container = container.child(divider);
+                    // Use the interactive draggable divider instead of a static 1px div
+                    let divider_element = divider::render_divider(
+                        *direction,
+                        branch_path.to_vec(),
+                        i - 1, // divider between child i-1 and child i
+                        flex_ratios.clone(),
+                        weak.clone(),
+                    );
+                    container = container.child(divider_element);
                 }
 
                 let ratio = flex_ratios
                     .get(i)
                     .copied()
                     .unwrap_or(1.0 / children.len() as f32);
-                let child_element = render_tree_standalone(child, panes, active_pane_id);
+
+                // Build child path: current branch_path + child index
+                let mut child_path = branch_path.to_vec();
+                child_path.push(i);
+
+                let child_element =
+                    render_tree_recursive(child, panes, active_pane_id, weak.clone(), &child_path);
 
                 let wrapper = div()
                     .flex_basis(relative(ratio))
