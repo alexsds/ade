@@ -25,6 +25,243 @@ pub enum CloseResult {
     NotFound,
 }
 
+/// Minimum flex ratio for any pane (prevents invisible panes).
+const MIN_FLEX_RATIO: f32 = 0.1;
+
+impl PaneTree {
+    /// Split a leaf pane, creating a new sibling pane.
+    ///
+    /// If the target leaf's parent branch has the same direction, the new pane is
+    /// inserted as a sibling (flat). If the direction differs, a new nested branch
+    /// is created.
+    ///
+    /// When splitting a root leaf, a new branch is always created.
+    pub fn split(&mut self, target: PaneId, new_id: PaneId, direction: SplitDirection) {
+        // Try to split within an existing branch first (same-direction optimization).
+        // If that succeeds, we're done.
+        if self.split_in_branch(target, new_id, direction) {
+            return;
+        }
+
+        // Otherwise, handle the case where self is the target leaf directly.
+        if let PaneTree::Leaf(id) = self {
+            if *id == target {
+                let old_leaf = PaneTree::Leaf(target);
+                let new_leaf = PaneTree::Leaf(new_id);
+                *self = PaneTree::Branch {
+                    direction,
+                    children: vec![old_leaf, new_leaf],
+                    flex_ratios: vec![0.5, 0.5],
+                };
+            }
+        }
+    }
+
+    /// Try to split within a branch, handling same-direction sibling insertion.
+    /// Returns true if the split was handled.
+    fn split_in_branch(
+        &mut self,
+        target: PaneId,
+        new_id: PaneId,
+        direction: SplitDirection,
+    ) -> bool {
+        if let PaneTree::Branch {
+            direction: branch_dir,
+            children,
+            flex_ratios,
+        } = self
+        {
+            // Check if any direct child is the target leaf
+            for i in 0..children.len() {
+                if let PaneTree::Leaf(id) = &children[i] {
+                    if *id == target {
+                        if *branch_dir == direction {
+                            // Same direction: insert as sibling right after the target
+                            children.insert(i + 1, PaneTree::Leaf(new_id));
+                            // Redistribute ratios equally
+                            let count = children.len();
+                            let equal = 1.0 / count as f32;
+                            *flex_ratios = vec![equal; count];
+                        } else {
+                            // Different direction: replace the leaf with a nested branch
+                            let old_leaf = PaneTree::Leaf(target);
+                            let new_leaf = PaneTree::Leaf(new_id);
+                            children[i] = PaneTree::Branch {
+                                direction,
+                                children: vec![old_leaf, new_leaf],
+                                flex_ratios: vec![0.5, 0.5],
+                            };
+                        }
+                        return true;
+                    }
+                }
+            }
+
+            // Recurse into child branches
+            for child in children.iter_mut() {
+                if child.split_in_branch(target, new_id, direction) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Close (remove) a pane from the tree.
+    ///
+    /// Returns `CloseResult::Removed` if the pane was found and removed,
+    /// `CloseResult::LastPane` if it was the last remaining pane,
+    /// or `CloseResult::NotFound` if the target pane doesn't exist.
+    pub fn close(&mut self, target: PaneId) -> CloseResult {
+        // Handle root leaf case
+        if let PaneTree::Leaf(id) = self {
+            if *id == target {
+                return CloseResult::LastPane;
+            } else {
+                return CloseResult::NotFound;
+            }
+        }
+
+        // Try to remove from branch
+        if self.remove_from_branch(target) {
+            // After removal, collapse single-child branches at the root
+            self.collapse_single_child();
+            CloseResult::Removed
+        } else {
+            CloseResult::NotFound
+        }
+    }
+
+    /// Remove a leaf from a branch, returning true if found and removed.
+    fn remove_from_branch(&mut self, target: PaneId) -> bool {
+        if let PaneTree::Branch {
+            children,
+            flex_ratios,
+            ..
+        } = self
+        {
+            // Check direct children
+            for i in 0..children.len() {
+                if let PaneTree::Leaf(id) = &children[i] {
+                    if *id == target {
+                        children.remove(i);
+                        // Redistribute ratios equally
+                        let count = children.len();
+                        let equal = 1.0 / count as f32;
+                        *flex_ratios = vec![equal; count];
+                        return true;
+                    }
+                }
+            }
+
+            // Recurse into child branches
+            for child in children.iter_mut() {
+                if child.remove_from_branch(target) {
+                    child.collapse_single_child();
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// If this node is a branch with exactly one child, replace self with that child.
+    fn collapse_single_child(&mut self) {
+        let should_collapse = matches!(
+            self,
+            PaneTree::Branch { children, .. } if children.len() == 1
+        );
+        if should_collapse {
+            if let PaneTree::Branch { mut children, .. } =
+                std::mem::replace(self, PaneTree::Leaf(0))
+            {
+                *self = children.remove(0);
+            }
+        }
+    }
+
+    /// Collect all leaf PaneIds in depth-first left-to-right order.
+    pub fn flatten(&self) -> Vec<PaneId> {
+        match self {
+            PaneTree::Leaf(id) => vec![*id],
+            PaneTree::Branch { children, .. } => {
+                children.iter().flat_map(|c| c.flatten()).collect()
+            }
+        }
+    }
+
+    /// Return the next pane in flatten order, wrapping from last to first.
+    pub fn next_pane(&self, current: PaneId) -> PaneId {
+        let ids = self.flatten();
+        let pos = ids.iter().position(|&id| id == current).unwrap_or(0);
+        ids[(pos + 1) % ids.len()]
+    }
+
+    /// Return the previous pane in flatten order, wrapping from first to last.
+    pub fn prev_pane(&self, current: PaneId) -> PaneId {
+        let ids = self.flatten();
+        let pos = ids.iter().position(|&id| id == current).unwrap_or(0);
+        if pos == 0 {
+            ids[ids.len() - 1]
+        } else {
+            ids[pos - 1]
+        }
+    }
+
+    /// Returns true if the given PaneId exists as a leaf in the tree.
+    pub fn find(&self, target: PaneId) -> bool {
+        match self {
+            PaneTree::Leaf(id) => *id == target,
+            PaneTree::Branch { children, .. } => children.iter().any(|c| c.find(target)),
+        }
+    }
+
+    /// Adjust flex ratios for a branch at the given path.
+    ///
+    /// `branch_path` is a series of child indices leading to the target branch.
+    /// An empty path means the root node. `delta` is shifted from `child_index`
+    /// to `child_index + 1`. Minimum ratio is clamped at `MIN_FLEX_RATIO`.
+    pub fn update_flex_ratio(&mut self, branch_path: &[usize], child_index: usize, delta: f32) {
+        let node = self.node_at_path(branch_path);
+
+        if let Some(PaneTree::Branch { flex_ratios, .. }) = node {
+            if child_index + 1 < flex_ratios.len() {
+                let mut left = flex_ratios[child_index] - delta;
+                let mut right = flex_ratios[child_index + 1] + delta;
+
+                // Clamp minimums
+                if left < MIN_FLEX_RATIO {
+                    let correction = MIN_FLEX_RATIO - left;
+                    left = MIN_FLEX_RATIO;
+                    right -= correction;
+                }
+                if right < MIN_FLEX_RATIO {
+                    let correction = MIN_FLEX_RATIO - right;
+                    right = MIN_FLEX_RATIO;
+                    left -= correction;
+                }
+
+                flex_ratios[child_index] = left;
+                flex_ratios[child_index + 1] = right;
+            }
+        }
+    }
+
+    /// Navigate to a node at the given path of child indices.
+    fn node_at_path(&mut self, path: &[usize]) -> Option<&mut PaneTree> {
+        if path.is_empty() {
+            return Some(self);
+        }
+
+        if let PaneTree::Branch { children, .. } = self {
+            if path[0] < children.len() {
+                return children[path[0]].node_at_path(&path[1..]);
+            }
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

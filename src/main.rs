@@ -10,8 +10,8 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use gpui::{
-    actions, div, prelude::*, px, size, App, Application, Bounds, KeyBinding, Styled,
-    TitlebarOptions, Window, WindowBounds, WindowOptions,
+    App, Application, Bounds, KeyBinding, Styled, TitlebarOptions, Window, WindowBounds,
+    WindowOptions, actions, div, prelude::*, px, size,
 };
 use gpui_ghostty_terminal::view::Copy;
 
@@ -114,7 +114,9 @@ impl Render for AdeWindow {
                     .flex_1()
                     .size_full()
                     .when(self.mode == Mode::Terminal, |d| {
-                        d.p(px(4.0)).text_size(px(14.0)).child(self.terminal_view.clone())
+                        d.p(px(4.0))
+                            .text_size(px(14.0))
+                            .child(self.terminal_view.clone())
                     })
                     .when(self.mode == Mode::CodeReview, |d| {
                         d.child(self.code_review_panel.clone())
@@ -220,7 +222,11 @@ fn main() {
                                     }
 
                                     // Check if CodeReviewPanel wants a diff fetched
-                                    let pending = this.code_review_panel.read(cx).pending_diff_request.clone();
+                                    let pending = this
+                                        .code_review_panel
+                                        .read(cx)
+                                        .pending_diff_request
+                                        .clone();
                                     if let Some(oid) = pending {
                                         this.git_provider.request_diff(&oid);
                                         this.code_review_panel.update(cx, |panel, _cx| {
