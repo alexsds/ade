@@ -494,18 +494,21 @@ fn render_tree_recursive(
                 let child_element =
                     render_tree_recursive(child, panes, active_pane_id, weak.clone(), &child_path);
 
-                // Only set cross-axis to full — main axis is controlled by flex_basis.
-                // size_full() conflicts with flex_basis in column layouts (both set height).
-                let mut wrapper = div()
-                    .flex_basis(relative(ratio))
-                    .flex_grow()
-                    .flex_shrink();
-                if is_vertical {
-                    wrapper = wrapper.h_full(); // cross-axis for row layout
+                // Use explicit percentage sizing instead of flex_basis — more
+                // reliable across both row and column layouts in GPUI.
+                let wrapper = if is_vertical {
+                    div()
+                        .w(relative(ratio))
+                        .h_full()
+                        .overflow_hidden()
+                        .child(child_element)
                 } else {
-                    wrapper = wrapper.w_full(); // cross-axis for column layout
-                }
-                let wrapper = wrapper.child(child_element);
+                    div()
+                        .h(relative(ratio))
+                        .w_full()
+                        .overflow_hidden()
+                        .child(child_element)
+                };
 
                 container = container.child(wrapper);
             }
