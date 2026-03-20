@@ -2,6 +2,7 @@ mod code_review;
 mod git;
 mod input;
 mod menu;
+mod panes;
 mod terminal;
 mod toolbar;
 
