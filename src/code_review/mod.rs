@@ -25,6 +25,12 @@ pub struct CodeReviewPanel {
     pub pending_diff_request: Option<String>,
     /// Shared syntax highlighting resources (created once, reused for all diffs)
     syntax_highlighter: diff_view::SyntaxHighlighter,
+    /// True while a FetchMoreLog request is in flight (prevents duplicate requests)
+    pub loading_more: bool,
+    /// True when the revwalk has reached the end of history (no more batches)
+    pub all_commits_loaded: bool,
+    /// Tracks the end index of the visible range in the commit list (for near-bottom detection)
+    pub visible_range_end: usize,
 }
 
 impl CodeReviewPanel {
@@ -39,10 +45,14 @@ impl CodeReviewPanel {
             loading: true,
             pending_diff_request: None,
             syntax_highlighter: diff_view::SyntaxHighlighter::new(),
+            loading_more: false,
+            all_commits_loaded: false,
+            visible_range_end: 0,
         }
     }
 
     /// Set the commit list (from GitResponse::Log). Clears selection and loading flag.
+    /// Resets all incremental loading state for a fresh load.
     pub fn set_commits(&mut self, commits: Vec<CommitInfo>) {
         self.commits = commits;
         self.selected_commit_index = None;
@@ -50,6 +60,10 @@ impl CodeReviewPanel {
         self.selected_file_index = None;
         self.diff_data = None;
         self.loading = false;
+        // Reset incremental loading state on fresh load
+        self.loading_more = false;
+        self.all_commits_loaded = false;
+        self.visible_range_end = 0;
     }
 
     /// Set the diff data (from GitResponse::Diff). Populates the file list.
@@ -61,8 +75,19 @@ impl CodeReviewPanel {
 
     /// Append incrementally loaded commits to the existing list.
     /// Does NOT reset selection, files, or diff state.
-    pub fn append_commits(&mut self, new_commits: Vec<CommitInfo>, _exhausted: bool) {
-        self.commits.extend(new_commits);
+    pub fn append_commits(&mut self, new_commits: Vec<CommitInfo>, exhausted: bool) {
+        if new_commits.is_empty() {
+            self.all_commits_loaded = true;
+        } else {
+            self.commits.extend(new_commits);
+        }
+        self.loading_more = false;
+        self.all_commits_loaded = self.all_commits_loaded || exhausted;
+    }
+
+    /// Return the number of commits currently loaded.
+    pub fn commits_len(&self) -> usize {
+        self.commits.len()
     }
 
     /// Select a commit by index. Sets pending_diff_request for the parent to pick up.
@@ -332,5 +357,104 @@ mod tests {
         let mut panel = CodeReviewPanel::new();
         panel.selected_file_index = Some(0);
         assert!(panel.selected_file_diff().is_none());
+    }
+
+    /// Helper to create a CommitInfo with a given index for testing.
+    fn make_commit(i: usize) -> CommitInfo {
+        CommitInfo {
+            oid: format!("oid{}", i),
+            summary: format!("Commit {}", i),
+            body: None,
+            author_name: "A".into(),
+            author_email: "a@b".into(),
+            time_seconds: 1000 - i as i64,
+            time_offset: 0,
+            decorations: vec![],
+        }
+    }
+
+    #[test]
+    fn test_append_preserves_selection() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(1);
+        assert_eq!(panel.selected_commit_index, Some(1));
+
+        let more: Vec<CommitInfo> = (3..5).map(make_commit).collect();
+        panel.append_commits(more, false);
+        assert_eq!(panel.selected_commit_index, Some(1));
+        assert_eq!(panel.commits.len(), 5);
+        assert!(!panel.loading_more);
+        assert!(!panel.all_commits_loaded);
+    }
+
+    #[test]
+    fn test_append_marks_exhausted() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..2).map(make_commit).collect();
+        panel.set_commits(commits);
+
+        panel.append_commits(vec![], true);
+        assert!(panel.all_commits_loaded);
+        assert!(!panel.loading_more);
+        assert_eq!(panel.commits.len(), 2);
+    }
+
+    #[test]
+    fn test_append_does_not_clear_diff() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(0);
+
+        // Set diff data
+        let diff_data = DiffData {
+            files: vec![FileChange {
+                path: "test.rs".into(),
+                status_char: 'M',
+                additions: 5,
+                deletions: 2,
+            }],
+            file_diffs: vec![FileDiff {
+                path: "test.rs".into(),
+                additions: 5,
+                deletions: 2,
+                hunks: vec![],
+            }],
+        };
+        panel.set_diff(diff_data);
+        panel.select_file(0);
+
+        // Now append commits -- should NOT clear diff state
+        let more: Vec<CommitInfo> = (3..5).map(make_commit).collect();
+        panel.append_commits(more, false);
+
+        assert!(panel.diff_data.is_some(), "diff_data should be preserved");
+        assert!(!panel.files.is_empty(), "files should be preserved");
+        assert_eq!(
+            panel.selected_file_index,
+            Some(0),
+            "selected_file_index should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_set_commits_resets_incremental_state() {
+        let mut panel = CodeReviewPanel::new();
+        // Simulate some incremental loading state
+        panel.loading_more = true;
+        panel.all_commits_loaded = true;
+        panel.visible_range_end = 42;
+
+        let commits: Vec<CommitInfo> = (0..2).map(make_commit).collect();
+        panel.set_commits(commits);
+
+        assert!(!panel.loading_more, "loading_more should be reset");
+        assert!(
+            !panel.all_commits_loaded,
+            "all_commits_loaded should be reset"
+        );
+        assert_eq!(panel.visible_range_end, 0, "visible_range_end should be reset");
     }
 }
