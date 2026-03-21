@@ -10,6 +10,7 @@ dependencies = [
  "git2",
  "gpui",
  "gpui_ghostty_terminal",
+ "libc",
  "portable-pty",
  "syntect",
  "tempfile",
