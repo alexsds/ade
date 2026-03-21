@@ -597,6 +597,12 @@ fn main() {
                                                 });
                                                 cx.notify();
                                             }
+                                            git::GitResponse::MoreLog { commits, exhausted } => {
+                                                this.code_review_panel.update(cx, |panel, _cx| {
+                                                    panel.append_commits(commits, exhausted);
+                                                });
+                                                cx.notify();
+                                            }
                                             git::GitResponse::Error(msg) => {
                                                 eprintln!("Git error: {}", msg);
                                             }

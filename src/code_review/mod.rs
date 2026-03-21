@@ -59,6 +59,12 @@ impl CodeReviewPanel {
         self.diff_data = Some(diff);
     }
 
+    /// Append incrementally loaded commits to the existing list.
+    /// Does NOT reset selection, files, or diff state.
+    pub fn append_commits(&mut self, new_commits: Vec<CommitInfo>, _exhausted: bool) {
+        self.commits.extend(new_commits);
+    }
+
     /// Select a commit by index. Sets pending_diff_request for the parent to pick up.
     pub fn select_commit(&mut self, index: usize) {
         if index < self.commits.len() {

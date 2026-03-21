@@ -11,6 +11,7 @@ use super::types::*;
 /// Requests that can be sent to the git background thread.
 pub enum GitRequest {
     FetchLog { count: usize },
+    FetchMoreLog { batch_size: usize },
     FetchDiff { commit_oid: String },
     FetchStatus,
 }
@@ -18,6 +19,10 @@ pub enum GitRequest {
 /// Responses from the git background thread.
 pub enum GitResponse {
     Log(Vec<CommitInfo>),
+    MoreLog {
+        commits: Vec<CommitInfo>,
+        exhausted: bool,
+    },
     Diff(DiffData),
     Status(BranchStatus),
     Error(String),
@@ -55,13 +60,50 @@ impl GitProvider {
                 }
             };
 
+            let mut active_revwalk: Option<git2::Revwalk<'_>> = None;
+            let mut revwalk_exhausted = false;
+
             while let Ok(request) = request_rx.recv() {
-                let decorations = build_decoration_map(&repo);
                 let response = match request {
                     GitRequest::FetchLog { count } => {
-                        match walk_commits(&repo, count, &decorations) {
-                            Ok(commits) => GitResponse::Log(commits),
+                        // Fresh load: reset revwalk state
+                        active_revwalk = None;
+                        revwalk_exhausted = false;
+                        let decorations = build_decoration_map(&repo);
+                        match repo.revwalk() {
+                            Ok(mut revwalk) => {
+                                revwalk.push_head().ok();
+                                revwalk.set_sorting(Sort::TIME).ok();
+                                let commits =
+                                    collect_batch(&repo, &mut revwalk, count, &decorations);
+                                revwalk_exhausted = commits.len() < count;
+                                active_revwalk = Some(revwalk);
+                                GitResponse::Log(commits)
+                            }
                             Err(e) => GitResponse::Error(e.to_string()),
+                        }
+                    }
+                    GitRequest::FetchMoreLog { batch_size } => {
+                        if revwalk_exhausted {
+                            GitResponse::MoreLog {
+                                commits: vec![],
+                                exhausted: true,
+                            }
+                        } else {
+                            let decorations = build_decoration_map(&repo);
+                            match active_revwalk.as_mut() {
+                                Some(revwalk) => {
+                                    let commits =
+                                        collect_batch(&repo, revwalk, batch_size, &decorations);
+                                    let exhausted = commits.len() < batch_size;
+                                    revwalk_exhausted = exhausted;
+                                    GitResponse::MoreLog { commits, exhausted }
+                                }
+                                None => GitResponse::MoreLog {
+                                    commits: vec![],
+                                    exhausted: true,
+                                },
+                            }
                         }
                     }
                     GitRequest::FetchDiff { commit_oid } => match Oid::from_str(&commit_oid) {
@@ -107,6 +149,11 @@ impl GitProvider {
         let _ = self.request_tx.send(GitRequest::FetchStatus);
     }
 
+    /// Request more commits from the persistent revwalk (incremental batch).
+    pub fn request_more_log(&self, batch_size: usize) {
+        let _ = self.request_tx.send(GitRequest::FetchMoreLog { batch_size });
+    }
+
     /// Non-blocking poll for responses from the background thread.
     pub fn try_recv(&self) -> Option<GitResponse> {
         self.response_rx.try_recv().ok()
@@ -117,6 +164,46 @@ impl GitProvider {
 // ---------------------------------------------------------------------------
 // Background thread helper functions
 // ---------------------------------------------------------------------------
+
+/// Collect up to `count` commits from a revwalk iterator.
+///
+/// Uses a manual counter loop (not `.take()`) to avoid borrow issues with
+/// the mutable revwalk reference. The revwalk position advances in-place,
+/// so subsequent calls continue from where the previous call left off.
+fn collect_batch(
+    repo: &Repository,
+    revwalk: &mut git2::Revwalk<'_>,
+    count: usize,
+    decorations: &HashMap<Oid, Vec<Decoration>>,
+) -> Vec<CommitInfo> {
+    let mut commits = Vec::with_capacity(count);
+    let mut collected = 0;
+    while collected < count {
+        match revwalk.next() {
+            Some(Ok(oid)) => {
+                if let Ok(commit) = repo.find_commit(oid) {
+                    let author = commit.author();
+                    let time = commit.time();
+                    let commit_decorations = decorations.get(&oid).cloned().unwrap_or_default();
+                    commits.push(CommitInfo {
+                        oid: oid.to_string(),
+                        summary: commit.summary().unwrap_or("").to_string(),
+                        body: commit.body().map(|b| b.to_string()),
+                        author_name: author.name().unwrap_or("").to_string(),
+                        author_email: author.email().unwrap_or("").to_string(),
+                        time_seconds: time.seconds(),
+                        time_offset: time.offset_minutes(),
+                        decorations: commit_decorations,
+                    });
+                    collected += 1;
+                }
+            }
+            Some(Err(_)) => continue, // skip unreadable OIDs
+            None => break,            // end of history
+        }
+    }
+    commits
+}
 
 /// Walk up to `count` commits from HEAD, newest first.
 fn walk_commits(
@@ -538,5 +625,128 @@ mod tests {
                 .any(|d| matches!(d, Decoration::Branch { name } if name == "feature"))
         });
         assert!(has_feature, "Should find 'feature' branch decoration");
+    }
+
+    /// Create a temporary git repository with `n` commits.
+    fn create_test_repo_with_n_commits(n: usize) -> (tempfile::TempDir, Repository) {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let repo = Repository::init(dir.path()).expect("init repo");
+
+        let mut config = repo.config().expect("get config");
+        config
+            .set_str("user.name", "Test Author")
+            .expect("set name");
+        config
+            .set_str("user.email", "test@example.com")
+            .expect("set email");
+
+        for i in 0..n {
+            let file_path = dir.path().join("file.txt");
+            fs::write(&file_path, format!("content {}\n", i)).expect("write");
+            add_and_commit(&repo, dir.path(), &format!("Commit {}", i));
+        }
+
+        (dir, repo)
+    }
+
+    #[test]
+    fn test_collect_batch() {
+        let (_dir, repo) = create_test_repo();
+        let decorations = build_decoration_map(&repo);
+        let mut revwalk = repo.revwalk().expect("create revwalk");
+        revwalk.push_head().expect("push head");
+        revwalk.set_sorting(Sort::TIME).expect("set sorting");
+
+        let commits = collect_batch(&repo, &mut revwalk, 10, &decorations);
+
+        assert_eq!(commits.len(), 2, "Expected 2 commits from 2-commit repo");
+        // Most recent first (TIME sorting)
+        assert_eq!(commits[0].summary, "Add line 2");
+        assert_eq!(commits[1].summary, "Initial commit");
+    }
+
+    #[test]
+    fn test_incremental_batch() {
+        let (_dir, repo) = create_test_repo_with_n_commits(5);
+        let decorations = build_decoration_map(&repo);
+        let mut revwalk = repo.revwalk().expect("create revwalk");
+        revwalk.push_head().expect("push head");
+        revwalk.set_sorting(Sort::TIME).expect("set sorting");
+
+        // First batch: 2 commits
+        let batch1 = collect_batch(&repo, &mut revwalk, 2, &decorations);
+        assert_eq!(batch1.len(), 2, "First batch should have 2 commits");
+
+        // Second batch: next 2 commits (continues from where we left off)
+        let batch2 = collect_batch(&repo, &mut revwalk, 2, &decorations);
+        assert_eq!(batch2.len(), 2, "Second batch should have 2 commits");
+
+        // Third batch: remaining 1 commit
+        let batch3 = collect_batch(&repo, &mut revwalk, 2, &decorations);
+        assert_eq!(batch3.len(), 1, "Third batch should have 1 remaining commit");
+
+        // No overlap between any batches
+        let all_oids: Vec<String> = batch1
+            .iter()
+            .chain(batch2.iter())
+            .chain(batch3.iter())
+            .map(|c| c.oid.clone())
+            .collect();
+        let unique_oids: std::collections::HashSet<&str> =
+            all_oids.iter().map(|s| s.as_str()).collect();
+        assert_eq!(
+            all_oids.len(),
+            unique_oids.len(),
+            "No duplicate OIDs across batches"
+        );
+
+        // All 5 commits should be covered
+        assert_eq!(
+            all_oids.len(),
+            5,
+            "All 5 commits should be yielded across batches"
+        );
+    }
+
+    #[test]
+    fn test_batch_exhaustion() {
+        let (_dir, repo) = create_test_repo();
+        let decorations = build_decoration_map(&repo);
+        let mut revwalk = repo.revwalk().expect("create revwalk");
+        revwalk.push_head().expect("push head");
+        revwalk.set_sorting(Sort::TIME).expect("set sorting");
+
+        let commits = collect_batch(&repo, &mut revwalk, 10, &decorations);
+
+        assert_eq!(commits.len(), 2, "Should return 2 commits from 2-commit repo");
+        assert!(
+            commits.len() < 10,
+            "Returned fewer than requested signals exhaustion"
+        );
+    }
+
+    #[test]
+    fn test_request_more_log_method() {
+        let (_dir, repo) = create_test_repo();
+        let repo_path = repo.workdir().expect("workdir").to_path_buf();
+        let provider = GitProvider::new(repo_path);
+
+        // Should not panic -- just sends a request
+        provider.request_more_log(500);
+
+        // Give background thread time to process
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        // Should receive a MoreLog response (since no revwalk was initialized
+        // by FetchLog first, it should return exhausted=true)
+        if let Some(response) = provider.try_recv() {
+            match response {
+                GitResponse::MoreLog { commits, exhausted } => {
+                    assert!(exhausted, "Should be exhausted with no active revwalk");
+                    assert!(commits.is_empty(), "Should have no commits");
+                }
+                _ => panic!("Expected MoreLog response"),
+            }
+        }
     }
 }
