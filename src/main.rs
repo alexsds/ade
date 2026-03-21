@@ -621,6 +621,21 @@ fn main() {
                                             panel.pending_diff_request = None;
                                         });
                                     }
+
+                                    // Check if CodeReviewPanel needs more commits loaded (D-01: seamless infinite scroll)
+                                    let needs_more = {
+                                        let panel = this.code_review_panel.read(cx);
+                                        !panel.loading_more
+                                            && !panel.all_commits_loaded
+                                            && panel.commits_len() > 0
+                                            && panel.visible_range_end + 50 >= panel.commits_len()
+                                    };
+                                    if needs_more {
+                                        this.code_review_panel.update(cx, |p, _| {
+                                            p.loading_more = true;
+                                        });
+                                        this.git_provider.request_more_log(500); // D-02: 500 per incremental batch
+                                    }
                                 });
                             })
                             .ok();
