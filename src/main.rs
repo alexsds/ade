@@ -3,6 +3,7 @@ mod git;
 mod input;
 mod menu;
 mod panes;
+mod tabs;
 mod terminal;
 mod toolbar;
 
