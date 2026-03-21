@@ -42,6 +42,8 @@ pub struct AdeWindow {
     code_review_panel: gpui::Entity<code_review::CodeReviewPanel>,
     /// Focus handle for the AdeWindow (used in Code Review mode for Cmd+G)
     focus_handle: gpui::FocusHandle,
+    /// The CWD that the git provider was last initialized with.
+    current_git_cwd: std::path::PathBuf,
 }
 
 impl AdeWindow {
@@ -172,6 +174,10 @@ impl AdeWindow {
     }
 
     /// Handle the ToggleCodeReview action: switch between Terminal and Code Review modes.
+    ///
+    /// On entering Code Review, detects the active pane's CWD via process
+    /// introspection (D-18). If the CWD is in a different git repository than
+    /// the current GitProvider, replaces the provider and resets the panel (D-16, D-17).
     fn on_toggle_code_review(
         &mut self,
         _: &ToggleCodeReview,
@@ -184,13 +190,51 @@ impl AdeWindow {
         };
         match self.mode {
             Mode::Terminal => {
-                self.active_pane_container()
+                // Re-focus the active pane
+                self.tabs[self.active_tab_index]
+                    .pane_container
                     .read(cx)
                     .active_pane_focus_handle()
                     .clone()
                     .focus(window, cx);
             }
             Mode::CodeReview => {
+                // Detect active pane's CWD via process introspection (D-18)
+                let master_fd = self.tabs[self.active_tab_index]
+                    .pane_container
+                    .read(cx)
+                    .active_master_fd();
+
+                if let Some(fd) = master_fd {
+                    if let Some(pgid) = tabs::process_info::foreground_pgid(fd) {
+                        if let Some(cwd) = tabs::process_info::process_cwd(pgid) {
+                            // Compare repo roots using git2::Repository::discover
+                            // This handles subdirectories of the same repo correctly
+                            let new_repo = git2::Repository::discover(&cwd)
+                                .ok()
+                                .and_then(|r| r.workdir().map(|p| p.to_path_buf()));
+                            let old_repo =
+                                git2::Repository::discover(&self.current_git_cwd)
+                                    .ok()
+                                    .and_then(|r| r.workdir().map(|p| p.to_path_buf()));
+
+                            if new_repo != old_repo {
+                                // Different repo -- replace GitProvider
+                                // Dropping the old provider kills its background thread
+                                // (request_rx.recv() returns Err when request_tx is dropped)
+                                self.current_git_cwd = cwd.clone();
+                                self.git_provider = git::GitProvider::new(cwd);
+                                self.git_provider.request_status();
+                                self.git_provider.request_log(200);
+                                // Reset code review panel to clear old repo data
+                                self.code_review_panel.update(cx, |panel, _| {
+                                    *panel = code_review::CodeReviewPanel::new();
+                                });
+                            }
+                        }
+                    }
+                }
+                // Focus own handle for Cmd+G toggle back
                 self.focus_handle.focus(window, cx);
             }
         }
@@ -458,6 +502,7 @@ fn main() {
 
             // Create GitProvider for the current working directory
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let initial_git_cwd = cwd.clone();
             let git_provider = git::GitProvider::new(cwd.clone());
 
             // Request initial branch status and commit log
@@ -503,6 +548,7 @@ fn main() {
                 git_provider,
                 code_review_panel,
                 focus_handle: cx.focus_handle(),
+                current_git_cwd: initial_git_cwd,
             });
 
             // Set up window resize observer: resize ONLY the active tab (Pitfall 7)

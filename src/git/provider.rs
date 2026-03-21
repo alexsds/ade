@@ -31,6 +31,7 @@ pub enum GitResponse {
 pub struct GitProvider {
     request_tx: mpsc::Sender<GitRequest>,
     response_rx: mpsc::Receiver<GitResponse>,
+    repo_path: PathBuf,
 }
 
 impl GitProvider {
@@ -42,8 +43,9 @@ impl GitProvider {
         let (request_tx, request_rx) = mpsc::channel::<GitRequest>();
         let (response_tx, response_rx) = mpsc::channel::<GitResponse>();
 
+        let repo_path_for_thread = repo_path.clone();
         thread::spawn(move || {
-            let repo = match Repository::discover(&repo_path) {
+            let repo = match Repository::discover(&repo_path_for_thread) {
                 Ok(r) => r,
                 Err(e) => {
                     let _ = response_tx.send(GitResponse::Error(format!(
@@ -86,6 +88,7 @@ impl GitProvider {
         Self {
             request_tx,
             response_rx,
+            repo_path,
         }
     }
 
@@ -109,6 +112,11 @@ impl GitProvider {
     /// Non-blocking poll for responses from the background thread.
     pub fn try_recv(&self) -> Option<GitResponse> {
         self.response_rx.try_recv().ok()
+    }
+
+    /// Returns the repository path this GitProvider was initialized with.
+    pub fn repo_path(&self) -> &PathBuf {
+        &self.repo_path
     }
 }
 
