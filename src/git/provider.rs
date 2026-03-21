@@ -205,38 +205,6 @@ fn collect_batch(
     commits
 }
 
-/// Walk up to `count` commits from HEAD, newest first.
-fn walk_commits(
-    repo: &Repository,
-    count: usize,
-    decorations: &HashMap<Oid, Vec<Decoration>>,
-) -> Result<Vec<CommitInfo>, git2::Error> {
-    let mut revwalk = repo.revwalk()?;
-    revwalk.push_head()?;
-    revwalk.set_sorting(Sort::TIME)?;
-
-    let mut commits = Vec::with_capacity(count);
-    for oid_result in revwalk.take(count) {
-        let oid = oid_result?;
-        let commit = repo.find_commit(oid)?;
-        let author = commit.author();
-        let time = commit.time();
-
-        let commit_decorations = decorations.get(&oid).cloned().unwrap_or_default();
-
-        commits.push(CommitInfo {
-            oid: oid.to_string(),
-            summary: commit.summary().unwrap_or("").to_string(),
-            body: commit.body().map(|b| b.to_string()),
-            author_name: author.name().unwrap_or("").to_string(),
-            author_email: author.email().unwrap_or("").to_string(),
-            time_seconds: time.seconds(),
-            time_offset: time.offset_minutes(),
-            decorations: commit_decorations,
-        });
-    }
-    Ok(commits)
-}
 
 /// Build a map from commit OID to branch/tag decorations.
 fn build_decoration_map(repo: &Repository) -> HashMap<Oid, Vec<Decoration>> {
@@ -519,10 +487,13 @@ mod tests {
     }
 
     #[test]
-    fn test_walk_commits() {
+    fn test_walk_commits_via_collect_batch() {
         let (_dir, repo) = create_test_repo();
         let decorations = build_decoration_map(&repo);
-        let commits = walk_commits(&repo, 10, &decorations).expect("walk commits");
+        let mut revwalk = repo.revwalk().expect("revwalk");
+        revwalk.push_head().unwrap();
+        revwalk.set_sorting(Sort::TIME).unwrap();
+        let commits = collect_batch(&repo, &mut revwalk, 10, &decorations);
 
         assert_eq!(commits.len(), 2, "Expected 2 commits");
 
