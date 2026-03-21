@@ -13,21 +13,42 @@ use gpui::{App, FontWeight, IntoElement, Styled, Window, div, prelude::*, px, rg
 ///
 /// Each commit row is clickable. `selected_index` highlights the selected row.
 /// `on_select` is called with (index, &mut Window, &mut App) when a row is clicked.
+/// When `loading_more` is true and `all_loaded` is false, an extra spinner row is
+/// appended at the bottom (per D-03). The `on_range_visible` callback reports the
+/// visible range end for near-bottom detection (per D-01).
 pub fn render_commit_list(
     commits: &[CommitInfo],
     selected_index: Option<usize>,
     on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
+    loading_more: bool,
+    all_loaded: bool,
+    on_range_visible: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
 ) -> impl IntoElement {
     let commits_len = commits.len();
     let commits: Vec<CommitInfo> = commits.to_vec();
 
-    uniform_list("commit-list", commits_len, move |range, _window, _cx| {
+    // Per D-03: +1 item for spinner row when loading more
+    let total_items = if loading_more && !all_loaded {
+        commits_len + 1
+    } else {
+        commits_len
+    };
+
+    uniform_list("commit-list", total_items, move |range, window, cx| {
+        // Report visible range end for near-bottom detection (per D-01)
+        on_range_visible(range.end, window, cx);
+
         range
             .map(|ix| {
-                let commit = commits[ix].clone();
-                let is_selected = Some(ix) == selected_index;
-                let on_select = on_select.clone();
-                render_commit_row(commit, is_selected, ix, on_select)
+                if ix < commits_len {
+                    let commit = commits[ix].clone();
+                    let is_selected = Some(ix) == selected_index;
+                    let on_select = on_select.clone();
+                    render_commit_row(commit, is_selected, ix, on_select).into_any_element()
+                } else {
+                    // Per D-03: spinner row at the bottom
+                    render_spinner_row().into_any_element()
+                }
             })
             .collect()
     })
@@ -137,6 +158,22 @@ fn render_decoration_badge(decoration: &Decoration) -> impl IntoElement {
         .text_xs()
         .line_height(px(14.0))
         .child(label)
+}
+
+/// Render a spinner row shown at the bottom of the commit list while a
+/// new batch of commits is being fetched (per D-03: non-intrusive, VS Code style).
+fn render_spinner_row() -> impl IntoElement {
+    div()
+        .id("loading-spinner")
+        .w_full()
+        .h(px(44.0))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_xs()
+        .text_color(rgba(0x888888ff))
+        .child("Loading...")
 }
 
 /// Render the commit detail section shown below the commit list when a

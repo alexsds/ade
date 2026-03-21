@@ -151,6 +151,17 @@ impl Render for CodeReviewPanel {
             })
         };
 
+        // Callback to report visible range end for near-bottom detection (D-01)
+        let on_range_visible: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
+            let weak = weak.clone();
+            Arc::new(move |range_end: usize, _window: &mut Window, cx: &mut gpui::App| {
+                weak.update(cx, |this, _| {
+                    this.visible_range_end = range_end;
+                })
+                .ok();
+            })
+        };
+
         // Build commit list content
         let commit_list_content: gpui::AnyElement = if self.loading {
             div()
@@ -173,8 +184,15 @@ impl Render for CodeReviewPanel {
                 .child("No commits found")
                 .into_any_element()
         } else {
-            commit_list::render_commit_list(&self.commits, selected_commit_index, commit_on_select)
-                .into_any_element()
+            commit_list::render_commit_list(
+                &self.commits,
+                selected_commit_index,
+                commit_on_select,
+                self.loading_more,
+                self.all_commits_loaded,
+                on_range_visible,
+            )
+            .into_any_element()
         };
 
         // Build file list content
