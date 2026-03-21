@@ -16,11 +16,13 @@ use gpui::{
 use gpui_ghostty_terminal::view::Copy;
 
 use input::{
-    ClosePane, CopyOrInterrupt, NextPane, PrevPane, SplitHorizontal, SplitVertical,
-    ToggleCodeReview,
+    ClosePane, CloseTab, CopyOrInterrupt, NewTab, NextPane, NextTab, PrevPane, PrevTab,
+    SelectTab1, SelectTab2, SelectTab3, SelectTab4, SelectTab5, SelectTab6, SelectTab7, SelectTab8,
+    SelectTab9, SplitHorizontal, SplitVertical, ToggleCodeReview,
 };
 use panes::PaneContainer;
 use panes::tree::SplitDirection;
+use tabs::TabState;
 
 actions!(ade, [Quit, Minimize]);
 
@@ -31,7 +33,9 @@ enum Mode {
 }
 
 pub struct AdeWindow {
-    pane_container: gpui::Entity<PaneContainer>,
+    tabs: Vec<TabState>,
+    active_tab_index: usize,
+    next_tab_id: tabs::TabId,
     mode: Mode,
     branch_status: git::BranchStatus,
     git_provider: git::GitProvider,
@@ -41,6 +45,108 @@ pub struct AdeWindow {
 }
 
 impl AdeWindow {
+    /// Get a reference to the active tab's PaneContainer entity.
+    fn active_pane_container(&self) -> &gpui::Entity<PaneContainer> {
+        &self.tabs[self.active_tab_index].pane_container
+    }
+
+    // -- Tab lifecycle methods --
+
+    /// Create a new tab, inheriting the CWD from the active pane (D-13).
+    fn create_new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let cwd = self.active_pane_container().read(cx).active_cwd().clone();
+        let spawned = terminal::spawn_terminal_with_cwd(window, cx, Some(cwd.clone()));
+        let focus_handle = spawned.focus_handle.clone();
+        let pane_container = cx.new(|_| PaneContainer::new(spawned, cwd));
+
+        // Start batch loop for the new tab's initial pane
+        let batch_data = pane_container.update(cx, |container, _| {
+            container
+                .pane_mut(0)
+                .and_then(|pane| pane.stdout_rx.take().map(|rx| (rx, pane.view.clone())))
+        });
+        if let Some((rx, view)) = batch_data {
+            PaneContainer::start_batch_loop(rx, view, window, cx);
+        }
+
+        let tab_id = self.next_tab_id;
+        self.next_tab_id += 1;
+        self.tabs.push(TabState {
+            id: tab_id,
+            pane_container,
+            title: "zsh".to_string(),
+        });
+        self.active_tab_index = self.tabs.len() - 1;
+        self.update_chrome_heights(cx);
+        focus_handle.focus(window, cx);
+        cx.notify();
+    }
+
+    /// Close a tab by index. If last tab, quit the app (D-15).
+    fn close_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tabs.len() == 1 {
+            // D-15: no confirmation, app closes immediately
+            cx.quit();
+            return;
+        }
+        self.tabs.remove(index);
+        if self.active_tab_index >= self.tabs.len() {
+            self.active_tab_index = self.tabs.len() - 1;
+        }
+        self.update_chrome_heights(cx);
+        let focus = self.tabs[self.active_tab_index]
+            .pane_container
+            .read(cx)
+            .active_pane_focus_handle()
+            .clone();
+        focus.focus(window, cx);
+        cx.notify();
+    }
+
+    /// Switch to a specific tab by index (Pitfall 3: focus, Pitfall 7: resize).
+    fn switch_to_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if index >= self.tabs.len() || index == self.active_tab_index {
+            return;
+        }
+        self.active_tab_index = index;
+        let focus = self.tabs[index]
+            .pane_container
+            .read(cx)
+            .active_pane_focus_handle()
+            .clone();
+        focus.focus(window, cx);
+        // Trigger resize for newly visible tab (Pitfall 7)
+        let size = window.viewport_size();
+        self.tabs[index].pane_container.update(cx, |container, cx| {
+            container.resize_all(
+                f32::from(size.width),
+                f32::from(size.height),
+                window,
+                cx,
+            );
+        });
+        cx.notify();
+    }
+
+    /// Update chrome_height on all PaneContainers when tab count changes (Pitfall 8).
+    fn update_chrome_heights(&self, cx: &mut Context<Self>) {
+        let height = if self.tabs.len() > 1 { 62.0 } else { 32.0 };
+        for tab in &self.tabs {
+            tab.pane_container
+                .update(cx, |c, _| c.chrome_height = height);
+        }
+    }
+
+    /// Helper for SelectTab1-9: switch to the N-th tab (1-indexed).
+    fn select_tab_by_number(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let index = n - 1; // Cmd+1 = tab 0, Cmd+2 = tab 1, etc.
+        if index < self.tabs.len() {
+            self.switch_to_tab(index, window, cx);
+        }
+    }
+
+    // -- Existing action handlers (updated for tabs) --
+
     /// Handle the CopyOrInterrupt action:
     /// - If terminal has active text selection: dispatch Copy (copies to clipboard)
     /// - If no selection: send interrupt byte (0x03) to PTY stdin (SIGINT)
@@ -51,19 +157,16 @@ impl AdeWindow {
         cx: &mut Context<Self>,
     ) {
         let has_selection = self
-            .pane_container
+            .active_pane_container()
             .read(cx)
             .active_view()
             .read(cx)
             .has_selection();
 
         if has_selection {
-            // Dispatch the real Copy action to the focused element (TerminalView),
-            // which copies the selected text to the clipboard
             window.dispatch_action(Box::new(Copy), cx);
         } else {
-            // No selection: send interrupt (Ctrl+C = 0x03) to active pane's PTY
-            let stdin_tx = self.pane_container.read(cx).active_stdin_tx();
+            let stdin_tx = self.active_pane_container().read(cx).active_stdin_tx();
             let _ = stdin_tx.send(vec![0x03]);
         }
     }
@@ -81,15 +184,13 @@ impl AdeWindow {
         };
         match self.mode {
             Mode::Terminal => {
-                // Re-focus the active pane's focus handle so keyboard input works
-                self.pane_container
+                self.active_pane_container()
                     .read(cx)
                     .active_pane_focus_handle()
                     .clone()
                     .focus(window, cx);
             }
             Mode::CodeReview => {
-                // Focus our own handle so Cmd+G can toggle back
                 self.focus_handle.focus(window, cx);
             }
         }
@@ -117,33 +218,38 @@ impl AdeWindow {
     }
 
     /// Perform a pane split: spawn a new terminal inheriting the active pane's CWD,
-    /// then pass it to PaneContainer.
-    fn do_split(&mut self, direction: SplitDirection, window: &mut Window, cx: &mut Context<Self>) {
-        // Get the active pane's CWD (per D-12: new pane inherits CWD of split source)
-        let cwd = self.pane_container.read(cx).active_cwd().clone();
-
-        // Spawn a new terminal with the inherited CWD
+    /// then pass it to the active tab's PaneContainer.
+    fn do_split(
+        &mut self,
+        direction: SplitDirection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let cwd = self.active_pane_container().read(cx).active_cwd().clone();
         let spawned = terminal::spawn_terminal_with_cwd(window, cx, Some(cwd.clone()));
 
-        // Pass the spawned terminal to PaneContainer for tree insertion + batch loop
-        self.pane_container.update(cx, |container, cx| {
-            container.split_with_terminal(spawned, direction, cwd, window, cx);
-        });
+        self.tabs[self.active_tab_index]
+            .pane_container
+            .update(cx, |container, cx| {
+                container.split_with_terminal(spawned, direction, cwd, window, cx);
+            });
 
-        // Trigger resize for all panes after split
+        // Trigger resize for all panes in the active tab after split
         let size = window.viewport_size();
         let width = f32::from(size.width);
         let height = f32::from(size.height);
-        self.pane_container.update(cx, |container, cx| {
-            container.resize_all(width, height, window, cx);
-        });
+        self.tabs[self.active_tab_index]
+            .pane_container
+            .update(cx, |container, cx| {
+                container.resize_all(width, height, window, cx);
+            });
 
         cx.notify();
     }
 
-    /// Handle Cmd+W: close the active pane.
+    /// Handle Cmd+W: close the active pane. Cascade: pane -> tab -> app (D-11).
     fn on_close_pane(&mut self, _: &ClosePane, window: &mut Window, cx: &mut Context<Self>) {
-        let result = self
+        let result = self.tabs[self.active_tab_index]
             .pane_container
             .update(cx, |container, cx| container.close_pane(cx));
         match result {
@@ -151,18 +257,17 @@ impl AdeWindow {
                 handle.focus(window, cx);
             }
             panes::PaneCloseResult::LastPane => {
-                // With tabs (Plan 02), this will close the tab instead.
-                // For now, quit the app to maintain current behavior.
-                cx.quit();
+                // Last pane in tab -> close the tab (cascade per D-11)
+                self.close_tab(self.active_tab_index, window, cx);
             }
             panes::PaneCloseResult::NotFound => {}
         }
         cx.notify();
     }
 
-    /// Handle Cmd+]: focus the next pane.
+    /// Handle Cmd+]: focus the next pane in the active tab.
     fn on_next_pane(&mut self, _: &NextPane, window: &mut Window, cx: &mut Context<Self>) {
-        let focus_handle = self
+        let focus_handle = self.tabs[self.active_tab_index]
             .pane_container
             .update(cx, |container, cx| container.focus_next(cx));
         if let Some(handle) = focus_handle {
@@ -171,9 +276,9 @@ impl AdeWindow {
         cx.notify();
     }
 
-    /// Handle Cmd+[: focus the previous pane.
+    /// Handle Cmd+[: focus the previous pane in the active tab.
     fn on_prev_pane(&mut self, _: &PrevPane, window: &mut Window, cx: &mut Context<Self>) {
-        let focus_handle = self
+        let focus_handle = self.tabs[self.active_tab_index]
             .pane_container
             .update(cx, |container, cx| container.focus_prev(cx));
         if let Some(handle) = focus_handle {
@@ -181,16 +286,75 @@ impl AdeWindow {
         }
         cx.notify();
     }
+
+    // -- Tab action handlers --
+
+    fn on_new_tab(&mut self, _: &NewTab, window: &mut Window, cx: &mut Context<Self>) {
+        self.create_new_tab(window, cx);
+    }
+
+    fn on_close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_tab(self.active_tab_index, window, cx);
+    }
+
+    fn on_next_tab(&mut self, _: &NextTab, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tabs.len() > 1 {
+            let next = (self.active_tab_index + 1) % self.tabs.len();
+            self.switch_to_tab(next, window, cx);
+        }
+    }
+
+    fn on_prev_tab(&mut self, _: &PrevTab, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tabs.len() > 1 {
+            let prev = if self.active_tab_index == 0 {
+                self.tabs.len() - 1
+            } else {
+                self.active_tab_index - 1
+            };
+            self.switch_to_tab(prev, window, cx);
+        }
+    }
+
+    fn on_select_tab_1(&mut self, _: &SelectTab1, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_tab_by_number(1, window, cx);
+    }
+    fn on_select_tab_2(&mut self, _: &SelectTab2, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_tab_by_number(2, window, cx);
+    }
+    fn on_select_tab_3(&mut self, _: &SelectTab3, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_tab_by_number(3, window, cx);
+    }
+    fn on_select_tab_4(&mut self, _: &SelectTab4, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_tab_by_number(4, window, cx);
+    }
+    fn on_select_tab_5(&mut self, _: &SelectTab5, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_tab_by_number(5, window, cx);
+    }
+    fn on_select_tab_6(&mut self, _: &SelectTab6, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_tab_by_number(6, window, cx);
+    }
+    fn on_select_tab_7(&mut self, _: &SelectTab7, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_tab_by_number(7, window, cx);
+    }
+    fn on_select_tab_8(&mut self, _: &SelectTab8, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_tab_by_number(8, window, cx);
+    }
+    fn on_select_tab_9(&mut self, _: &SelectTab9, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_tab_by_number(9, window, cx);
+    }
 }
 
 impl Render for AdeWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let show_tab_bar = self.tabs.len() > 1; // D-04
+
         div()
             .key_context("AdeWindow")
             .track_focus(&self.focus_handle)
             .size_full()
             .flex()
             .flex_col()
+            // Existing action handlers
             .on_action(cx.listener(Self::on_copy_or_interrupt))
             .on_action(cx.listener(Self::on_toggle_code_review))
             .on_action(cx.listener(Self::on_split_vertical))
@@ -198,7 +362,21 @@ impl Render for AdeWindow {
             .on_action(cx.listener(Self::on_close_pane))
             .on_action(cx.listener(Self::on_next_pane))
             .on_action(cx.listener(Self::on_prev_pane))
-            // Toolbar always visible
+            // Tab action handlers
+            .on_action(cx.listener(Self::on_new_tab))
+            .on_action(cx.listener(Self::on_close_tab))
+            .on_action(cx.listener(Self::on_next_tab))
+            .on_action(cx.listener(Self::on_prev_tab))
+            .on_action(cx.listener(Self::on_select_tab_1))
+            .on_action(cx.listener(Self::on_select_tab_2))
+            .on_action(cx.listener(Self::on_select_tab_3))
+            .on_action(cx.listener(Self::on_select_tab_4))
+            .on_action(cx.listener(Self::on_select_tab_5))
+            .on_action(cx.listener(Self::on_select_tab_6))
+            .on_action(cx.listener(Self::on_select_tab_7))
+            .on_action(cx.listener(Self::on_select_tab_8))
+            .on_action(cx.listener(Self::on_select_tab_9))
+            // Toolbar (always visible)
             .child(toolbar::render_toolbar(
                 &self.branch_status.branch_name,
                 self.branch_status.is_dirty,
@@ -211,14 +389,30 @@ impl Render for AdeWindow {
                     cx.notify();
                 },
             ))
-            // Content area
+            // Tab bar: only when 2+ tabs (D-04)
+            .when(show_tab_bar, |d| {
+                d.child(tabs::tab_bar::render_tab_bar(
+                    &self.tabs,
+                    self.active_tab_index,
+                    cx,
+                    |index, this: &mut Self, window, cx| {
+                        this.switch_to_tab(index, window, cx);
+                    },
+                    |index, this: &mut Self, window, cx| {
+                        this.close_tab(index, window, cx);
+                    },
+                    |this: &mut Self, window, cx| {
+                        this.create_new_tab(window, cx);
+                    },
+                ))
+            })
+            // Content area: active tab or Code Review
             .child(
                 div()
                     .flex_1()
                     .size_full()
                     .when(self.mode == Mode::Terminal, |d| {
-                        // PaneContainer handles its own padding and text_size per-pane
-                        d.child(self.pane_container.clone())
+                        d.child(self.tabs[self.active_tab_index].pane_container.clone())
                     })
                     .when(self.mode == Mode::CodeReview, |d| {
                         d.child(self.code_review_panel.clone())
@@ -237,7 +431,7 @@ fn main() {
         // Register Quit keybinding (other keybindings set up in input module)
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
 
-        // Set up keybindings (Cmd+C, Cmd+V, Cmd+A, Cmd+G, Cmd+D, Cmd+Shift+D, Cmd+W, Cmd+], Cmd+[)
+        // Set up keybindings (terminal, pane, and tab keybindings)
         input::setup_keybindings(cx);
 
         // Set up macOS menu bar (ADE, Edit, View, Window menus)
@@ -273,9 +467,7 @@ fn main() {
             // Create PaneContainer with the initial terminal
             let pane_container = cx.new(|_| PaneContainer::new(spawned, cwd));
 
-            // Start the initial pane's batch loop: extract stdout_rx and view
-            // from PaneContainer, then start the loop outside the update closure
-            // to avoid borrow conflicts.
+            // Start the initial pane's batch loop
             let batch_loop_data = pane_container.update(cx, |container, _cx| {
                 if let Some(pane) = container.pane_mut(0) {
                     if let Some(stdout_rx) = pane.stdout_rx.take() {
@@ -288,12 +480,21 @@ fn main() {
                 PaneContainer::start_batch_loop(stdout_rx, view, window, cx);
             }
 
+            // Create initial tab
+            let initial_tab = TabState {
+                id: 0,
+                pane_container,
+                title: "zsh".to_string(),
+            };
+
             // Create CodeReviewPanel entity
             let code_review_panel = cx.new(|_| code_review::CodeReviewPanel::new());
 
-            // Create AdeWindow entity
+            // Create AdeWindow entity with tabs
             let window_entity = cx.new(|cx| AdeWindow {
-                pane_container: pane_container.clone(),
+                tabs: vec![initial_tab],
+                active_tab_index: 0,
+                next_tab_id: 1,
                 mode: Mode::Terminal,
                 branch_status: git::BranchStatus {
                     branch_name: "loading...".to_string(),
@@ -304,20 +505,21 @@ fn main() {
                 focus_handle: cx.focus_handle(),
             });
 
-            // Set up window resize observer for pane resizing
-            let pane_container_for_resize = pane_container.clone();
+            // Set up window resize observer: resize ONLY the active tab (Pitfall 7)
             let resize_subscription = window_entity.update(cx, |_this, cx| {
                 cx.observe_window_bounds(
                     window,
-                    move |_this: &mut AdeWindow,
+                    move |this: &mut AdeWindow,
                           window: &mut Window,
                           cx: &mut Context<AdeWindow>| {
                         let size = window.viewport_size();
                         let width = f32::from(size.width);
                         let height = f32::from(size.height);
-                        pane_container_for_resize.update(cx, |container, cx| {
-                            container.resize_all(width, height, window, cx);
-                        });
+                        this.tabs[this.active_tab_index]
+                            .pane_container
+                            .update(cx, |container, cx| {
+                                container.resize_all(width, height, window, cx);
+                            });
                     },
                 )
             });
@@ -374,6 +576,45 @@ fn main() {
                                         });
                                     }
                                 });
+                            })
+                            .ok();
+                        if should_continue.is_none() {
+                            break;
+                        }
+                    }
+                })
+                .detach();
+
+            // Process name polling for tab titles (2s interval)
+            let window_entity_for_process = window_entity.clone();
+            window
+                .spawn(cx, async move |cx| {
+                    loop {
+                        cx.background_executor()
+                            .timer(Duration::from_secs(2))
+                            .await;
+                        let should_continue = cx
+                            .update(|_, cx| {
+                                window_entity_for_process.update(
+                                    cx,
+                                    |this: &mut AdeWindow, cx| {
+                                        for tab in &mut this.tabs {
+                                            let fd = tab.pane_container.read(cx).active_master_fd();
+                                            if let Some(fd) = fd {
+                                                if let Some(pgid) =
+                                                    tabs::process_info::foreground_pgid(fd)
+                                                {
+                                                    if let Some(name) =
+                                                        tabs::process_info::process_name(pgid)
+                                                    {
+                                                        tab.title = name;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        cx.notify();
+                                    },
+                                );
                             })
                             .ok();
                         if should_continue.is_none() {

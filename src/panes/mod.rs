@@ -44,6 +44,9 @@ pub struct PaneContainer {
     next_id: PaneId,
     /// Tracks an active divider drag operation (set on mouse_down, cleared on mouse_up).
     pub dragging_divider: Option<divider::DividerDrag>,
+    /// Height of window chrome (toolbar + optional tab bar) subtracted from
+    /// available space in resize_all. Updated by AdeWindow when tab count changes.
+    pub chrome_height: f32,
 }
 
 impl PaneContainer {
@@ -68,6 +71,7 @@ impl PaneContainer {
             active_pane_id: pane_id,
             next_id: 1,
             dragging_divider: None,
+            chrome_height: 32.0, // toolbar only; AdeWindow updates when tab bar visible
         }
     }
 
@@ -226,6 +230,20 @@ impl PaneContainer {
         &self.panes[&self.active_pane_id].cwd
     }
 
+    /// Returns the raw FD of the active pane's PTY master (for process introspection).
+    /// Returns None if the active pane is not found or the master doesn't support raw FD.
+    #[cfg(unix)]
+    pub fn active_master_fd(&self) -> Option<i32> {
+        self.panes
+            .get(&self.active_pane_id)
+            .and_then(|p| p.master.as_raw_fd())
+    }
+
+    /// Returns the number of panes in this container.
+    pub fn pane_count(&self) -> usize {
+        self.panes.len()
+    }
+
     /// Returns a mutable reference to a pane by ID (for taking stdout_rx).
     pub fn pane_mut(&mut self, id: PaneId) -> Option<&mut PaneState> {
         self.panes.get_mut(&id)
@@ -243,9 +261,9 @@ impl PaneContainer {
         window: &mut Window,
         cx: &mut App,
     ) {
-        // Subtract toolbar height (32px) and padding (4px per side)
+        // Subtract chrome height (toolbar + optional tab bar) and padding (4px per side)
         let available_width = (window_width - 8.0).max(1.0);
-        let available_height = (window_height - 32.0 - 8.0).max(1.0);
+        let available_height = (window_height - self.chrome_height - 8.0).max(1.0);
 
         // Compute font cell metrics
         let mut style = window.text_style();
