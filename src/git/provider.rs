@@ -31,7 +31,6 @@ pub enum GitResponse {
 pub struct GitProvider {
     request_tx: mpsc::Sender<GitRequest>,
     response_rx: mpsc::Receiver<GitResponse>,
-    repo_path: PathBuf,
 }
 
 impl GitProvider {
@@ -88,7 +87,6 @@ impl GitProvider {
         Self {
             request_tx,
             response_rx,
-            repo_path,
         }
     }
 
@@ -114,10 +112,6 @@ impl GitProvider {
         self.response_rx.try_recv().ok()
     }
 
-    /// Returns the repository path this GitProvider was initialized with.
-    pub fn repo_path(&self) -> &PathBuf {
-        &self.repo_path
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -417,7 +411,7 @@ mod tests {
     }
 
     /// Stage all files and create a commit.
-    fn add_and_commit(repo: &Repository, workdir: &Path, message: &str) {
+    fn add_and_commit(repo: &Repository, _workdir: &Path, message: &str) {
         let mut index = repo.index().expect("get index");
         index
             .add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)

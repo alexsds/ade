@@ -38,7 +38,8 @@ pub fn render_tab_bar<V: 'static>(
             .id(SharedString::from(format!("tab-close-{}", i)))
             .text_xs()
             .text_color(rgba(0x888888ff))
-            .ml(px(6.0))
+            .mr(px(6.0))
+            .flex_shrink_0()
             .cursor_pointer()
             .hover(|s| s.text_color(rgba(0xffffffff)))
             .on_click(cx.listener(move |this, _event, window, cx| {
@@ -53,7 +54,6 @@ pub fn render_tab_bar<V: 'static>(
             .flex()
             .flex_row()
             .items_center()
-            .justify_center()
             .px(px(12.0))
             .py(px(4.0))
             .bg(tab_bg)
@@ -62,15 +62,17 @@ pub fn render_tab_bar<V: 'static>(
             .on_click(cx.listener(move |this, _event, window, cx| {
                 on_select_clone(i, this, window, cx);
             }))
+            .child(close_btn)
             .child(
                 div()
+                    .flex_1()
                     .text_xs()
                     .text_color(rgba(0xccccccff))
                     .overflow_hidden()
                     .text_ellipsis()
+                    .text_align(gpui::TextAlign::Center)
                     .child(title),
-            )
-            .child(close_btn);
+            );
 
         tab_elements.push(tab_element.into_any_element());
     }

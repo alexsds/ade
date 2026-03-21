@@ -57,8 +57,8 @@ pub fn setup_keybindings(cx: &mut App) {
         // Tab keybindings (D-08 through D-12, PLAT-02):
         KeyBinding::new("cmd-t", NewTab, None),
         KeyBinding::new("cmd-shift-w", CloseTab, None),
-        KeyBinding::new("cmd-shift-]", NextTab, None),
-        KeyBinding::new("cmd-shift-[", PrevTab, None),
+        KeyBinding::new("cmd-}", NextTab, None),
+        KeyBinding::new("cmd-{", PrevTab, None),
         KeyBinding::new("cmd-1", SelectTab1, None),
         KeyBinding::new("cmd-2", SelectTab2, None),
         KeyBinding::new("cmd-3", SelectTab3, None),

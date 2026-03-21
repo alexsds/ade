@@ -239,11 +239,6 @@ impl PaneContainer {
             .and_then(|p| p.master.as_raw_fd())
     }
 
-    /// Returns the number of panes in this container.
-    pub fn pane_count(&self) -> usize {
-        self.panes.len()
-    }
-
     /// Returns a mutable reference to a pane by ID (for taking stdout_rx).
     pub fn pane_mut(&mut self, id: PaneId) -> Option<&mut PaneState> {
         self.panes.get_mut(&id)

@@ -35,7 +35,6 @@ enum Mode {
 pub struct AdeWindow {
     tabs: Vec<TabState>,
     active_tab_index: usize,
-    next_tab_id: tabs::TabId,
     mode: Mode,
     branch_status: git::BranchStatus,
     git_provider: git::GitProvider,
@@ -71,10 +70,7 @@ impl AdeWindow {
             PaneContainer::start_batch_loop(rx, view, window, cx);
         }
 
-        let tab_id = self.next_tab_id;
-        self.next_tab_id += 1;
         self.tabs.push(TabState {
-            id: tab_id,
             pane_container,
             title: "zsh".to_string(),
         });
@@ -433,8 +429,8 @@ impl Render for AdeWindow {
                     cx.notify();
                 },
             ))
-            // Tab bar: only when 2+ tabs (D-04)
-            .when(show_tab_bar, |d| {
+            // Tab bar: only when 2+ tabs and in Terminal mode (D-04)
+            .when(show_tab_bar && self.mode == Mode::Terminal, |d| {
                 d.child(tabs::tab_bar::render_tab_bar(
                     &self.tabs,
                     self.active_tab_index,
@@ -527,7 +523,6 @@ fn main() {
 
             // Create initial tab
             let initial_tab = TabState {
-                id: 0,
                 pane_container,
                 title: "zsh".to_string(),
             };
@@ -539,7 +534,6 @@ fn main() {
             let window_entity = cx.new(|cx| AdeWindow {
                 tabs: vec![initial_tab],
                 active_tab_index: 0,
-                next_tab_id: 1,
                 mode: Mode::Terminal,
                 branch_status: git::BranchStatus {
                     branch_name: "loading...".to_string(),
