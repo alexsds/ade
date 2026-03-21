@@ -15,6 +15,16 @@ use portable_pty::PtySize;
 use crate::terminal::SpawnedTerminal;
 use tree::{CloseResult, PaneId, PaneTree, SplitDirection};
 
+/// Result of closing a pane, for the caller to decide app-level behavior.
+pub enum PaneCloseResult {
+    /// Pane was removed; contains focus handle of next pane to focus.
+    Removed(gpui::FocusHandle),
+    /// This was the last pane in the container.
+    LastPane,
+    /// Target pane not found.
+    NotFound,
+}
+
 /// Per-pane state: terminal view, I/O channels, PTY master, focus handle, and CWD.
 pub struct PaneState {
     pub view: gpui::Entity<TerminalView>,
@@ -148,17 +158,16 @@ impl PaneContainer {
     /// Close the active pane.
     ///
     /// Drops PaneState (stdin_tx drop kills writer thread, master drop kills
-    /// child process per Pitfall 3). Returns the focus handle of the next pane
-    /// to focus, or None if the app should quit (last pane closed).
-    pub fn close_pane(&mut self, cx: &mut Context<Self>) -> Option<gpui::FocusHandle> {
+    /// child process per Pitfall 3). Returns a `PaneCloseResult` so the caller
+    /// can decide app-level behavior (e.g., close tab, quit app).
+    pub fn close_pane(&mut self, cx: &mut Context<Self>) -> PaneCloseResult {
         let target = self.active_pane_id;
         let result = self.tree.close(target);
 
         match result {
             CloseResult::LastPane => {
-                // Close the window / quit the app (per D-03)
-                cx.quit();
-                None
+                // Let the caller decide what to do (close tab, quit app, etc.)
+                PaneCloseResult::LastPane
             }
             CloseResult::Removed => {
                 // Drop the pane state (cleans up PTY threads)
@@ -168,11 +177,12 @@ impl PaneContainer {
                 let ids = self.tree.flatten();
                 self.active_pane_id = ids[0];
                 cx.notify();
-                self.panes
-                    .get(&self.active_pane_id)
-                    .map(|p| p.focus_handle.clone())
+                match self.panes.get(&self.active_pane_id) {
+                    Some(p) => PaneCloseResult::Removed(p.focus_handle.clone()),
+                    None => PaneCloseResult::NotFound,
+                }
             }
-            CloseResult::NotFound => None,
+            CloseResult::NotFound => PaneCloseResult::NotFound,
         }
     }
 

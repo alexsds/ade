@@ -143,11 +143,19 @@ impl AdeWindow {
 
     /// Handle Cmd+W: close the active pane.
     fn on_close_pane(&mut self, _: &ClosePane, window: &mut Window, cx: &mut Context<Self>) {
-        let focus_handle = self
+        let result = self
             .pane_container
             .update(cx, |container, cx| container.close_pane(cx));
-        if let Some(handle) = focus_handle {
-            handle.focus(window, cx);
+        match result {
+            panes::PaneCloseResult::Removed(handle) => {
+                handle.focus(window, cx);
+            }
+            panes::PaneCloseResult::LastPane => {
+                // With tabs (Plan 02), this will close the tab instead.
+                // For now, quit the app to maintain current behavior.
+                cx.quit();
+            }
+            panes::PaneCloseResult::NotFound => {}
         }
         cx.notify();
     }
