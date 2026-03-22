@@ -1,0 +1,54 @@
+{
+  "version": "2.9",
+  "children": [
+    {
+      "type": "frame",
+      "id": "ZDfX1",
+      "x": 0,
+      "y": 0,
+      "name": "App Icon",
+      "width": 1024,
+      "height": 1024,
+      "fill": "#000000",
+      "layout": "none",
+      "children": [
+        {
+          "type": "text",
+          "id": "qQjj3",
+          "x": 525,
+          "y": 327,
+          "name": "termPrompt",
+          "fill": "#00BB00",
+          "content": ">_",
+          "fontFamily": "JetBrains Mono",
+          "fontSize": 280,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "8vmCN",
+          "x": 164,
+          "y": 327,
+          "name": "leftParen",
+          "fill": "#00BB00",
+          "content": "[",
+          "fontFamily": "JetBrains Mono",
+          "fontSize": 280,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "komL9",
+          "x": 332,
+          "y": 327,
+          "name": "rightParen",
+          "fill": "#00BB00",
+          "content": "]",
+          "fontFamily": "JetBrains Mono",
+          "fontSize": 280,
+          "fontWeight": "normal"
+        }
+      ]
+    }
+  ]
+}
