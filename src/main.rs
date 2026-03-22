@@ -1,6 +1,7 @@
 mod code_review;
 mod git;
 mod input;
+mod key_encode;
 mod menu;
 mod panes;
 mod tabs;
