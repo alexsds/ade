@@ -5,6 +5,7 @@ mod menu;
 mod panes;
 mod tabs;
 mod terminal;
+mod terminal_element;
 mod toolbar;
 
 use std::time::Duration;
