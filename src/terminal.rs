@@ -22,7 +22,9 @@ use alacritty_terminal::index::Point;
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::{self, Term};
 use alacritty_terminal::tty;
-use alacritty_terminal::vte::ansi::{Color, CursorShape};
+use alacritty_terminal::term::cell::Flags;
+use alacritty_terminal::term::color::Colors;
+use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
 use futures::channel::mpsc as futures_mpsc;
 
 // ============================================================================
@@ -319,6 +321,145 @@ impl Default for TerminalContent {
             display_offset: 0,
             size: TerminalSize::new(80, 24),
         }
+    }
+}
+
+// ============================================================================
+// Section 3b: Color resolution (xterm-256color palette)
+// ============================================================================
+
+/// Standard xterm-256color palette: 16 named ANSI colors.
+const NAMED_COLORS: [Rgb; 16] = [
+    Rgb { r: 0x00, g: 0x00, b: 0x00 }, // Black
+    Rgb { r: 0xCD, g: 0x00, b: 0x00 }, // Red
+    Rgb { r: 0x00, g: 0xCD, b: 0x00 }, // Green
+    Rgb { r: 0xCD, g: 0xCD, b: 0x00 }, // Yellow
+    Rgb { r: 0x00, g: 0x00, b: 0xEE }, // Blue
+    Rgb { r: 0xCD, g: 0x00, b: 0xCD }, // Magenta
+    Rgb { r: 0x00, g: 0xCD, b: 0xCD }, // Cyan
+    Rgb { r: 0xE5, g: 0xE5, b: 0xE5 }, // White
+    Rgb { r: 0x7F, g: 0x7F, b: 0x7F }, // BrightBlack
+    Rgb { r: 0xFF, g: 0x00, b: 0x00 }, // BrightRed
+    Rgb { r: 0x00, g: 0xFF, b: 0x00 }, // BrightGreen
+    Rgb { r: 0xFF, g: 0xFF, b: 0x00 }, // BrightYellow
+    Rgb { r: 0x5C, g: 0x5C, b: 0xFF }, // BrightBlue
+    Rgb { r: 0xFF, g: 0x00, b: 0xFF }, // BrightMagenta
+    Rgb { r: 0x00, g: 0xFF, b: 0xFF }, // BrightCyan
+    Rgb { r: 0xFF, g: 0xFF, b: 0xFF }, // BrightWhite
+];
+
+/// Default foreground color (light gray).
+pub const DEFAULT_FG: Rgb = Rgb {
+    r: 0xE5,
+    g: 0xE5,
+    b: 0xE5,
+};
+
+/// Default background color (black).
+pub const DEFAULT_BG: Rgb = Rgb {
+    r: 0x00,
+    g: 0x00,
+    b: 0x00,
+};
+
+/// Default cursor color (same as foreground).
+pub const DEFAULT_CURSOR: Rgb = Rgb {
+    r: 0xE5,
+    g: 0xE5,
+    b: 0xE5,
+};
+
+/// Resolve a raw Color enum to a concrete Rgb value using the terminal's color palette.
+/// Called during sync() while the FairMutex lock is held, so the render path stays lock-free.
+pub fn resolve_color(color: Color, colors: &Colors) -> Rgb {
+    match color {
+        Color::Spec(rgb) => rgb,
+        Color::Indexed(idx) => indexed_color(idx, colors),
+        Color::Named(name) => named_color(name, colors),
+    }
+}
+
+/// Resolve a NamedColor to Rgb, checking for custom overrides in the Colors palette first.
+fn named_color(name: NamedColor, colors: &Colors) -> Rgb {
+    // Check for custom override
+    if let Some(rgb) = colors[name] {
+        return rgb;
+    }
+
+    // Fall back to default palette
+    match name {
+        NamedColor::Foreground => DEFAULT_FG,
+        NamedColor::Background => DEFAULT_BG,
+        NamedColor::Cursor => DEFAULT_CURSOR,
+        NamedColor::BrightForeground => DEFAULT_FG,
+        NamedColor::DimForeground => dim(DEFAULT_FG),
+        NamedColor::DimBlack => dim(NAMED_COLORS[0]),
+        NamedColor::DimRed => dim(NAMED_COLORS[1]),
+        NamedColor::DimGreen => dim(NAMED_COLORS[2]),
+        NamedColor::DimYellow => dim(NAMED_COLORS[3]),
+        NamedColor::DimBlue => dim(NAMED_COLORS[4]),
+        NamedColor::DimMagenta => dim(NAMED_COLORS[5]),
+        NamedColor::DimCyan => dim(NAMED_COLORS[6]),
+        NamedColor::DimWhite => dim(NAMED_COLORS[7]),
+        // Normal and Bright variants: Black(0) through BrightWhite(15)
+        other => {
+            let idx = other as usize;
+            if idx < 16 {
+                NAMED_COLORS[idx]
+            } else {
+                DEFAULT_FG
+            }
+        }
+    }
+}
+
+/// Resolve an indexed color (0-255) to Rgb, checking for custom overrides first.
+fn indexed_color(idx: u8, colors: &Colors) -> Rgb {
+    // Check for custom override
+    if let Some(rgb) = colors[idx as usize] {
+        return rgb;
+    }
+
+    match idx {
+        // 0-15: Standard ANSI colors
+        0..=15 => NAMED_COLORS[idx as usize],
+        // 16-231: 6x6x6 color cube
+        16..=231 => {
+            let n = idx - 16;
+            let r_idx = n / 36;
+            let g_idx = (n / 6) % 6;
+            let b_idx = n % 6;
+            let component = |c: u8| -> u8 {
+                if c == 0 {
+                    0
+                } else {
+                    c * 40 + 55
+                }
+            };
+            Rgb {
+                r: component(r_idx),
+                g: component(g_idx),
+                b: component(b_idx),
+            }
+        }
+        // 232-255: Grayscale ramp
+        232..=255 => {
+            let value = (idx - 232) * 10 + 8;
+            Rgb {
+                r: value,
+                g: value,
+                b: value,
+            }
+        }
+    }
+}
+
+/// Dim a color by multiplying each component by 0.66.
+fn dim(rgb: Rgb) -> Rgb {
+    Rgb {
+        r: (rgb.r as f32 * 0.66) as u8,
+        g: (rgb.g as f32 * 0.66) as u8,
+        b: (rgb.b as f32 * 0.66) as u8,
     }
 }
 
