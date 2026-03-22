@@ -20,10 +20,11 @@ use alacritty_terminal::event_loop::{EventLoop, Msg, Notifier};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::Point;
 use alacritty_terminal::sync::FairMutex;
-use alacritty_terminal::term::{self, Term};
+use alacritty_terminal::term::{self, Term, TermMode};
 use alacritty_terminal::tty;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::color::Colors;
+use alacritty_terminal::selection::SelectionRange;
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
 use futures::channel::mpsc as futures_mpsc;
 
@@ -291,6 +292,10 @@ pub struct TerminalContent {
     pub display_offset: usize,
     /// Terminal dimensions at snapshot time
     pub size: TerminalSize,
+    /// Terminal mode flags (APP_CURSOR, BRACKETED_PASTE, etc.) snapshotted during sync()
+    pub mode: TermMode,
+    /// Selection range if any text is selected, snapshotted during sync()
+    pub selection: Option<SelectionRange>,
 }
 
 /// Simplified cell representation for rendering (decoupled from alacritty's internal types).
@@ -322,6 +327,8 @@ impl Default for TerminalContent {
             },
             display_offset: 0,
             size: TerminalSize::new(80, 24),
+            mode: TermMode::default(),
+            selection: None,
         }
     }
 }
@@ -472,8 +479,9 @@ fn dim(rgb: Rgb) -> Rgb {
 /// Created by `new_terminal()`. Consumers use `content()` for rendering
 /// and `write_to_pty()` for input.
 pub struct Terminal {
-    /// The alacritty terminal state, shared with the EventLoop I/O thread
-    term: Arc<FairMutex<Term<EventProxy>>>,
+    /// The alacritty terminal state, shared with the EventLoop I/O thread.
+    /// pub(crate) so TerminalView can access it for selection operations.
+    pub(crate) term: Arc<FairMutex<Term<EventProxy>>>,
     /// Sender to the EventLoop for PTY writes, resize, and shutdown
     pty_tx: Notifier,
     /// Cached content snapshot -- updated on sync(), read during render
@@ -486,6 +494,8 @@ pub struct Terminal {
     pub title: Option<String>,
     /// The current terminal dimensions
     size: TerminalSize,
+    /// Pending clipboard text from OSC 52 (ClipboardStore event)
+    pending_clipboard_store: Option<String>,
 }
 
 impl Terminal {
@@ -525,6 +535,8 @@ impl Terminal {
             .collect();
 
         let display_offset = content.display_offset;
+        let mode = content.mode;
+        let selection = content.selection;
         let cols = term.columns();
         let lines = term.screen_lines();
         drop(term); // Release lock before storing
@@ -534,12 +546,20 @@ impl Terminal {
             cursor,
             display_offset,
             size: TerminalSize::new(cols, lines),
+            mode,
+            selection,
         };
     }
 
     /// Get the cached content snapshot (lock-free, safe to call from render).
     pub fn content(&self) -> &TerminalContent {
         &self.last_content
+    }
+
+    /// Take pending clipboard text from OSC 52 ClipboardStore events.
+    /// Returns Some(text) once and clears the pending state.
+    pub fn take_pending_clipboard(&mut self) -> Option<String> {
+        self.pending_clipboard_store.take()
     }
 
     /// Write bytes to the PTY (keyboard input).
@@ -585,8 +605,11 @@ impl Terminal {
             AlacEvent::Bell => {
                 // Could trigger visual bell in future
             }
-            AlacEvent::ClipboardStore(_clipboard_type, _text) => {
-                // Phase 10: clipboard handling
+            AlacEvent::ClipboardStore(clipboard_type, text) => {
+                if matches!(clipboard_type, alacritty_terminal::term::ClipboardType::Clipboard) {
+                    self.pending_clipboard_store = Some(text);
+                    cx.notify();
+                }
             }
             AlacEvent::Exit => {
                 self.child_exited = true;
@@ -678,6 +701,7 @@ pub fn new_terminal(
         exit_code: None,
         title: None,
         size,
+        pending_clipboard_store: None,
     };
 
     Ok((terminal, events_rx))
