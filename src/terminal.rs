@@ -1,3 +1,4 @@
+use std::ffi::CStr;
 use std::io::{Read, Write};
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -7,6 +8,21 @@ use gpui::{App, AppContext as _, Context, Window};
 use gpui_ghostty_terminal::view::{TerminalInput, TerminalView};
 use gpui_ghostty_terminal::{TerminalConfig, TerminalSession};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+
+/// Detect the user's login shell from the POSIX password database.
+/// Works reliably when launched from Finder (where $SHELL may be unset).
+/// Falls back to /bin/zsh if the lookup fails.
+pub fn detect_user_shell() -> String {
+    // TODO: implement with libc::getpwuid
+    String::new()
+}
+
+/// Detect the user's home directory from the POSIX password database.
+/// Falls back to $HOME env var, then "/".
+pub fn detect_home_dir() -> std::path::PathBuf {
+    // TODO: implement with libc::getpwuid
+    std::path::PathBuf::new()
+}
 
 /// Result of spawning a terminal: the view entity, stdin sender, stdout receiver,
 /// PTY master handle, and focus handle.
@@ -139,5 +155,30 @@ pub fn spawn_terminal_with_cwd(
         stdout_rx,
         focus_handle: terminal_focus_handle.unwrap(),
         master,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_detect_user_shell() {
+        let shell = detect_user_shell();
+        assert!(!shell.is_empty(), "shell should not be empty");
+        assert!(shell.starts_with('/'), "shell should be an absolute path, got: {shell}");
+        // On macOS the default shell is /bin/zsh or /bin/bash
+        assert!(
+            shell.contains("sh"),
+            "shell should contain 'sh' (zsh, bash, fish, etc.), got: {shell}"
+        );
+    }
+
+    #[test]
+    fn test_detect_home_dir() {
+        let home = detect_home_dir();
+        assert!(home.is_absolute(), "home should be an absolute path, got: {home:?}");
+        assert!(home.exists(), "home directory should exist, got: {home:?}");
+        assert_ne!(home, std::path::PathBuf::from("/"), "home should not be root");
     }
 }
