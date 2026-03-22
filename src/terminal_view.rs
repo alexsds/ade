@@ -708,6 +708,41 @@ impl TerminalView {
     }
 
     // ========================================================================
+    // Selection queries and operations
+    // ========================================================================
+
+    /// Check whether a text selection currently exists (used by AdeWindow for CopyOrInterrupt routing).
+    pub fn has_selection(&self, cx: &Context<Self>) -> bool {
+        self.terminal.read(cx).term.lock().selection.is_some()
+    }
+
+    /// Handle Cmd+A: select all visible content in the terminal.
+    /// Selects from the topmost line of scrollback history to the bottommost screen line.
+    pub fn select_all(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        use alacritty_terminal::grid::Dimensions;
+
+        let term = self.terminal.read(cx).term.lock();
+        let top = term.topmost_line();
+        let bottom = term.bottommost_line();
+        let last_col = term.last_column();
+        drop(term);
+
+        {
+            let mut term = self.terminal.read(cx).term.lock();
+            // Create a selection spanning all content: anchor at top-left, then update to bottom-right
+            let start = Point::new(top, Column(0));
+            let end = Point::new(bottom, last_col);
+            term.selection = Some(Selection::new(SelectionType::Simple, start, Side::Left));
+            if let Some(ref mut sel) = term.selection {
+                sel.update(end, Side::Right);
+            }
+        }
+
+        self.terminal.update(cx, |t, _| t.sync());
+        cx.notify();
+    }
+
+    // ========================================================================
     // Copy handler (CopyOrInterrupt -- CLAUDE.md mandated dual behavior)
     // ========================================================================
 

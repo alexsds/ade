@@ -33,7 +33,7 @@ const SELECTION_BG: gpui::Hsla = gpui::Hsla { h: 0.58, s: 0.6, l: 0.4, a: 0.5 };
 // Font setup (ported from vendor/gpui-ghostty/crates/gpui_ghostty_terminal/src/font.rs)
 // ============================================================================
 
-fn default_terminal_font() -> gpui::Font {
+pub(crate) fn default_terminal_font() -> gpui::Font {
     let family = "Menlo";
 
     let fallbacks = gpui::FontFallbacks::from_fonts(vec![
@@ -56,7 +56,7 @@ fn default_terminal_font() -> gpui::Font {
     font
 }
 
-fn default_terminal_font_features() -> gpui::FontFeatures {
+pub(crate) fn default_terminal_font_features() -> gpui::FontFeatures {
     gpui::FontFeatures(Arc::new(vec![
         ("calt".to_string(), 0),
         ("liga".to_string(), 0),
