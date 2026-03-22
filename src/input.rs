@@ -6,13 +6,13 @@
 //! keybindings for split, close, and navigate, and tab management keybindings.
 
 use gpui::{App, KeyBinding, actions};
-use gpui_ghostty_terminal::view::SelectAll;
 
 actions!(
     ade,
     [
         CopyOrInterrupt,
         Paste,
+        SelectAll,
         ToggleCodeReview,
         SplitVertical,
         SplitHorizontal,

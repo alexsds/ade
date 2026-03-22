@@ -3,10 +3,9 @@
 //! Provides the standard macOS menu structure: ADE (app menu), Edit, View, and Window.
 
 use gpui::{App, Menu, MenuItem, OsAction};
-use gpui_ghostty_terminal::view::SelectAll;
 
 use crate::Quit;
-use crate::input::{CopyOrInterrupt, Paste, ToggleCodeReview};
+use crate::input::{CopyOrInterrupt, Paste, SelectAll, ToggleCodeReview};
 
 /// Set up the macOS menu bar with ADE, Edit, View, and Window menus.
 ///
