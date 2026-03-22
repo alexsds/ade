@@ -16,7 +16,10 @@ use gpui::{
     App, Application, Bounds, KeyBinding, Styled, TitlebarOptions, Window, WindowBounds,
     WindowOptions, actions, div, prelude::*, px, size,
 };
-use gpui_ghostty_terminal::view::Copy;
+
+use crate::terminal::{new_terminal, TerminalSize};
+use alacritty_terminal::event::Event as AlacEvent;
+use futures::StreamExt as _;
 
 use input::{
     ClosePane, CloseTab, CopyOrInterrupt, NewTab, NextPane, NextTab, PrevPane, PrevTab,
@@ -33,6 +36,28 @@ actions!(ade, [Quit, Minimize]);
 enum Mode {
     Terminal,
     CodeReview,
+}
+
+/// Wire the alacritty EventLoop output to a Terminal entity via GPUI async task.
+/// Called for every new terminal: initial, new tab, and split pane.
+fn wire_terminal_events(
+    terminal: &gpui::Entity<crate::terminal::Terminal>,
+    events_rx: futures::channel::mpsc::UnboundedReceiver<AlacEvent>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let terminal_for_events = terminal.clone();
+    window.spawn(cx, async move |cx| {
+        let mut rx = events_rx;
+        while let Some(event) = rx.next().await {
+            let result = cx.update(|_, cx| {
+                terminal_for_events.update(cx, |t, cx| {
+                    t.process_event(event, cx);
+                });
+            });
+            if result.is_err() { break; }
+        }
+    }).detach();
 }
 
 pub struct AdeWindow {
@@ -59,19 +84,20 @@ impl AdeWindow {
     /// Create a new tab, inheriting the CWD from the active pane (D-13).
     fn create_new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let cwd = self.active_pane_container().read(cx).active_cwd().clone();
-        let spawned = terminal::spawn_terminal_with_cwd(window, cx, Some(cwd.clone()));
-        let focus_handle = spawned.focus_handle.clone();
-        let pane_container = cx.new(|_| PaneContainer::new(spawned, cwd));
+        let size = TerminalSize::new(80, 24);
+        let (terminal_inner, events_rx) = new_terminal(Some(cwd.clone()), size)
+            .expect("Failed to create terminal");
 
-        // Start batch loop for the new tab's initial pane
-        let batch_data = pane_container.update(cx, |container, _| {
-            container
-                .pane_mut(0)
-                .and_then(|pane| pane.stdout_rx.take().map(|rx| (rx, pane.view.clone())))
-        });
-        if let Some((rx, view)) = batch_data {
-            PaneContainer::start_batch_loop(rx, view, window, cx);
-        }
+        let terminal = cx.new(|_| terminal_inner);
+        wire_terminal_events(&terminal, events_rx, window, cx);
+
+        let master_fd = terminal.read(cx).master_fd;
+        let view = cx.new(|cx| crate::terminal_view::TerminalView::new(terminal.clone(), cx));
+        let focus_handle = view.read(cx).focus_handle().clone();
+
+        let pane_container = cx.new(|_| PaneContainer::new(
+            terminal, view, focus_handle.clone(), cwd, master_fd,
+        ));
 
         self.tabs.push(TabState {
             pane_container,
@@ -149,27 +175,36 @@ impl AdeWindow {
     // -- Existing action handlers (updated for tabs) --
 
     /// Handle the CopyOrInterrupt action:
-    /// - If terminal has active text selection: dispatch Copy (copies to clipboard)
-    /// - If no selection: send interrupt byte (0x03) to PTY stdin (SIGINT)
+    /// Delegates to TerminalView which handles both copy (if selection) and SIGINT (if no selection).
     fn on_copy_or_interrupt(
         &mut self,
         _: &CopyOrInterrupt,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let has_selection = self
-            .active_pane_container()
+        self.active_pane_container()
             .read(cx)
             .active_view()
-            .read(cx)
-            .has_selection();
+            .clone()
+            .update(cx, |view, cx| {
+                view.copy_or_interrupt(window, cx);
+            });
+    }
 
-        if has_selection {
-            window.dispatch_action(Box::new(Copy), cx);
-        } else {
-            let stdin_tx = self.active_pane_container().read(cx).active_stdin_tx();
-            let _ = stdin_tx.send(vec![0x03]);
-        }
+    /// Handle the SelectAll action: delegate to TerminalView.
+    fn on_select_all(
+        &mut self,
+        _: &input::SelectAll,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_pane_container()
+            .read(cx)
+            .active_view()
+            .clone()
+            .update(cx, |view, cx| {
+                view.select_all(window, cx);
+            });
     }
 
     /// Handle the ToggleCodeReview action: switch between Terminal and Code Review modes.
@@ -260,8 +295,7 @@ impl AdeWindow {
         self.do_split(SplitDirection::Horizontal, window, cx);
     }
 
-    /// Perform a pane split: spawn a new terminal inheriting the active pane's CWD,
-    /// then pass it to the active tab's PaneContainer.
+    /// Perform a pane split: create a new terminal in the active tab's PaneContainer.
     fn do_split(
         &mut self,
         direction: SplitDirection,
@@ -269,12 +303,11 @@ impl AdeWindow {
         cx: &mut Context<Self>,
     ) {
         let cwd = self.active_pane_container().read(cx).active_cwd().clone();
-        let spawned = terminal::spawn_terminal_with_cwd(window, cx, Some(cwd.clone()));
 
         self.tabs[self.active_tab_index]
             .pane_container
             .update(cx, |container, cx| {
-                container.split_with_terminal(spawned, direction, cwd, window, cx);
+                container.split_pane(direction, cwd, window, cx);
             });
 
         // Trigger resize for all panes in the active tab after split
@@ -399,6 +432,7 @@ impl Render for AdeWindow {
             .flex_col()
             // Existing action handlers
             .on_action(cx.listener(Self::on_copy_or_interrupt))
+            .on_action(cx.listener(Self::on_select_all))
             .on_action(cx.listener(Self::on_toggle_code_review))
             .on_action(cx.listener(Self::on_split_vertical))
             .on_action(cx.listener(Self::on_split_horizontal))
@@ -495,10 +529,6 @@ fn main() {
         };
 
         cx.open_window(options, |window, cx| {
-            // Spawn initial terminal (PTY, I/O wiring)
-            let spawned = terminal::spawn_terminal(window, cx);
-            let terminal_focus_handle = spawned.focus_handle.clone();
-
             // Create GitProvider for the current working directory
             let cwd = {
                 let dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
@@ -516,21 +546,22 @@ fn main() {
             git_provider.request_status();
             git_provider.request_log(200);
 
-            // Create PaneContainer with the initial terminal
-            let pane_container = cx.new(|_| PaneContainer::new(spawned, cwd));
+            // Spawn initial terminal using new alacritty backend
+            let size = TerminalSize::new(80, 24);
+            let (terminal_inner, events_rx) = new_terminal(Some(cwd.clone()), size)
+                .expect("Failed to create terminal");
 
-            // Start the initial pane's batch loop
-            let batch_loop_data = pane_container.update(cx, |container, _cx| {
-                if let Some(pane) = container.pane_mut(0) {
-                    if let Some(stdout_rx) = pane.stdout_rx.take() {
-                        return Some((stdout_rx, pane.view.clone()));
-                    }
-                }
-                None
-            });
-            if let Some((stdout_rx, view)) = batch_loop_data {
-                PaneContainer::start_batch_loop(stdout_rx, view, window, cx);
-            }
+            let terminal = cx.new(|_| terminal_inner);
+            wire_terminal_events(&terminal, events_rx, window, cx);
+
+            let master_fd = terminal.read(cx).master_fd;
+            let view = cx.new(|cx| crate::terminal_view::TerminalView::new(terminal.clone(), cx));
+            let terminal_focus_handle = view.read(cx).focus_handle().clone();
+
+            // Create PaneContainer with the initial terminal
+            let pane_container = cx.new(|_| PaneContainer::new(
+                terminal, view, terminal_focus_handle.clone(), cwd, master_fd,
+            ));
 
             // Create initial tab
             let initial_tab = TabState {
