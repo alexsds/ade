@@ -4,32 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is ADE
 
-ADE (Advanced Developer Environment) is a Rust terminal application that wraps Ghostty for terminal emulation and adds a toggleable git history/diff panel. Built with GPUI (Zed's GPU-accelerated UI framework) and the `gpui-ghostty` bridge crate. Rust edition 2024.
+ADE (Advanced Developer Environment) is a Rust terminal application that uses alacritty_terminal for terminal emulation and adds a toggleable git history/diff panel. Built with GPUI (Zed's GPU-accelerated UI framework). Rust edition 2024.
 
 ## Build & Run
 
 ```bash
-cargo build                          # requires Zig 0.14.1 (ghostty_vt_sys compiles C)
+cargo build                          # build (pure Rust, no external toolchain)
 cargo run                            # launches terminal window using cwd's git repo
 cargo test                           # all unit tests
 cargo test -- test_walk_commits      # single test by name
 cargo fmt --all -- --check           # format check
-./scripts/bootstrap-zig.sh           # install Zig 0.14.1 if missing
-git submodule update --init --recursive  # init/update gpui-ghostty submodule
-```
-
-Vendor crate CI checks (run before committing vendor changes):
-```bash
-cargo clippy -p ghostty_vt -p ghostty_vt_sys -p gpui_ghostty_terminal --all-targets -- -D warnings
-cargo test -p ghostty_vt -p ghostty_vt_sys -p gpui_ghostty_terminal
 ```
 
 ## Architecture
 
 ### Dependency Stack
 - **GPUI** (from Zed repo, pinned git rev) — GPU-accelerated UI framework
-- **gpui-ghostty** (submodule at `vendor/gpui-ghostty/`) — bridges Ghostty terminal emulation into GPUI views. Three crates: `ghostty_vt`, `ghostty_vt_sys`, `gpui_ghostty_terminal`
-- **portable-pty** — cross-platform PTY spawning
+- **alacritty_terminal** (0.25.1, crates.io) — VT100/xterm terminal emulation, PTY spawning, and I/O
 - **git2** — libgit2 bindings for all git operations
 - **syntect** — syntax highlighting for diff viewer (dependency wired, highlighter currently stubbed in `diff_view.rs`)
 
@@ -38,10 +29,10 @@ cargo test -p ghostty_vt -p ghostty_vt_sys -p gpui_ghostty_terminal
 `main.rs` — Entry point. Creates `AdeWindow` entity, opens GPUI window, wires PTY, git polling loop, and mode switching.
 
 **Two modes** via `Mode` enum, toggled with **Cmd+G**:
-- `Terminal` — full-screen Ghostty terminal view
+- `Terminal` — full-screen alacritty_terminal view
 - `CodeReview` — 3-panel GitHub Desktop-style layout (commit list / file list / diff viewer)
 
-**Terminal**: `terminal.rs` — PTY spawn, I/O thread wiring (stdin_tx/stdout_rx channels), resize handling. Output batched at 16ms.
+**Terminal**: `terminal.rs` — PTY spawn via alacritty_terminal's EventLoop and tty module, terminal state management (alacritty_terminal::Term with FairMutex), resize handling. `terminal_element.rs` — GPUI Element for cell-based rendering. `terminal_view.rs` — input handling, mouse events, selection, clipboard. `key_encode.rs` — pure Rust key-to-escape-sequence encoding for xterm-256color.
 
 **Git data layer**: `git/provider.rs` runs all git2 calls on a background thread; main thread polls via channels at 100ms. `git/types.rs` defines `CommitInfo`, `BranchStatus`, `FileChange`, `DiffData`, `FileDiff`, `DiffHunk`, `DiffLine`, `Decoration`.
 
@@ -55,10 +46,10 @@ cargo test -p ghostty_vt -p ghostty_vt_sys -p gpui_ghostty_terminal
 - **uniform_list**: GPUI's virtualized list (only renders visible items). Used for commit list, file list, and diff lines.
 - **pending_diff_request**: `CodeReviewPanel` sets an OID on commit selection; main loop in `main.rs` polls it and dispatches to `GitProvider`. This decouples the panel from the git thread.
 - **Weak entity callbacks**: UI click handlers use `cx.weak_entity()` to avoid ownership issues with closures.
+- **FairMutex snapshot-and-release**: Terminal state (alacritty_terminal::Term) protected by FairMutex. sync() snapshots content while lock is held, then releases -- render path is lock-free.
 
 ## Gotchas
 
-- **Zig required**: `ghostty_vt_sys` compiles C code via Zig. Build fails without Zig 0.14.1 on PATH. Run `./scripts/bootstrap-zig.sh` to install locally.
-- **No root-level clippy**: `cargo clippy` on the `ade` crate requires a running GPUI window context and will fail in headless CI. Lint only the vendor crates (see commands above).
 - **GPUI pinned rev**: GPUI is pulled from the Zed repo at a specific git rev in `Cargo.toml`. Updating it may introduce breaking API changes — test thoroughly.
 - **Cmd+C dual behavior**: `input.rs` binds Cmd+C to `CopyOrInterrupt` — copies text if selection exists, sends 0x03 (SIGINT) otherwise. Don't bind raw `Copy` to Cmd+C.
+- **FairMutex discipline**: Never hold the terminal FairMutex lock during GPUI layout/paint. Always snapshot during sync() and render from the snapshot.
