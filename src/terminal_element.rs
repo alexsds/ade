@@ -22,7 +22,12 @@ use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
 use unicode_width::UnicodeWidthChar;
 
+use alacritty_terminal::selection::SelectionRange;
+
 use crate::terminal::{Terminal, TerminalCell, TerminalContent, DEFAULT_BG, DEFAULT_FG};
+
+/// Semi-transparent blue highlight for selected text, similar to most terminal emulators.
+const SELECTION_BG: gpui::Hsla = gpui::Hsla { h: 0.58, s: 0.6, l: 0.4, a: 0.5 };
 
 // ============================================================================
 // Font setup (ported from vendor/gpui-ghostty/crates/gpui_ghostty_terminal/src/font.rs)
@@ -434,6 +439,7 @@ pub struct TerminalPrepaintState {
     line_height: Pixels,
     shaped_lines: Vec<gpui::ShapedLine>,
     background_quads: Vec<PaintQuad>,
+    selection_quads: Vec<PaintQuad>,
     box_drawing_quads: Vec<PaintQuad>,
     cursor: Option<PaintQuad>,
 }
@@ -514,8 +520,12 @@ impl Element for TerminalElement {
                 .push(cell);
         }
 
+        // Extract selection range for highlight rendering
+        let selection = content.selection;
+
         let mut shaped_lines: Vec<gpui::ShapedLine> = Vec::new();
         let mut background_quads: Vec<PaintQuad> = Vec::new();
+        let mut selection_quads: Vec<PaintQuad> = Vec::new();
         let mut box_drawing_quads: Vec<PaintQuad> = Vec::new();
 
         // 7. Process each line
@@ -561,6 +571,24 @@ impl Element for TerminalElement {
                 }
             }
 
+            // 7e2. Build selection highlight quads
+            if let Some(ref sel) = selection {
+                for cell in line_cells.iter() {
+                    if sel.contains(cell.point) {
+                        let x = bounds.left() + px(cell_width * cell.point.column.0 as f32);
+                        let w = if cell.flags.contains(Flags::WIDE_CHAR) {
+                            px(cell_width * 2.0)
+                        } else {
+                            px(cell_width)
+                        };
+                        selection_quads.push(fill(
+                            Bounds::new(point(x, y), size(w, line_height)),
+                            SELECTION_BG,
+                        ));
+                    }
+                }
+            }
+
             // 7f. Build box drawing quads
             for cell in line_cells.iter() {
                 if box_drawing_mask(cell.c).is_some() {
@@ -586,6 +614,7 @@ impl Element for TerminalElement {
             line_height,
             shaped_lines,
             background_quads,
+            selection_quads,
             box_drawing_quads,
             cursor,
         }
@@ -607,6 +636,11 @@ impl Element for TerminalElement {
 
             // 2. Paint background quads
             for quad in prepaint.background_quads.drain(..) {
+                window.paint_quad(quad);
+            }
+
+            // 2.5. Paint selection highlights (after backgrounds, before text)
+            for quad in prepaint.selection_quads.drain(..) {
                 window.paint_quad(quad);
             }
 
