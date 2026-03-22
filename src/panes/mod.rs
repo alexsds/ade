@@ -211,10 +211,6 @@ impl PaneContainer {
         self.panes.get(&self.active_pane_id).map(|p| p.master_fd)
     }
 
-    /// Returns a mutable reference to a pane by ID.
-    pub fn pane_mut(&mut self, id: PaneId) -> Option<&mut PaneState> {
-        self.panes.get_mut(&id)
-    }
 
     /// Resize all panes based on the available space.
     ///

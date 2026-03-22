@@ -6,12 +6,11 @@
 //! scrollback navigation, and IME support via EntityInputHandler.
 
 use std::ops::Range;
-use std::sync::Arc;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, EntityInputHandler, FocusHandle, KeyDownEvent,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Render, ScrollDelta,
-    ScrollWheelEvent, SharedString, UTF16Selection, Window, div, point, prelude::*, px, size,
+    Bounds, ClipboardItem, Context, EntityInputHandler, FocusHandle, KeyDownEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Render, ScrollDelta, ScrollWheelEvent,
+    SharedString, UTF16Selection, Window, div, point, prelude::*, px, size,
 };
 
 use alacritty_terminal::grid::Scroll;
@@ -205,11 +204,9 @@ fn cell_offset_for_utf16(text: &str, utf16_offset: usize) -> usize {
 pub struct TerminalView {
     terminal: gpui::Entity<Terminal>,
     focus_handle: FocusHandle,
-    /// Cell metrics cached from TerminalElement (updated via set_cell_metrics)
+    /// Cell metrics (defaults, updated from Terminal content)
     cell_width: f32,
     cell_height: f32,
-    /// Last known bounds for mouse-to-cell conversion
-    last_bounds: Option<Bounds<Pixels>>,
     /// IME state: text being composed
     marked_text: Option<SharedString>,
     /// IME state: selected range within marked text (UTF-16 offsets)
@@ -225,7 +222,6 @@ impl TerminalView {
             focus_handle: cx.focus_handle(),
             cell_width: 8.0,
             cell_height: 16.0,
-            last_bounds: None,
             marked_text: None,
             marked_selected_range_utf16: 0..0,
             selecting: false,
@@ -235,22 +231,6 @@ impl TerminalView {
     /// Get the focus handle (for external focus management).
     pub fn focus_handle(&self) -> &FocusHandle {
         &self.focus_handle
-    }
-
-    /// Get a reference to the wrapped Terminal entity.
-    pub fn terminal(&self) -> &gpui::Entity<Terminal> {
-        &self.terminal
-    }
-
-    /// Update cell metrics from TerminalElement after paint.
-    pub fn set_cell_metrics(&mut self, width: f32, height: f32) {
-        self.cell_width = width;
-        self.cell_height = height;
-    }
-
-    /// Update last known bounds (called from TerminalElement or layout).
-    pub fn set_bounds(&mut self, bounds: Bounds<Pixels>) {
-        self.last_bounds = Some(bounds);
     }
 
     // ========================================================================
@@ -374,7 +354,7 @@ impl TerminalView {
         self.focus_handle.focus(window, cx);
 
         let mode = self.terminal.read(cx).content().mode;
-        let bounds = self.last_bounds.unwrap_or_default();
+        let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
         let content = self.terminal.read(cx).content();
         let cols = content.size.columns;
         let rows = content.size.screen_lines;
@@ -442,7 +422,7 @@ impl TerminalView {
     ) {
         let mode = self.terminal.read(cx).content().mode;
         if mode.contains(TermMode::MOUSE_MODE) && mode.contains(TermMode::SGR_MOUSE) {
-            let bounds = self.last_bounds.unwrap_or_default();
+            let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
             let content = self.terminal.read(cx).content();
             let (col, row) = mouse_position_to_cell(
                 event.position,
@@ -467,7 +447,7 @@ impl TerminalView {
     ) {
         let mode = self.terminal.read(cx).content().mode;
         if mode.contains(TermMode::MOUSE_MODE) && mode.contains(TermMode::SGR_MOUSE) {
-            let bounds = self.last_bounds.unwrap_or_default();
+            let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
             let content = self.terminal.read(cx).content();
             let (col, row) = mouse_position_to_cell(
                 event.position,
@@ -496,7 +476,7 @@ impl TerminalView {
             && mode.contains(TermMode::SGR_MOUSE)
             && !event.modifiers.shift
         {
-            let bounds = self.last_bounds.unwrap_or_default();
+            let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
             let content = self.terminal.read(cx).content();
             let (col, row) = mouse_position_to_cell(
                 event.position,
@@ -538,7 +518,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         let mode = self.terminal.read(cx).content().mode;
-        let bounds = self.last_bounds.unwrap_or_default();
+        let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
         let content = self.terminal.read(cx).content();
         let cols = content.size.columns;
         let rows = content.size.screen_lines;
@@ -617,7 +597,7 @@ impl TerminalView {
             ScrollDelta::Pixels(p) => f32::from(p.y) / 16.0,
         };
 
-        let delta_lines = (-dy_lines).round() as i32;
+        let delta_lines = dy_lines.round() as i32;
         if delta_lines == 0 {
             return;
         }
@@ -629,7 +609,7 @@ impl TerminalView {
             && mode.contains(TermMode::SGR_MOUSE)
             && !event.modifiers.shift
         {
-            let bounds = self.last_bounds.unwrap_or_default();
+            let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
             let content = self.terminal.read(cx).content();
             let (col, row) = mouse_position_to_cell(
                 event.position,
@@ -712,10 +692,6 @@ impl TerminalView {
     // ========================================================================
 
     /// Check whether a text selection currently exists (used by AdeWindow for CopyOrInterrupt routing).
-    pub fn has_selection(&self, cx: &Context<Self>) -> bool {
-        self.terminal.read(cx).term.lock().selection.is_some()
-    }
-
     /// Handle Cmd+A: select all visible content in the terminal.
     /// Selects from the topmost line of scrollback history to the bottommost screen line.
     pub fn select_all(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -778,8 +754,13 @@ impl TerminalView {
 
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Sync cell metrics from Terminal (set by TerminalElement during prepaint)
+        let terminal = self.terminal.read(cx);
+        self.cell_width = terminal.cell_width;
+        self.cell_height = terminal.cell_height;
+
         // Propagate window title from Terminal entity (INPT-06)
-        let title = self.terminal.read(cx).title.clone();
+        let title = terminal.title.clone();
         if let Some(title) = title {
             window.set_window_title(&title);
         }

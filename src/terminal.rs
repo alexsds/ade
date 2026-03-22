@@ -22,7 +22,8 @@ use futures::channel::mpsc as futures_mpsc;
 /// Detect the user's login shell from the POSIX password database.
 /// Works reliably when launched from Finder (where $SHELL may be unset).
 /// Falls back to /bin/zsh if the lookup fails.
-pub fn detect_user_shell() -> String {
+#[cfg(test)]
+fn detect_user_shell() -> String {
     unsafe {
         let uid = libc::getuid();
         let pw = libc::getpwuid(uid);
@@ -343,6 +344,12 @@ pub struct Terminal {
     /// Raw file descriptor of the PTY master, captured before EventLoop consumes the Pty.
     /// Valid as long as the EventLoop's Pty keeps the File alive. Do NOT dup() (Pitfall 5).
     pub(crate) master_fd: i32,
+    /// Last known element bounds (set by TerminalElement during prepaint).
+    /// Used by TerminalView for mouse-to-cell coordinate conversion.
+    pub(crate) last_bounds: Option<gpui::Bounds<gpui::Pixels>>,
+    /// Actual cell dimensions from font metrics (set by TerminalElement during prepaint).
+    pub(crate) cell_width: f32,
+    pub(crate) cell_height: f32,
 }
 
 impl Terminal {
@@ -554,6 +561,9 @@ pub fn new_terminal(
         size,
         pending_clipboard_store: None,
         master_fd,
+        last_bounds: None,
+        cell_width: 8.0,
+        cell_height: 16.0,
     };
 
     Ok((terminal, events_rx))

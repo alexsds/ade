@@ -20,10 +20,6 @@ use gpui::{
 
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
-use unicode_width::UnicodeWidthChar;
-
-use alacritty_terminal::selection::SelectionRange;
-
 use crate::terminal::{Terminal, TerminalCell, TerminalContent, DEFAULT_BG, DEFAULT_FG};
 
 /// Semi-transparent blue highlight for selected text, similar to most terminal emulators.
@@ -486,11 +482,17 @@ impl Element for TerminalElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
-        // 1. Set up font
+        // 0. Store bounds and cell metrics on Terminal for mouse coordinate conversion in TerminalView
+        // 1. Set up font and cell metrics
         let font = default_terminal_font();
+        let (cell_width, cell_height_f32) = cell_metrics(window, &font).unwrap_or((8.0, 16.0));
 
-        // 2. Get cell metrics
-        let (cell_width, _cell_height) = cell_metrics(window, &font).unwrap_or((8.0, 16.0));
+        // Store bounds and cell metrics on Terminal for mouse coordinate conversion
+        self.terminal.update(cx, |t, _| {
+            t.last_bounds = Some(bounds);
+            t.cell_width = cell_width;
+            t.cell_height = cell_height_f32;
+        });
 
         // 3. Set up text style
         let mut style = window.text_style();
