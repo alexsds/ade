@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# macOS bundle assembly script for ADE
-# Produces ADE.app at target/release/bundle/ADE.app
+# macOS bundle assembly script for Ade
+# Produces Ade.app at target/release/bundle/Ade.app
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUNDLE_DIR="$PROJECT_DIR/target/release/bundle"
-APP_DIR="$BUNDLE_DIR/ADE.app"
+APP_DIR="$BUNDLE_DIR/Ade.app"
 
 # Extract version from Cargo.toml
 VERSION=$(grep '^version' "$PROJECT_DIR/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
-echo "Building ADE v${VERSION}..."
+echo "Building Ade v${VERSION}..."
 
 # Step 1: Build release binary
 echo "Compiling release binary..."
@@ -20,7 +20,7 @@ cargo build --release
 # Step 2: Generate .icns from resources/icon.png
 echo "Generating app icon..."
 ICON_SRC="$PROJECT_DIR/resources/icon.png"
-ICONSET_TMP=$(mktemp -d)/ADE.iconset
+ICONSET_TMP=$(mktemp -d)/Ade.iconset
 mkdir -p "$ICONSET_TMP"
 
 # Resize for each required size (base + @2x)
@@ -59,9 +59,9 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key>
     <string>com.alexsds.ade</string>
     <key>CFBundleName</key>
-    <string>ADE</string>
+    <string>Ade</string>
     <key>CFBundleDisplayName</key>
-    <string>ADE</string>
+    <string>Ade</string>
     <key>CFBundleVersion</key>
     <string>${VERSION}</string>
     <key>CFBundleShortVersionString</key>
@@ -92,7 +92,7 @@ test -f "$APP_DIR/Contents/Resources/AppIcon.icns" || { echo "ERROR: Icon not fo
 rm -rf "$(dirname "$ICONSET_TMP")"
 
 echo ""
-echo "ADE.app built successfully at:"
+echo "Ade.app built successfully at:"
 echo "  $APP_DIR"
 echo ""
 echo "To launch: open \"$APP_DIR\""

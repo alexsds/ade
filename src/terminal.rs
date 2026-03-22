@@ -108,7 +108,7 @@ pub fn spawn_terminal_with_cwd(
     // Set terminal environment variables
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    cmd.env("TERM_PROGRAM", "ADE");
+    cmd.env("TERM_PROGRAM", "Ade");
     cmd.env("HOME", detect_home_dir().to_string_lossy().to_string());
     cmd.env("SHELL", &shell);
 

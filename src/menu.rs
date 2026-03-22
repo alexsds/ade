@@ -16,11 +16,11 @@ pub fn setup_menus(cx: &mut App) {
     cx.set_menus(vec![
         // Menu 1: ADE (application menu)
         Menu {
-            name: "ADE".into(),
+            name: "Ade".into(),
             items: vec![
                 // Standard macOS app menu items
                 MenuItem::separator(),
-                MenuItem::action("Quit ADE", Quit),
+                MenuItem::action("Quit Ade", Quit),
             ],
         },
         // Menu 2: Edit

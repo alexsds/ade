@@ -477,11 +477,11 @@ fn main() {
         // Set up macOS menu bar (ADE, Edit, View, Window menus)
         menu::setup_menus(cx);
 
-        // Open centered window with "ADE" title
+        // Open centered window with "Ade" title
         let bounds = Bounds::centered(None, size(px(800.0), px(600.0)), cx);
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
-                title: Some("ADE".into()),
+                title: Some("Ade".into()),
                 appears_transparent: false,
                 traffic_light_position: None,
             }),
