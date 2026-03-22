@@ -293,13 +293,15 @@ pub struct TerminalContent {
     pub size: TerminalSize,
 }
 
-/// Simplified cell representation for rendering (decoupled from alacritty's internal types)
+/// Simplified cell representation for rendering (decoupled from alacritty's internal types).
+/// Colors are resolved Rgb values (not raw Color enums) -- resolution happens during sync()
+/// while the FairMutex lock is held, so the render path stays lock-free (per D-06).
 #[derive(Debug, Clone)]
 pub struct TerminalCell {
     pub point: Point,
     pub c: char,
-    pub fg: Color,
-    pub bg: Color,
+    pub fg: Rgb,
+    pub bg: Rgb,
     pub flags: alacritty_terminal::term::cell::Flags,
 }
 
@@ -501,17 +503,28 @@ impl Terminal {
 
         let cells: Vec<TerminalCell> = content
             .display_iter
-            .map(|ic| TerminalCell {
-                point: ic.point,
-                c: ic.cell.c,
-                fg: ic.cell.fg,
-                bg: ic.cell.bg,
-                flags: ic.cell.flags,
+            .map(|ic| {
+                let mut fg = resolve_color(ic.cell.fg, content.colors);
+                let mut bg = resolve_color(ic.cell.bg, content.colors);
+                if ic.cell.flags.contains(Flags::INVERSE) {
+                    std::mem::swap(&mut fg, &mut bg);
+                }
+                let c = if ic.cell.flags.contains(Flags::HIDDEN) {
+                    ' '
+                } else {
+                    ic.cell.c
+                };
+                TerminalCell {
+                    point: ic.point,
+                    c,
+                    fg,
+                    bg,
+                    flags: ic.cell.flags,
+                }
             })
             .collect();
 
         let display_offset = content.display_offset;
-
         let cols = term.columns();
         let lines = term.screen_lines();
         drop(term); // Release lock before storing
@@ -815,5 +828,85 @@ mod tests {
         );
         assert_eq!(terminal.content().size.columns, 80);
         assert_eq!(terminal.content().size.screen_lines, 24);
+    }
+
+    // --- Color resolution tests (Phase 9 Plan 1) ---
+
+    #[test]
+    fn test_resolve_color_spec() {
+        let colors = Colors::default();
+        let rgb = resolve_color(
+            Color::Spec(Rgb {
+                r: 0xAB,
+                g: 0xCD,
+                b: 0xEF,
+            }),
+            &colors,
+        );
+        assert_eq!(rgb, Rgb { r: 0xAB, g: 0xCD, b: 0xEF });
+    }
+
+    #[test]
+    fn test_resolve_color_named_red() {
+        let colors = Colors::default();
+        let rgb = resolve_color(Color::Named(NamedColor::Red), &colors);
+        assert_eq!(rgb, Rgb { r: 0xCD, g: 0x00, b: 0x00 });
+    }
+
+    #[test]
+    fn test_resolve_color_indexed_basic() {
+        let colors = Colors::default();
+        // Indexed 1 = Red
+        let rgb = resolve_color(Color::Indexed(1), &colors);
+        assert_eq!(rgb, Rgb { r: 0xCD, g: 0x00, b: 0x00 });
+    }
+
+    #[test]
+    fn test_resolve_color_indexed_cube() {
+        let colors = Colors::default();
+        // Indexed 196 = 16 + 180, 180 = 5*36 + 0*6 + 0, so r=5,g=0,b=0
+        // r: 5*40+55=255, g: 0, b: 0
+        let rgb = resolve_color(Color::Indexed(196), &colors);
+        assert_eq!(rgb, Rgb { r: 0xFF, g: 0x00, b: 0x00 });
+    }
+
+    #[test]
+    fn test_resolve_color_indexed_grayscale() {
+        let colors = Colors::default();
+        // Indexed 232 = first grayscale: (232-232)*10+8 = 8
+        let rgb = resolve_color(Color::Indexed(232), &colors);
+        assert_eq!(rgb, Rgb { r: 8, g: 8, b: 8 });
+    }
+
+    #[test]
+    fn test_inverse_flag_swaps() {
+        let colors = Colors::default();
+        let fg_color = Color::Named(NamedColor::Red);
+        let bg_color = Color::Named(NamedColor::Blue);
+
+        let mut fg = resolve_color(fg_color, &colors);
+        let mut bg = resolve_color(bg_color, &colors);
+
+        // Before swap
+        assert_eq!(fg, Rgb { r: 0xCD, g: 0x00, b: 0x00 }); // Red
+        assert_eq!(bg, Rgb { r: 0x00, g: 0x00, b: 0xEE }); // Blue
+
+        // Simulate INVERSE flag handling
+        std::mem::swap(&mut fg, &mut bg);
+
+        // After swap: fg is now Blue, bg is now Red
+        assert_eq!(fg, Rgb { r: 0x00, g: 0x00, b: 0xEE });
+        assert_eq!(bg, Rgb { r: 0xCD, g: 0x00, b: 0x00 });
+    }
+
+    #[test]
+    fn test_dim_color() {
+        let result = dim(Rgb {
+            r: 255,
+            g: 255,
+            b: 255,
+        });
+        // 255 * 0.66 = 168.3 -> 168
+        assert_eq!(result, Rgb { r: 168, g: 168, b: 168 });
     }
 }
