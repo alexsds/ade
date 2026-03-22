@@ -13,15 +13,43 @@ use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 /// Works reliably when launched from Finder (where $SHELL may be unset).
 /// Falls back to /bin/zsh if the lookup fails.
 pub fn detect_user_shell() -> String {
-    // TODO: implement with libc::getpwuid
-    String::new()
+    unsafe {
+        let uid = libc::getuid();
+        let pw = libc::getpwuid(uid);
+        if !pw.is_null() {
+            let shell_ptr = (*pw).pw_shell;
+            if !shell_ptr.is_null() {
+                if let Ok(s) = CStr::from_ptr(shell_ptr).to_str() {
+                    if !s.is_empty() {
+                        return s.to_string();
+                    }
+                }
+            }
+        }
+    }
+    "/bin/zsh".to_string()
 }
 
 /// Detect the user's home directory from the POSIX password database.
 /// Falls back to $HOME env var, then "/".
 pub fn detect_home_dir() -> std::path::PathBuf {
-    // TODO: implement with libc::getpwuid
-    std::path::PathBuf::new()
+    unsafe {
+        let uid = libc::getuid();
+        let pw = libc::getpwuid(uid);
+        if !pw.is_null() {
+            let dir_ptr = (*pw).pw_dir;
+            if !dir_ptr.is_null() {
+                if let Ok(s) = CStr::from_ptr(dir_ptr).to_str() {
+                    if !s.is_empty() {
+                        return std::path::PathBuf::from(s);
+                    }
+                }
+            }
+        }
+    }
+    std::env::var("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/"))
 }
 
 /// Result of spawning a terminal: the view entity, stdin sender, stdout receiver,
@@ -73,7 +101,7 @@ pub fn spawn_terminal_with_cwd(
     let master: Arc<dyn portable_pty::MasterPty + Send> = Arc::from(pty_pair.master);
 
     // --- Build shell command ---
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let shell = detect_user_shell();
     let mut cmd = CommandBuilder::new(&shell);
     cmd.arg("-l");
 
@@ -81,10 +109,18 @@ pub fn spawn_terminal_with_cwd(
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "ADE");
+    cmd.env("HOME", detect_home_dir().to_string_lossy().to_string());
+    cmd.env("SHELL", &shell);
 
     // Set working directory
     let working_dir = cwd.unwrap_or_else(|| {
-        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        let dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+        // When launched from Finder, CWD is "/" -- fall back to home directory
+        if dir == std::path::Path::new("/") {
+            detect_home_dir()
+        } else {
+            dir
+        }
     });
     cmd.cwd(&working_dir);
 
