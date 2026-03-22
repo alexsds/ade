@@ -497,7 +497,15 @@ fn main() {
             let terminal_focus_handle = spawned.focus_handle.clone();
 
             // Create GitProvider for the current working directory
-            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let cwd = {
+                let dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+                // When launched from Finder, CWD is "/" -- fall back to home directory
+                if dir == std::path::Path::new("/") {
+                    terminal::detect_home_dir()
+                } else {
+                    dir
+                }
+            };
             let initial_git_cwd = cwd.clone();
             let git_provider = git::GitProvider::new(cwd.clone());
 
