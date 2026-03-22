@@ -2,17 +2,15 @@ pub mod divider;
 pub mod tree;
 
 use std::collections::HashMap;
-use std::sync::{Arc, mpsc};
-use std::time::Duration;
 
 use gpui::{
     self, AnyElement, App, Context, MouseButton, SharedString, Styled, Window, div, prelude::*, px,
     relative,
 };
-use gpui_ghostty_terminal::view::TerminalView;
-use portable_pty::PtySize;
+use futures::StreamExt as _;
 
-use crate::terminal::SpawnedTerminal;
+use crate::terminal::{Terminal, TerminalSize, new_terminal};
+use crate::terminal_view::TerminalView;
 use tree::{CloseResult, PaneId, PaneTree, SplitDirection};
 
 /// Result of closing a pane, for the caller to decide app-level behavior.
@@ -25,14 +23,13 @@ pub enum PaneCloseResult {
     NotFound,
 }
 
-/// Per-pane state: terminal view, I/O channels, PTY master, focus handle, and CWD.
+/// Per-pane state: terminal entity, view entity, focus handle, CWD, and PTY master FD.
 pub struct PaneState {
+    pub terminal: gpui::Entity<Terminal>,
     pub view: gpui::Entity<TerminalView>,
-    pub stdin_tx: mpsc::Sender<Vec<u8>>,
-    pub stdout_rx: Option<mpsc::Receiver<Vec<u8>>>,
-    pub master: Arc<dyn portable_pty::MasterPty + Send>,
     pub focus_handle: gpui::FocusHandle,
     pub cwd: std::path::PathBuf,
+    pub master_fd: i32,
 }
 
 /// Container entity that owns the pane tree, pane state map, and active pane tracking.
@@ -51,15 +48,20 @@ pub struct PaneContainer {
 
 impl PaneContainer {
     /// Create a new PaneContainer with a single initial pane.
-    pub fn new(initial: SpawnedTerminal, cwd: std::path::PathBuf) -> Self {
+    pub fn new(
+        terminal: gpui::Entity<Terminal>,
+        view: gpui::Entity<TerminalView>,
+        focus_handle: gpui::FocusHandle,
+        cwd: std::path::PathBuf,
+        master_fd: i32,
+    ) -> Self {
         let pane_id: PaneId = 0;
         let state = PaneState {
-            view: initial.view,
-            stdin_tx: initial.stdin_tx,
-            stdout_rx: Some(initial.stdout_rx),
-            master: initial.master,
-            focus_handle: initial.focus_handle,
+            terminal,
+            view,
+            focus_handle,
             cwd,
+            master_fd,
         };
 
         let mut panes = HashMap::new();
@@ -75,56 +77,51 @@ impl PaneContainer {
         }
     }
 
-    /// Start the 16ms output batch polling loop for a single pane.
+    /// Create a new terminal and its associated PaneState.
     ///
-    /// Takes the `stdout_rx` from the pane's state (via `.take()`) and feeds
-    /// batched output into the pane's TerminalView. This replicates the batch
-    /// loop that was previously in `spawn_terminal`, but scoped per-pane.
-    pub fn start_batch_loop(
-        stdout_rx: mpsc::Receiver<Vec<u8>>,
-        view: gpui::Entity<TerminalView>,
+    /// Spawns a PTY via new_terminal(), wires the event loop into a GPUI async task,
+    /// creates a TerminalView, and returns the complete PaneState.
+    fn create_terminal_for_pane(
+        cwd: Option<std::path::PathBuf>,
         window: &mut Window,
         cx: &mut App,
-    ) {
-        let view_for_task = view.clone();
-        window
-            .spawn(cx, async move |cx| {
-                loop {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(16))
-                        .await;
-                    let mut batch = Vec::new();
-                    while let Ok(chunk) = stdout_rx.try_recv() {
-                        batch.extend_from_slice(&chunk);
-                    }
-                    if batch.is_empty() {
-                        continue;
-                    }
+    ) -> PaneState {
+        let size = TerminalSize::new(80, 24);
+        let (terminal_inner, events_rx) = new_terminal(cwd.clone(), size)
+            .expect("Failed to create terminal");
 
-                    let result = cx.update(|_, cx| {
-                        view_for_task.update(
-                            cx,
-                            |this: &mut TerminalView, cx: &mut Context<TerminalView>| {
-                                this.queue_output_bytes(&batch, cx);
-                            },
-                        );
+        let terminal = cx.new(|_| terminal_inner);
+
+        // Wire event loop (Pattern from Research)
+        let terminal_for_events = terminal.clone();
+        window.spawn(cx, async move |cx| {
+            let mut rx = events_rx;
+            while let Some(event) = rx.next().await {
+                let result = cx.update(|_, cx| {
+                    terminal_for_events.update(cx, |t, cx| {
+                        t.process_event(event, cx);
                     });
-                    // If the update fails (view dropped), exit the loop
-                    if result.is_err() {
-                        break;
-                    }
-                }
-            })
-            .detach();
+                });
+                if result.is_err() { break; }
+            }
+        }).detach();
+
+        let master_fd = terminal.read(cx).master_fd;
+        let view = cx.new(|cx| TerminalView::new(terminal.clone(), cx));
+        let focus_handle = view.read(cx).focus_handle().clone();
+
+        PaneState {
+            terminal,
+            view,
+            focus_handle,
+            cwd: cwd.unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
+            master_fd,
+        }
     }
 
-    /// Split the active pane, using a pre-spawned terminal.
-    ///
-    /// This variant is called from AdeWindow which has access to `Window` for
-    /// spawning terminals. The terminal is spawned externally and passed in.
-    pub fn split_with_terminal(
+    /// Split the active pane, creating a new terminal in the given direction.
+    pub fn split_pane(
         &mut self,
-        spawned: SpawnedTerminal,
         direction: SplitDirection,
         cwd: std::path::PathBuf,
         window: &mut Window,
@@ -133,37 +130,20 @@ impl PaneContainer {
         let new_id = self.next_id;
         self.next_id += 1;
 
-        // Start the batch loop for the new pane
-        let stdout_rx = spawned.stdout_rx;
-        let view = spawned.view.clone();
-        Self::start_batch_loop(stdout_rx, view, window, cx);
-
-        let focus_handle = spawned.focus_handle.clone();
-
-        // Store pane state
-        let state = PaneState {
-            view: spawned.view,
-            stdin_tx: spawned.stdin_tx,
-            stdout_rx: None, // already taken for batch loop
-            master: spawned.master,
-            focus_handle: spawned.focus_handle,
-            cwd,
-        };
+        let state = Self::create_terminal_for_pane(Some(cwd), window, cx);
+        let focus_handle = state.focus_handle.clone();
         self.panes.insert(new_id, state);
 
-        // Update tree
         self.tree.split(self.active_pane_id, new_id, direction);
-
-        // Focus the new pane (per Pitfall 2: focus follows split)
         self.active_pane_id = new_id;
         focus_handle.focus(window, cx);
     }
 
     /// Close the active pane.
     ///
-    /// Drops PaneState (stdin_tx drop kills writer thread, master drop kills
-    /// child process per Pitfall 3). Returns a `PaneCloseResult` so the caller
-    /// can decide app-level behavior (e.g., close tab, quit app).
+    /// Drops PaneState (Terminal drop shuts down EventLoop).
+    /// Returns a `PaneCloseResult` so the caller can decide app-level behavior
+    /// (e.g., close tab, quit app).
     pub fn close_pane(&mut self, cx: &mut Context<Self>) -> PaneCloseResult {
         let target = self.active_pane_id;
         let result = self.tree.close(target);
@@ -174,7 +154,7 @@ impl PaneContainer {
                 PaneCloseResult::LastPane
             }
             CloseResult::Removed => {
-                // Drop the pane state (cleans up PTY threads)
+                // Drop the pane state (cleans up terminal/PTY)
                 self.panes.remove(&target);
 
                 // Focus the next remaining pane
@@ -210,11 +190,6 @@ impl PaneContainer {
         self.panes.get(&prev).map(|p| p.focus_handle.clone())
     }
 
-    /// Returns a clone of the active pane's stdin sender (for CopyOrInterrupt routing).
-    pub fn active_stdin_tx(&self) -> mpsc::Sender<Vec<u8>> {
-        self.panes[&self.active_pane_id].stdin_tx.clone()
-    }
-
     /// Returns the active pane's TerminalView entity.
     pub fn active_view(&self) -> &gpui::Entity<TerminalView> {
         &self.panes[&self.active_pane_id].view
@@ -231,15 +206,12 @@ impl PaneContainer {
     }
 
     /// Returns the raw FD of the active pane's PTY master (for process introspection).
-    /// Returns None if the active pane is not found or the master doesn't support raw FD.
     #[cfg(unix)]
     pub fn active_master_fd(&self) -> Option<i32> {
-        self.panes
-            .get(&self.active_pane_id)
-            .and_then(|p| p.master.as_raw_fd())
+        self.panes.get(&self.active_pane_id).map(|p| p.master_fd)
     }
 
-    /// Returns a mutable reference to a pane by ID (for taking stdout_rx).
+    /// Returns a mutable reference to a pane by ID.
     pub fn pane_mut(&mut self, id: PaneId) -> Option<&mut PaneState> {
         self.panes.get_mut(&id)
     }
@@ -247,8 +219,7 @@ impl PaneContainer {
     /// Resize all panes based on the available space.
     ///
     /// Walks the tree, computes each leaf's pixel dimensions from flex ratios
-    /// and available space, then calls `master.resize()` and
-    /// `view.resize_terminal()` for each pane.
+    /// and available space, then calls `Terminal::resize()` for each pane.
     pub fn resize_all(
         &mut self,
         window_width: f32,
@@ -260,11 +231,11 @@ impl PaneContainer {
         let available_width = (window_width - 8.0).max(1.0);
         let available_height = (window_height - self.chrome_height - 8.0).max(1.0);
 
-        // Compute font cell metrics
+        // Compute font cell metrics using new terminal_element font source
         let mut style = window.text_style();
-        let font = gpui_ghostty_terminal::default_terminal_font();
+        let font = crate::terminal_element::default_terminal_font();
         style.font_family = font.family.clone();
-        style.font_features = gpui_ghostty_terminal::default_terminal_font_features();
+        style.font_features = crate::terminal_element::default_terminal_font_features();
         style.font_fallbacks = font.fallbacks.clone();
 
         let font_size = gpui::px(14.0);
@@ -299,18 +270,16 @@ impl PaneContainer {
 
         for (id, width, height) in resize_ops {
             if let Some(pane) = self.panes.get(&id) {
-                let cols = (width / cell_width).floor().max(1.0) as u16;
-                let rows = (height / cell_height).floor().max(1.0) as u16;
+                let cols = (width / cell_width).floor().max(1.0) as usize;
+                let rows = (height / cell_height).floor().max(1.0) as usize;
 
-                let _ = pane.master.resize(PtySize {
-                    rows,
-                    cols,
-                    pixel_width: 0,
-                    pixel_height: 0,
-                });
-
-                pane.view.update(cx, |v, cx| {
-                    v.resize_terminal(cols, rows, cx);
+                pane.terminal.update(cx, |t, _| {
+                    t.resize(TerminalSize {
+                        columns: cols,
+                        screen_lines: rows,
+                        cell_width: cell_width as u16,
+                        cell_height: cell_height as u16,
+                    });
                 });
             }
         }
@@ -517,7 +486,7 @@ fn render_tree_recursive(
                 let child_element =
                     render_tree_recursive(child, panes, active_pane_id, weak.clone(), &child_path);
 
-                // Use explicit percentage sizing instead of flex_basis — more
+                // Use explicit percentage sizing instead of flex_basis -- more
                 // reliable across both row and column layouts in GPUI.
                 let wrapper = if is_vertical {
                     div()
