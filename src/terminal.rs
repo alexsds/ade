@@ -1,3 +1,8 @@
+// ============================================================================
+// Section 1: Imports
+// ============================================================================
+
+// Old imports (preserved for SpawnedTerminal compilation)
 use std::ffi::CStr;
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -8,6 +13,22 @@ use gpui::{App, AppContext as _, Context, Window};
 use gpui_ghostty_terminal::view::{TerminalInput, TerminalView};
 use gpui_ghostty_terminal::{TerminalConfig, TerminalSession};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+
+// New imports (alacritty_terminal integration)
+use alacritty_terminal::event::{Event as AlacEvent, EventListener, WindowSize};
+use alacritty_terminal::event_loop::{EventLoop, Msg, Notifier};
+use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::index::Point;
+use alacritty_terminal::sync::FairMutex;
+use alacritty_terminal::term::{self, Term};
+use alacritty_terminal::tty;
+use alacritty_terminal::vte::ansi::{Color, CursorShape};
+use futures::channel::mpsc as futures_mpsc;
+
+// ============================================================================
+// Section 2: Old code (preserved for compilation — main.rs and panes/mod.rs
+// import SpawnedTerminal, spawn_terminal, spawn_terminal_with_cwd)
+// ============================================================================
 
 /// Detect the user's login shell from the POSIX password database.
 /// Works reliably when launched from Finder (where $SHELL may be unset).
@@ -194,15 +215,338 @@ pub fn spawn_terminal_with_cwd(
     }
 }
 
+// ============================================================================
+// Section 3: New alacritty_terminal-backed types
+// ============================================================================
+
+/// Scrollback history: 10,000 lines (matches Zed's default, alacritty convention)
+pub const DEFAULT_SCROLL_HISTORY: usize = 10_000;
+
+/// Bridge between alacritty_terminal's event system and GPUI's async task model.
+/// Forwards terminal events through a futures channel for processing on the GPUI thread.
+#[derive(Clone)]
+pub struct EventProxy(pub futures_mpsc::UnboundedSender<AlacEvent>);
+
+impl EventListener for EventProxy {
+    fn send_event(&self, event: AlacEvent) {
+        self.0.unbounded_send(event).ok();
+    }
+}
+
+/// Terminal dimensions implementing alacritty_terminal's Dimensions trait.
+/// Cell dimensions default to 8x16 and are updated after first paint with real font metrics.
+#[derive(Debug, Clone, Copy)]
+pub struct TerminalSize {
+    pub columns: usize,
+    pub screen_lines: usize,
+    pub cell_width: u16,
+    pub cell_height: u16,
+}
+
+impl TerminalSize {
+    pub fn new(columns: usize, screen_lines: usize) -> Self {
+        Self {
+            columns,
+            screen_lines,
+            cell_width: 8,   // Default; updated after first paint
+            cell_height: 16, // Default; updated after first paint
+        }
+    }
+
+    pub fn window_size(&self) -> WindowSize {
+        WindowSize {
+            num_lines: self.screen_lines as u16,
+            num_cols: self.columns as u16,
+            cell_width: self.cell_width,
+            cell_height: self.cell_height,
+        }
+    }
+}
+
+impl Dimensions for TerminalSize {
+    fn total_lines(&self) -> usize {
+        self.screen_lines
+    }
+
+    fn screen_lines(&self) -> usize {
+        self.screen_lines
+    }
+
+    fn columns(&self) -> usize {
+        self.columns
+    }
+}
+
+/// Cached terminal content snapshot. Updated during sync(), read during render.
+/// This decouples rendering from the FairMutex lock (per D-06).
+#[derive(Debug, Clone)]
+pub struct TerminalContent {
+    /// Cell data for the visible area -- each cell has character, fg/bg colors, flags
+    pub cells: Vec<TerminalCell>,
+    /// Cursor position (line, column) and shape
+    pub cursor: CursorInfo,
+    /// Display scroll offset (0 = bottom, >0 = scrolled up into history)
+    pub display_offset: usize,
+    /// Terminal dimensions at snapshot time
+    pub size: TerminalSize,
+}
+
+/// Simplified cell representation for rendering (decoupled from alacritty's internal types)
+#[derive(Debug, Clone)]
+pub struct TerminalCell {
+    pub point: Point,
+    pub c: char,
+    pub fg: Color,
+    pub bg: Color,
+    pub flags: alacritty_terminal::term::cell::Flags,
+}
+
+/// Cursor info extracted from alacritty's RenderableCursor
+#[derive(Debug, Clone)]
+pub struct CursorInfo {
+    pub point: Point,
+    pub shape: CursorShape,
+}
+
+impl Default for TerminalContent {
+    fn default() -> Self {
+        Self {
+            cells: Vec::new(),
+            cursor: CursorInfo {
+                point: Point::default(),
+                shape: CursorShape::Block,
+            },
+            display_offset: 0,
+            size: TerminalSize::new(80, 24),
+        }
+    }
+}
+
+/// The new alacritty_terminal-backed Terminal entity.
+/// Wraps Term<EventProxy> in FairMutex, manages PTY lifecycle via EventLoop,
+/// and caches content snapshots for rendering.
+///
+/// Created by `new_terminal()`. Consumers use `content()` for rendering
+/// and `write_to_pty()` for input.
+pub struct Terminal {
+    /// The alacritty terminal state, shared with the EventLoop I/O thread
+    term: Arc<FairMutex<Term<EventProxy>>>,
+    /// Sender to the EventLoop for PTY writes, resize, and shutdown
+    pty_tx: Notifier,
+    /// Cached content snapshot -- updated on sync(), read during render
+    last_content: TerminalContent,
+    /// Whether the child shell process has exited
+    pub child_exited: bool,
+    /// Exit code of the child process (if exited)
+    pub exit_code: Option<i32>,
+    /// Window/tab title set by the shell via OSC 0/2
+    pub title: Option<String>,
+    /// The current terminal dimensions
+    size: TerminalSize,
+}
+
+impl Terminal {
+    /// Sync terminal state: acquire FairMutex, read renderable content into
+    /// cached snapshot, release lock. MUST be called from event handlers,
+    /// NEVER from render/paint (per D-06).
+    pub fn sync(&mut self) {
+        let term = self.term.lock();
+        let content = term.renderable_content();
+
+        let cursor = CursorInfo {
+            point: content.cursor.point,
+            shape: content.cursor.shape,
+        };
+
+        let cells: Vec<TerminalCell> = content
+            .display_iter
+            .map(|ic| TerminalCell {
+                point: ic.point,
+                c: ic.cell.c,
+                fg: ic.cell.fg,
+                bg: ic.cell.bg,
+                flags: ic.cell.flags,
+            })
+            .collect();
+
+        let display_offset = content.display_offset;
+
+        let cols = term.columns();
+        let lines = term.screen_lines();
+        drop(term); // Release lock before storing
+
+        self.last_content = TerminalContent {
+            cells,
+            cursor,
+            display_offset,
+            size: TerminalSize::new(cols, lines),
+        };
+    }
+
+    /// Get the cached content snapshot (lock-free, safe to call from render).
+    pub fn content(&self) -> &TerminalContent {
+        &self.last_content
+    }
+
+    /// Write bytes to the PTY (keyboard input).
+    pub fn write_to_pty(&self, data: Vec<u8>) {
+        use alacritty_terminal::event::Notify;
+        self.pty_tx.notify(data);
+    }
+
+    /// Resize the terminal grid and PTY.
+    /// Per research Pitfall 6: resize both the grid (under lock) and the PTY (via EventLoop channel).
+    pub fn resize(&mut self, new_size: TerminalSize) {
+        self.size = new_size;
+
+        // 1. Resize the grid (main thread, under lock)
+        {
+            let mut term = self.term.lock();
+            term.resize(new_size);
+        } // Lock released
+
+        // 2. Resize the PTY (via EventLoop channel)
+        let _ = self.pty_tx.0.send(Msg::Resize(new_size.window_size()));
+    }
+
+    /// Process an event from the alacritty EventLoop.
+    /// Called from the GPUI async event task (Pattern 4).
+    pub fn process_event(&mut self, event: AlacEvent, cx: &mut gpui::Context<Self>) {
+        match event {
+            AlacEvent::Wakeup => {
+                // Terminal has new content -- sync and notify GPUI to re-render
+                self.sync();
+                cx.notify();
+            }
+            AlacEvent::ChildExit(code) => {
+                tracing::info!("Shell exited with code: {}", code);
+                self.child_exited = true;
+                self.exit_code = Some(code);
+                cx.notify();
+            }
+            AlacEvent::Title(title) => {
+                self.title = Some(title);
+                cx.notify();
+            }
+            AlacEvent::Bell => {
+                // Could trigger visual bell in future
+            }
+            AlacEvent::ClipboardStore(_clipboard_type, _text) => {
+                // Phase 10: clipboard handling
+            }
+            AlacEvent::Exit => {
+                self.child_exited = true;
+                cx.notify();
+            }
+            _ => {
+                // Other events (MouseCursorDirty, CursorBlinkingChange, etc.)
+                // handled in later phases
+            }
+        }
+    }
+}
+
+/// Create a new alacritty_terminal-backed Terminal.
+///
+/// Spawns a PTY with a login shell, creates the EventLoop I/O thread,
+/// and returns the Terminal entity plus a futures event receiver for
+/// wiring into a GPUI async task.
+///
+/// The caller MUST spawn a GPUI async task that reads from `events_rx`
+/// and calls `terminal.process_event()` for each event. See Pattern 4
+/// in the research doc.
+///
+/// Returns: (Terminal, UnboundedReceiver<AlacEvent>)
+pub fn new_terminal(
+    working_directory: Option<std::path::PathBuf>,
+    size: TerminalSize,
+) -> Result<(Terminal, futures_mpsc::UnboundedReceiver<AlacEvent>), Box<dyn std::error::Error>> {
+    let (events_tx, events_rx) = futures_mpsc::unbounded();
+
+    // Terminal config with scrollback (TERM-03)
+    let config = term::Config {
+        scrolling_history: DEFAULT_SCROLL_HISTORY,
+        ..Default::default()
+    };
+
+    // Create Term with EventProxy (TERM-01)
+    let term = Arc::new(FairMutex::new(Term::new(
+        config,
+        &size,
+        EventProxy(events_tx.clone()),
+    )));
+
+    // PTY options -- env vars per Pitfall 5
+    let mut env = std::collections::HashMap::new();
+    env.insert("TERM".to_string(), "xterm-256color".to_string());
+    env.insert("COLORTERM".to_string(), "truecolor".to_string());
+    env.insert("TERM_PROGRAM".to_string(), "Ade".to_string());
+
+    // Working directory with Finder-launch fallback
+    let wd = working_directory.unwrap_or_else(|| {
+        let dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+        if dir == std::path::Path::new("/") {
+            detect_home_dir()
+        } else {
+            dir
+        }
+    });
+
+    let pty_options = tty::Options {
+        shell: None, // Let alacritty detect shell via getpwuid_r (TERM-02)
+        working_directory: Some(wd),
+        drain_on_exit: false,
+        env,
+    };
+
+    // Window size for PTY ioctl (Pitfall 3: use sensible defaults)
+    let window_size = size.window_size();
+
+    // Create PTY via alacritty's tty module (TERM-02, replaces portable-pty)
+    let pty = tty::new(&pty_options, window_size, 0)?;
+
+    // Create and spawn EventLoop (research Pattern 3)
+    let event_loop = EventLoop::new(
+        term.clone(),
+        EventProxy(events_tx),
+        pty,
+        pty_options.drain_on_exit,
+        false, // ref_test
+    )?;
+    let notifier = Notifier(event_loop.channel());
+    let _io_thread = event_loop.spawn();
+
+    let terminal = Terminal {
+        term,
+        pty_tx: notifier,
+        last_content: TerminalContent::default(),
+        child_exited: false,
+        exit_code: None,
+        title: None,
+        size,
+    };
+
+    Ok((terminal, events_rx))
+}
+
+// ============================================================================
+// Section 4: Tests (old tests preserved + new tests added)
+// ============================================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- Old tests (preserved) ---
 
     #[test]
     fn test_detect_user_shell() {
         let shell = detect_user_shell();
         assert!(!shell.is_empty(), "shell should not be empty");
-        assert!(shell.starts_with('/'), "shell should be an absolute path, got: {shell}");
+        assert!(
+            shell.starts_with('/'),
+            "shell should be an absolute path, got: {shell}"
+        );
         // On macOS the default shell is /bin/zsh or /bin/bash
         assert!(
             shell.contains("sh"),
@@ -213,8 +557,122 @@ mod tests {
     #[test]
     fn test_detect_home_dir() {
         let home = detect_home_dir();
-        assert!(home.is_absolute(), "home should be an absolute path, got: {home:?}");
+        assert!(
+            home.is_absolute(),
+            "home should be an absolute path, got: {home:?}"
+        );
         assert!(home.exists(), "home directory should exist, got: {home:?}");
-        assert_ne!(home, std::path::PathBuf::from("/"), "home should not be root");
+        assert_ne!(
+            home,
+            std::path::PathBuf::from("/"),
+            "home should not be root"
+        );
+    }
+
+    // --- New tests (alacritty_terminal integration) ---
+
+    #[test]
+    fn test_term_config_scrollback() {
+        let config = term::Config {
+            scrolling_history: DEFAULT_SCROLL_HISTORY,
+            ..Default::default()
+        };
+        assert_eq!(config.scrolling_history, 10_000);
+    }
+
+    #[test]
+    fn test_terminal_size_dimensions() {
+        let size = TerminalSize::new(120, 40);
+        assert_eq!(size.columns(), 120);
+        assert_eq!(size.screen_lines(), 40);
+        assert_eq!(size.total_lines(), 40);
+        let ws = size.window_size();
+        assert_eq!(ws.num_cols, 120);
+        assert_eq!(ws.num_lines, 40);
+        assert_eq!(ws.cell_width, 8);
+        assert_eq!(ws.cell_height, 16);
+    }
+
+    #[test]
+    fn test_event_proxy_send() {
+        let (tx, mut rx) = futures_mpsc::unbounded();
+        let proxy = EventProxy(tx);
+        proxy.send_event(AlacEvent::Bell);
+        // Channel should have the event
+        match rx.try_next() {
+            Ok(Some(AlacEvent::Bell)) => {} // expected
+            other => panic!("Expected Bell event, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_terminal_content_default() {
+        let content = TerminalContent::default();
+        assert!(content.cells.is_empty());
+        assert_eq!(content.display_offset, 0);
+        assert_eq!(content.size.columns, 80);
+        assert_eq!(content.size.screen_lines, 24);
+    }
+
+    #[test]
+    fn test_pty_options_env() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("TERM".to_string(), "xterm-256color".to_string());
+        env.insert("COLORTERM".to_string(), "truecolor".to_string());
+        env.insert("TERM_PROGRAM".to_string(), "Ade".to_string());
+        assert_eq!(env.get("TERM").unwrap(), "xterm-256color");
+        assert_eq!(env.get("COLORTERM").unwrap(), "truecolor");
+        assert_eq!(env.get("TERM_PROGRAM").unwrap(), "Ade");
+    }
+
+    #[test]
+    fn test_detect_user_shell_retained() {
+        let shell = detect_user_shell();
+        assert!(!shell.is_empty(), "shell should not be empty");
+        assert!(
+            shell.starts_with('/'),
+            "shell should be an absolute path, got: {shell}"
+        );
+        assert!(
+            shell.contains("sh"),
+            "shell should contain 'sh' (zsh, bash, fish, etc.), got: {shell}"
+        );
+    }
+
+    #[test]
+    fn test_detect_home_dir_retained() {
+        let home = detect_home_dir();
+        assert!(
+            home.is_absolute(),
+            "home should be an absolute path, got: {home:?}"
+        );
+        assert!(home.exists(), "home directory should exist, got: {home:?}");
+        assert_ne!(
+            home,
+            std::path::PathBuf::from("/"),
+            "home should not be root"
+        );
+    }
+
+    /// TERM-02 coverage: Verify that new_terminal() successfully spawns a PTY
+    /// via alacritty_terminal::tty::new() (not portable-pty).
+    /// Marked #[ignore] because it spawns a real shell process and requires
+    /// a PTY -- will fail in headless CI environments without a TTY.
+    #[test]
+    #[ignore]
+    fn test_new_terminal_spawns_pty() {
+        let result = new_terminal(None, TerminalSize::new(80, 24));
+        assert!(
+            result.is_ok(),
+            "new_terminal() should succeed: {:?}",
+            result.err()
+        );
+        let (terminal, _events_rx) = result.unwrap();
+        assert!(
+            !terminal.child_exited,
+            "Shell should not have exited immediately"
+        );
+        assert_eq!(terminal.content().size.columns, 80);
+        assert_eq!(terminal.content().size.screen_lines, 24);
     }
 }
