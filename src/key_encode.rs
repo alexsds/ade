@@ -247,27 +247,18 @@ mod tests {
 
     #[test]
     fn test_key_encode_arrow_up_normal() {
-        assert_eq!(
-            encode_key("up", no_mods(), false),
-            Some(b"\x1b[A".to_vec())
-        );
+        assert_eq!(encode_key("up", no_mods(), false), Some(b"\x1b[A".to_vec()));
     }
 
     #[test]
     fn test_key_encode_arrow_up_app_cursor() {
-        assert_eq!(
-            encode_key("up", no_mods(), true),
-            Some(b"\x1bOA".to_vec())
-        );
+        assert_eq!(encode_key("up", no_mods(), true), Some(b"\x1bOA".to_vec()));
     }
 
     #[test]
     fn test_key_encode_arrow_up_shift_overrides_app_cursor() {
         // Modifiers override app cursor mode
-        assert_eq!(
-            encode_key("up", shift(), true),
-            Some(b"\x1b[1;2A".to_vec())
-        );
+        assert_eq!(encode_key("up", shift(), true), Some(b"\x1b[1;2A".to_vec()));
     }
 
     #[test]
@@ -316,10 +307,7 @@ mod tests {
 
     #[test]
     fn test_key_encode_end_app_cursor() {
-        assert_eq!(
-            encode_key("end", no_mods(), true),
-            Some(b"\x1bOF".to_vec())
-        );
+        assert_eq!(encode_key("end", no_mods(), true), Some(b"\x1bOF".to_vec()));
     }
 
     #[test]
@@ -336,18 +324,12 @@ mod tests {
 
     #[test]
     fn test_key_encode_tab_no_mods() {
-        assert_eq!(
-            encode_key("tab", no_mods(), false),
-            Some(b"\x09".to_vec())
-        );
+        assert_eq!(encode_key("tab", no_mods(), false), Some(b"\x09".to_vec()));
     }
 
     #[test]
     fn test_key_encode_tab_shift() {
-        assert_eq!(
-            encode_key("tab", shift(), false),
-            Some(b"\x1b[Z".to_vec())
-        );
+        assert_eq!(encode_key("tab", shift(), false), Some(b"\x1b[Z".to_vec()));
     }
 
     #[test]
@@ -432,34 +414,22 @@ mod tests {
 
     #[test]
     fn test_key_encode_f1() {
-        assert_eq!(
-            encode_key("f1", no_mods(), false),
-            Some(b"\x1bOP".to_vec())
-        );
+        assert_eq!(encode_key("f1", no_mods(), false), Some(b"\x1bOP".to_vec()));
     }
 
     #[test]
     fn test_key_encode_f2() {
-        assert_eq!(
-            encode_key("f2", no_mods(), false),
-            Some(b"\x1bOQ".to_vec())
-        );
+        assert_eq!(encode_key("f2", no_mods(), false), Some(b"\x1bOQ".to_vec()));
     }
 
     #[test]
     fn test_key_encode_f3() {
-        assert_eq!(
-            encode_key("f3", no_mods(), false),
-            Some(b"\x1bOR".to_vec())
-        );
+        assert_eq!(encode_key("f3", no_mods(), false), Some(b"\x1bOR".to_vec()));
     }
 
     #[test]
     fn test_key_encode_f4() {
-        assert_eq!(
-            encode_key("f4", no_mods(), false),
-            Some(b"\x1bOS".to_vec())
-        );
+        assert_eq!(encode_key("f4", no_mods(), false), Some(b"\x1bOS".to_vec()));
     }
 
     #[test]
@@ -621,10 +591,7 @@ mod tests {
             alt: true,
             ..Default::default()
         };
-        assert_eq!(
-            encode_key("up", mods, false),
-            Some(b"\x1b[1;3A".to_vec())
-        );
+        assert_eq!(encode_key("up", mods, false), Some(b"\x1b[1;3A".to_vec()));
     }
 
     #[test]

@@ -277,12 +277,7 @@ impl TerminalView {
     // Keyboard input handler (INPT-01)
     // ========================================================================
 
-    fn on_key_down(
-        &mut self,
-        event: &KeyDownEvent,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let raw_keystroke = event.keystroke.clone();
 
         // Skip key events that are IME-in-progress (except Enter)
@@ -307,8 +302,7 @@ impl TerminalView {
         // 1. Ctrl+key: map to control byte
         if keystroke.modifiers.control {
             if let Some(byte) = key_encode::ctrl_byte_for_keystroke(&keystroke) {
-                self.terminal
-                    .update(cx, |t, _| t.write_to_pty(vec![byte]));
+                self.terminal.update(cx, |t, _| t.write_to_pty(vec![byte]));
                 return;
             }
         }
@@ -432,7 +426,13 @@ impl TerminalView {
                 content.size.columns,
                 content.size.screen_lines,
             );
-            let button_value = sgr_mouse_button_value(1, false, false, event.modifiers.alt, event.modifiers.control);
+            let button_value = sgr_mouse_button_value(
+                1,
+                false,
+                false,
+                event.modifiers.alt,
+                event.modifiers.control,
+            );
             let seq = sgr_mouse_sequence(button_value, col, row, true);
             self.terminal
                 .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
@@ -457,19 +457,20 @@ impl TerminalView {
                 content.size.columns,
                 content.size.screen_lines,
             );
-            let button_value = sgr_mouse_button_value(2, false, false, event.modifiers.alt, event.modifiers.control);
+            let button_value = sgr_mouse_button_value(
+                2,
+                false,
+                false,
+                event.modifiers.alt,
+                event.modifiers.control,
+            );
             let seq = sgr_mouse_sequence(button_value, col, row, true);
             self.terminal
                 .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
         }
     }
 
-    fn on_mouse_up(
-        &mut self,
-        event: &MouseUpEvent,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn on_mouse_up(&mut self, event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let mode = self.terminal.read(cx).content().mode;
 
         if mode.contains(TermMode::MOUSE_MODE)
@@ -638,9 +639,7 @@ impl TerminalView {
         }
 
         // Case 2: Alt screen with ALTERNATE_SCROLL: send arrow keys
-        if mode.contains(TermMode::ALT_SCREEN)
-            && mode.contains(TermMode::ALTERNATE_SCROLL)
-        {
+        if mode.contains(TermMode::ALT_SCREEN) && mode.contains(TermMode::ALTERNATE_SCROLL) {
             let arrow = if delta_lines < 0 {
                 b"\x1b[A" // Up
             } else {
@@ -742,8 +741,7 @@ impl TerminalView {
             cx.notify();
         } else {
             // No selection: send SIGINT (0x03)
-            self.terminal
-                .update(cx, |t, _| t.write_to_pty(vec![0x03]));
+            self.terminal.update(cx, |t, _| t.write_to_pty(vec![0x03]));
         }
     }
 }
@@ -776,14 +774,8 @@ impl Render for TerminalView {
             .size_full()
             .on_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
-            .on_mouse_down(
-                MouseButton::Middle,
-                cx.listener(Self::on_middle_mouse_down),
-            )
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(Self::on_right_mouse_down),
-            )
+            .on_mouse_down(MouseButton::Middle, cx.listener(Self::on_middle_mouse_down))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
@@ -873,10 +865,8 @@ impl EntityInputHandler for TerminalView {
         let content = self.terminal.read(cx).content();
         let cursor = &content.cursor;
 
-        let base_x = element_bounds.left()
-            + px(self.cell_width * cursor.point.column.0 as f32);
-        let base_y = element_bounds.top()
-            + px(self.cell_height * cursor.point.line.0 as f32);
+        let base_x = element_bounds.left() + px(self.cell_width * cursor.point.column.0 as f32);
+        let base_y = element_bounds.top() + px(self.cell_height * cursor.point.line.0 as f32);
 
         let offset_cells = self
             .marked_text
@@ -946,34 +936,22 @@ mod tests {
 
     #[test]
     fn test_sgr_mouse_sequence_pressed() {
-        assert_eq!(
-            sgr_mouse_sequence(0, 5, 10, true),
-            "\x1b[<0;5;10M"
-        );
+        assert_eq!(sgr_mouse_sequence(0, 5, 10, true), "\x1b[<0;5;10M");
     }
 
     #[test]
     fn test_sgr_mouse_sequence_released() {
-        assert_eq!(
-            sgr_mouse_sequence(0, 5, 10, false),
-            "\x1b[<0;5;10m"
-        );
+        assert_eq!(sgr_mouse_sequence(0, 5, 10, false), "\x1b[<0;5;10m");
     }
 
     #[test]
     fn test_sgr_mouse_sequence_scroll_up() {
-        assert_eq!(
-            sgr_mouse_sequence(64, 1, 1, true),
-            "\x1b[<64;1;1M"
-        );
+        assert_eq!(sgr_mouse_sequence(64, 1, 1, true), "\x1b[<64;1;1M");
     }
 
     #[test]
     fn test_sgr_mouse_sequence_scroll_down() {
-        assert_eq!(
-            sgr_mouse_sequence(65, 1, 1, true),
-            "\x1b[<65;1;1M"
-        );
+        assert_eq!(sgr_mouse_sequence(65, 1, 1, true), "\x1b[<65;1;1M");
     }
 
     #[test]

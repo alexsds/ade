@@ -151,14 +151,15 @@ impl GitProvider {
 
     /// Request more commits from the persistent revwalk (incremental batch).
     pub fn request_more_log(&self, batch_size: usize) {
-        let _ = self.request_tx.send(GitRequest::FetchMoreLog { batch_size });
+        let _ = self
+            .request_tx
+            .send(GitRequest::FetchMoreLog { batch_size });
     }
 
     /// Non-blocking poll for responses from the background thread.
     pub fn try_recv(&self) -> Option<GitResponse> {
         self.response_rx.try_recv().ok()
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +205,6 @@ fn collect_batch(
     }
     commits
 }
-
 
 /// Build a map from commit OID to branch/tag decorations.
 fn build_decoration_map(repo: &Repository) -> HashMap<Oid, Vec<Decoration>> {
@@ -654,7 +654,11 @@ mod tests {
 
         // Third batch: remaining 1 commit
         let batch3 = collect_batch(&repo, &mut revwalk, 2, &decorations);
-        assert_eq!(batch3.len(), 1, "Third batch should have 1 remaining commit");
+        assert_eq!(
+            batch3.len(),
+            1,
+            "Third batch should have 1 remaining commit"
+        );
 
         // No overlap between any batches
         let all_oids: Vec<String> = batch1
@@ -689,7 +693,11 @@ mod tests {
 
         let commits = collect_batch(&repo, &mut revwalk, 10, &decorations);
 
-        assert_eq!(commits.len(), 2, "Should return 2 commits from 2-commit repo");
+        assert_eq!(
+            commits.len(),
+            2,
+            "Should return 2 commits from 2-commit repo"
+        );
         assert!(
             commits.len() < 10,
             "Returned fewer than requested signals exhaustion"

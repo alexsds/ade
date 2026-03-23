@@ -253,7 +253,13 @@ impl PaneTree {
     ///
     /// Used by divider drag to avoid cumulative delta errors — ratios are
     /// computed from the original start_ratios each frame and set directly.
-    pub fn set_flex_ratios_at(&mut self, branch_path: &[usize], child_index: usize, left: f32, right: f32) {
+    pub fn set_flex_ratios_at(
+        &mut self,
+        branch_path: &[usize],
+        child_index: usize,
+        left: f32,
+        right: f32,
+    ) {
         let node = self.node_at_path(branch_path);
         if let Some(PaneTree::Branch { flex_ratios, .. }) = node {
             if child_index + 1 < flex_ratios.len() {

@@ -154,12 +154,14 @@ impl Render for CodeReviewPanel {
         // Callback to report visible range end for near-bottom detection (D-01)
         let on_range_visible: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
             let weak = weak.clone();
-            Arc::new(move |range_end: usize, _window: &mut Window, cx: &mut gpui::App| {
-                weak.update(cx, |this, _| {
-                    this.visible_range_end = range_end;
-                })
-                .ok();
-            })
+            Arc::new(
+                move |range_end: usize, _window: &mut Window, cx: &mut gpui::App| {
+                    weak.update(cx, |this, _| {
+                        this.visible_range_end = range_end;
+                    })
+                    .ok();
+                },
+            )
         };
 
         // Build commit list content
@@ -473,6 +475,9 @@ mod tests {
             !panel.all_commits_loaded,
             "all_commits_loaded should be reset"
         );
-        assert_eq!(panel.visible_range_end, 0, "visible_range_end should be reset");
+        assert_eq!(
+            panel.visible_range_end, 0,
+            "visible_range_end should be reset"
+        );
     }
 }

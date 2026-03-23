@@ -10,12 +10,12 @@ use alacritty_terminal::event::{Event as AlacEvent, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, Msg, Notifier};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::Point;
+use alacritty_terminal::selection::SelectionRange;
 use alacritty_terminal::sync::FairMutex;
-use alacritty_terminal::term::{self, Term, TermMode};
-use alacritty_terminal::tty;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::color::Colors;
-use alacritty_terminal::selection::SelectionRange;
+use alacritty_terminal::term::{self, Term, TermMode};
+use alacritty_terminal::tty;
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
 use futures::channel::mpsc as futures_mpsc;
 
@@ -208,22 +208,86 @@ impl Default for TerminalContent {
 
 /// Standard xterm-256color palette: 16 named ANSI colors.
 const NAMED_COLORS: [Rgb; 16] = [
-    Rgb { r: 0x00, g: 0x00, b: 0x00 }, // Black
-    Rgb { r: 0xCD, g: 0x00, b: 0x00 }, // Red
-    Rgb { r: 0x00, g: 0xCD, b: 0x00 }, // Green
-    Rgb { r: 0xCD, g: 0xCD, b: 0x00 }, // Yellow
-    Rgb { r: 0x00, g: 0x00, b: 0xEE }, // Blue
-    Rgb { r: 0xCD, g: 0x00, b: 0xCD }, // Magenta
-    Rgb { r: 0x00, g: 0xCD, b: 0xCD }, // Cyan
-    Rgb { r: 0xE5, g: 0xE5, b: 0xE5 }, // White
-    Rgb { r: 0x7F, g: 0x7F, b: 0x7F }, // BrightBlack
-    Rgb { r: 0xFF, g: 0x00, b: 0x00 }, // BrightRed
-    Rgb { r: 0x00, g: 0xFF, b: 0x00 }, // BrightGreen
-    Rgb { r: 0xFF, g: 0xFF, b: 0x00 }, // BrightYellow
-    Rgb { r: 0x5C, g: 0x5C, b: 0xFF }, // BrightBlue
-    Rgb { r: 0xFF, g: 0x00, b: 0xFF }, // BrightMagenta
-    Rgb { r: 0x00, g: 0xFF, b: 0xFF }, // BrightCyan
-    Rgb { r: 0xFF, g: 0xFF, b: 0xFF }, // BrightWhite
+    Rgb {
+        r: 0x00,
+        g: 0x00,
+        b: 0x00,
+    }, // Black
+    Rgb {
+        r: 0xCD,
+        g: 0x00,
+        b: 0x00,
+    }, // Red
+    Rgb {
+        r: 0x00,
+        g: 0xCD,
+        b: 0x00,
+    }, // Green
+    Rgb {
+        r: 0xCD,
+        g: 0xCD,
+        b: 0x00,
+    }, // Yellow
+    Rgb {
+        r: 0x00,
+        g: 0x00,
+        b: 0xEE,
+    }, // Blue
+    Rgb {
+        r: 0xCD,
+        g: 0x00,
+        b: 0xCD,
+    }, // Magenta
+    Rgb {
+        r: 0x00,
+        g: 0xCD,
+        b: 0xCD,
+    }, // Cyan
+    Rgb {
+        r: 0xE5,
+        g: 0xE5,
+        b: 0xE5,
+    }, // White
+    Rgb {
+        r: 0x7F,
+        g: 0x7F,
+        b: 0x7F,
+    }, // BrightBlack
+    Rgb {
+        r: 0xFF,
+        g: 0x00,
+        b: 0x00,
+    }, // BrightRed
+    Rgb {
+        r: 0x00,
+        g: 0xFF,
+        b: 0x00,
+    }, // BrightGreen
+    Rgb {
+        r: 0xFF,
+        g: 0xFF,
+        b: 0x00,
+    }, // BrightYellow
+    Rgb {
+        r: 0x5C,
+        g: 0x5C,
+        b: 0xFF,
+    }, // BrightBlue
+    Rgb {
+        r: 0xFF,
+        g: 0x00,
+        b: 0xFF,
+    }, // BrightMagenta
+    Rgb {
+        r: 0x00,
+        g: 0xFF,
+        b: 0xFF,
+    }, // BrightCyan
+    Rgb {
+        r: 0xFF,
+        g: 0xFF,
+        b: 0xFF,
+    }, // BrightWhite
 ];
 
 /// Default foreground color (light gray).
@@ -307,13 +371,7 @@ fn indexed_color(idx: u8, colors: &Colors) -> Rgb {
             let r_idx = n / 36;
             let g_idx = (n / 6) % 6;
             let b_idx = n % 6;
-            let component = |c: u8| -> u8 {
-                if c == 0 {
-                    0
-                } else {
-                    c * 40 + 55
-                }
-            };
+            let component = |c: u8| -> u8 { if c == 0 { 0 } else { c * 40 + 55 } };
             Rgb {
                 r: component(r_idx),
                 g: component(g_idx),
@@ -484,7 +542,10 @@ impl Terminal {
                 // Could trigger visual bell in future
             }
             AlacEvent::ClipboardStore(clipboard_type, text) => {
-                if matches!(clipboard_type, alacritty_terminal::term::ClipboardType::Clipboard) {
+                if matches!(
+                    clipboard_type,
+                    alacritty_terminal::term::ClipboardType::Clipboard
+                ) {
                     self.pending_clipboard_store = Some(text);
                     cx.notify();
                 }
@@ -753,14 +814,28 @@ mod tests {
             }),
             &colors,
         );
-        assert_eq!(rgb, Rgb { r: 0xAB, g: 0xCD, b: 0xEF });
+        assert_eq!(
+            rgb,
+            Rgb {
+                r: 0xAB,
+                g: 0xCD,
+                b: 0xEF
+            }
+        );
     }
 
     #[test]
     fn test_resolve_color_named_red() {
         let colors = Colors::default();
         let rgb = resolve_color(Color::Named(NamedColor::Red), &colors);
-        assert_eq!(rgb, Rgb { r: 0xCD, g: 0x00, b: 0x00 });
+        assert_eq!(
+            rgb,
+            Rgb {
+                r: 0xCD,
+                g: 0x00,
+                b: 0x00
+            }
+        );
     }
 
     #[test]
@@ -768,7 +843,14 @@ mod tests {
         let colors = Colors::default();
         // Indexed 1 = Red
         let rgb = resolve_color(Color::Indexed(1), &colors);
-        assert_eq!(rgb, Rgb { r: 0xCD, g: 0x00, b: 0x00 });
+        assert_eq!(
+            rgb,
+            Rgb {
+                r: 0xCD,
+                g: 0x00,
+                b: 0x00
+            }
+        );
     }
 
     #[test]
@@ -777,7 +859,14 @@ mod tests {
         // Indexed 196 = 16 + 180, 180 = 5*36 + 0*6 + 0, so r=5,g=0,b=0
         // r: 5*40+55=255, g: 0, b: 0
         let rgb = resolve_color(Color::Indexed(196), &colors);
-        assert_eq!(rgb, Rgb { r: 0xFF, g: 0x00, b: 0x00 });
+        assert_eq!(
+            rgb,
+            Rgb {
+                r: 0xFF,
+                g: 0x00,
+                b: 0x00
+            }
+        );
     }
 
     #[test]
@@ -798,15 +887,43 @@ mod tests {
         let mut bg = resolve_color(bg_color, &colors);
 
         // Before swap
-        assert_eq!(fg, Rgb { r: 0xCD, g: 0x00, b: 0x00 }); // Red
-        assert_eq!(bg, Rgb { r: 0x00, g: 0x00, b: 0xEE }); // Blue
+        assert_eq!(
+            fg,
+            Rgb {
+                r: 0xCD,
+                g: 0x00,
+                b: 0x00
+            }
+        ); // Red
+        assert_eq!(
+            bg,
+            Rgb {
+                r: 0x00,
+                g: 0x00,
+                b: 0xEE
+            }
+        ); // Blue
 
         // Simulate INVERSE flag handling
         std::mem::swap(&mut fg, &mut bg);
 
         // After swap: fg is now Blue, bg is now Red
-        assert_eq!(fg, Rgb { r: 0x00, g: 0x00, b: 0xEE });
-        assert_eq!(bg, Rgb { r: 0xCD, g: 0x00, b: 0x00 });
+        assert_eq!(
+            fg,
+            Rgb {
+                r: 0x00,
+                g: 0x00,
+                b: 0xEE
+            }
+        );
+        assert_eq!(
+            bg,
+            Rgb {
+                r: 0xCD,
+                g: 0x00,
+                b: 0x00
+            }
+        );
     }
 
     #[test]
@@ -817,6 +934,13 @@ mod tests {
             b: 255,
         });
         // 255 * 0.66 = 168.3 -> 168
-        assert_eq!(result, Rgb { r: 168, g: 168, b: 168 });
+        assert_eq!(
+            result,
+            Rgb {
+                r: 168,
+                g: 168,
+                b: 168
+            }
+        );
     }
 }

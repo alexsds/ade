@@ -18,12 +18,17 @@ use gpui::{
     SharedString, Style, TextRun, UnderlineStyle, Window, fill, point, px, relative, size,
 };
 
+use crate::terminal::{DEFAULT_BG, DEFAULT_FG, Terminal, TerminalCell, TerminalContent};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
-use crate::terminal::{Terminal, TerminalCell, TerminalContent, DEFAULT_BG, DEFAULT_FG};
 
 /// Semi-transparent blue highlight for selected text, similar to most terminal emulators.
-const SELECTION_BG: gpui::Hsla = gpui::Hsla { h: 0.58, s: 0.6, l: 0.4, a: 0.5 };
+const SELECTION_BG: gpui::Hsla = gpui::Hsla {
+    h: 0.58,
+    s: 0.6,
+    l: 0.4,
+    a: 0.5,
+};
 
 // ============================================================================
 // Font setup (ported from vendor/gpui-ghostty/crates/gpui_ghostty_terminal/src/font.rs)
@@ -77,13 +82,7 @@ fn cell_metrics(window: &mut Window, font: &gpui::Font) -> Option<(f32, f32)> {
     let run = style.to_run(1);
     let lines = window
         .text_system()
-        .shape_text(
-            SharedString::from("M"),
-            font_size,
-            &[run],
-            None,
-            Some(1),
-        )
+        .shape_text(SharedString::from("M"), font_size, &[run], None, Some(1))
         .ok()?;
     let line = lines.first()?;
 
@@ -154,9 +153,7 @@ fn build_text_runs(
         }
         c
     };
-    let current_underline_flags = cells[0]
-        .flags
-        .intersects(Flags::ALL_UNDERLINES);
+    let current_underline_flags = cells[0].flags.intersects(Flags::ALL_UNDERLINES);
     let mut current_underline = if current_underline_flags {
         Some(UnderlineStyle {
             color: Some(current_color),
@@ -516,10 +513,7 @@ impl Element for TerminalElement {
             if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
                 continue;
             }
-            lines_map
-                .entry(cell.point.line.0)
-                .or_default()
-                .push(cell);
+            lines_map.entry(cell.point.line.0).or_default().push(cell);
         }
 
         // Extract selection range for highlight rendering
@@ -544,16 +538,13 @@ impl Element for TerminalElement {
             let has_wide = line_cells
                 .iter()
                 .any(|c| c.flags.contains(Flags::WIDE_CHAR));
-            let force_width = if has_wide {
-                None
-            } else {
-                Some(px(cell_width))
-            };
+            let force_width = if has_wide { None } else { Some(px(cell_width)) };
 
             // 7d. Shape line
-            let shaped = window
-                .text_system()
-                .shape_line(shared_text, font_size, &runs, force_width);
+            let shaped =
+                window
+                    .text_system()
+                    .shape_line(shared_text, font_size, &runs, force_width);
             shaped_lines.push(shaped);
 
             // 7e. Build background quads
@@ -595,8 +586,7 @@ impl Element for TerminalElement {
             for cell in line_cells.iter() {
                 if box_drawing_mask(cell.c).is_some() {
                     let x = bounds.left() + px(cell_width * cell.point.column.0 as f32);
-                    let cell_bounds =
-                        Bounds::new(point(x, y), size(px(cell_width), line_height));
+                    let cell_bounds = Bounds::new(point(x, y), size(px(cell_width), line_height));
                     box_drawing_quads.extend(box_drawing_quads_for_char(
                         cell_bounds,
                         line_height,
@@ -684,8 +674,16 @@ mod tests {
     #[test]
     fn test_rgb_to_hsla_black() {
         let hsla = rgb_to_hsla(Rgb { r: 0, g: 0, b: 0 });
-        assert!((hsla.l - 0.0).abs() < 0.01, "black should have l ~0.0, got {}", hsla.l);
-        assert!((hsla.a - 1.0).abs() < 0.001, "alpha should be 1.0, got {}", hsla.a);
+        assert!(
+            (hsla.l - 0.0).abs() < 0.01,
+            "black should have l ~0.0, got {}",
+            hsla.l
+        );
+        assert!(
+            (hsla.a - 1.0).abs() < 0.001,
+            "alpha should be 1.0, got {}",
+            hsla.a
+        );
     }
 
     #[test]
@@ -742,7 +740,10 @@ mod tests {
     fn test_box_drawing_mask_horizontal() {
         // U+2500 = '─' (horizontal line)
         let result = box_drawing_mask('\u{2500}');
-        assert!(result.is_some(), "horizontal line should be a box drawing char");
+        assert!(
+            result.is_some(),
+            "horizontal line should be a box drawing char"
+        );
         let (mask, _scale) = result.unwrap();
         assert!(
             mask & BOX_DIR_LEFT != 0,

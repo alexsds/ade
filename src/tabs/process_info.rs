@@ -24,10 +24,7 @@ pub fn process_name(pid: i32) -> Option<String> {
         )
     };
     if ret > 0 {
-        let name = CStr::from_bytes_until_nul(&name_buf)
-            .ok()?
-            .to_str()
-            .ok()?;
+        let name = CStr::from_bytes_until_nul(&name_buf).ok()?.to_str().ok()?;
         Some(name.to_string())
     } else {
         None
@@ -71,7 +68,10 @@ mod tests {
     fn test_process_name_current_process() {
         let pid = std::process::id() as i32;
         let name = process_name(pid);
-        assert!(name.is_some(), "process_name should return Some for current process");
+        assert!(
+            name.is_some(),
+            "process_name should return Some for current process"
+        );
         let name = name.unwrap();
         assert!(!name.is_empty(), "process_name should not be empty");
     }
@@ -80,20 +80,32 @@ mod tests {
     fn test_process_cwd_current_process() {
         let pid = std::process::id() as i32;
         let cwd = process_cwd(pid);
-        assert!(cwd.is_some(), "process_cwd should return Some for current process");
+        assert!(
+            cwd.is_some(),
+            "process_cwd should return Some for current process"
+        );
         let cwd = cwd.unwrap();
-        assert!(cwd.exists(), "process_cwd should return a path that exists on disk");
+        assert!(
+            cwd.exists(),
+            "process_cwd should return a path that exists on disk"
+        );
     }
 
     #[test]
     fn test_process_name_invalid_pid() {
         let name = process_name(-1);
-        assert!(name.is_none(), "process_name should return None for invalid PID");
+        assert!(
+            name.is_none(),
+            "process_name should return None for invalid PID"
+        );
     }
 
     #[test]
     fn test_process_cwd_invalid_pid() {
         let cwd = process_cwd(-1);
-        assert!(cwd.is_none(), "process_cwd should return None for invalid PID");
+        assert!(
+            cwd.is_none(),
+            "process_cwd should return None for invalid PID"
+        );
     }
 }

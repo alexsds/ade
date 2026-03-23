@@ -3,11 +3,11 @@ pub mod tree;
 
 use std::collections::HashMap;
 
+use futures::StreamExt as _;
 use gpui::{
     self, AnyElement, App, Context, MouseButton, SharedString, Styled, Window, div, prelude::*, px,
     relative,
 };
-use futures::StreamExt as _;
 
 use crate::terminal::{Terminal, TerminalSize, new_terminal};
 use crate::terminal_view::TerminalView;
@@ -94,17 +94,21 @@ impl PaneContainer {
 
         // Wire event loop (Pattern from Research)
         let terminal_for_events = terminal.clone();
-        window.spawn(cx, async move |cx| {
-            let mut rx = events_rx;
-            while let Some(event) = rx.next().await {
-                let result = cx.update(|_, cx| {
-                    terminal_for_events.update(cx, |t, cx| {
-                        t.process_event(event, cx);
+        window
+            .spawn(cx, async move |cx| {
+                let mut rx = events_rx;
+                while let Some(event) = rx.next().await {
+                    let result = cx.update(|_, cx| {
+                        terminal_for_events.update(cx, |t, cx| {
+                            t.process_event(event, cx);
+                        });
                     });
-                });
-                if result.is_err() { break; }
-            }
-        }).detach();
+                    if result.is_err() {
+                        break;
+                    }
+                }
+            })
+            .detach();
 
         let master_fd = terminal.read(cx).master_fd;
         let view = cx.new(|cx| TerminalView::new(terminal.clone(), cx));
@@ -205,7 +209,9 @@ impl PaneContainer {
     /// Returns the active pane's focus handle.
     /// Returns None if the active pane ID is not found (CRASH-03).
     pub fn active_pane_focus_handle(&self) -> Option<&gpui::FocusHandle> {
-        self.panes.get(&self.active_pane_id).map(|p| &p.focus_handle)
+        self.panes
+            .get(&self.active_pane_id)
+            .map(|p| &p.focus_handle)
     }
 
     /// Returns the active pane's CWD (for inheriting on split).
@@ -337,7 +343,6 @@ impl PaneContainer {
             }
         }
     }
-
 }
 
 impl Render for PaneContainer {
@@ -385,14 +390,17 @@ impl Render for PaneContainer {
                                     let sum = drag.start_ratios[ci] + drag.start_ratios[ci + 1];
 
                                     // Compute desired ratios directly from start_ratios
-                                    let left = (drag.start_ratios[ci] + ratio_delta)
-                                        .clamp(0.1, sum - 0.1);
+                                    let left =
+                                        (drag.start_ratios[ci] + ratio_delta).clamp(0.1, sum - 0.1);
                                     let right = sum - left;
 
                                     // Set ratios directly (avoids cumulative delta bug)
-                                    container
-                                        .tree
-                                        .set_flex_ratios_at(&drag.branch_path, ci, left, right);
+                                    container.tree.set_flex_ratios_at(
+                                        &drag.branch_path,
+                                        ci,
+                                        left,
+                                        right,
+                                    );
                                 }
                                 cx.notify();
                             }
