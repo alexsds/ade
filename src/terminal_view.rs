@@ -316,6 +316,7 @@ impl TerminalView {
         if raw_keystroke.is_ime_in_progress() {
             match raw_keystroke.key.as_str() {
                 "enter" | "return" => {} // Allow Enter during IME
+                "tab" => {}              // Allow Tab/Shift+Tab (terminal control, not IME input)
                 _ => return,
             }
         }
