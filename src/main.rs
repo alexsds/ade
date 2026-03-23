@@ -17,14 +17,14 @@ use gpui::{
     WindowOptions, actions, div, prelude::*, px, size,
 };
 
-use crate::terminal::{new_terminal, TerminalSize};
+use crate::terminal::{TerminalSize, new_terminal};
 use alacritty_terminal::event::Event as AlacEvent;
 use futures::StreamExt as _;
 
 use input::{
-    ClosePane, CloseTab, CopyOrInterrupt, NewTab, NextPane, NextTab, PrevPane, PrevTab,
-    SelectTab1, SelectTab2, SelectTab3, SelectTab4, SelectTab5, SelectTab6, SelectTab7, SelectTab8,
-    SelectTab9, SplitHorizontal, SplitVertical, ToggleCodeReview,
+    ClosePane, CloseTab, CopyOrInterrupt, NewTab, NextPane, NextTab, PrevPane, PrevTab, SelectTab1,
+    SelectTab2, SelectTab3, SelectTab4, SelectTab5, SelectTab6, SelectTab7, SelectTab8, SelectTab9,
+    SplitHorizontal, SplitVertical, ToggleCodeReview,
 };
 use panes::PaneContainer;
 use panes::tree::SplitDirection;
@@ -47,17 +47,21 @@ fn wire_terminal_events(
     cx: &mut App,
 ) {
     let terminal_for_events = terminal.clone();
-    window.spawn(cx, async move |cx| {
-        let mut rx = events_rx;
-        while let Some(event) = rx.next().await {
-            let result = cx.update(|_, cx| {
-                terminal_for_events.update(cx, |t, cx| {
-                    t.process_event(event, cx);
+    window
+        .spawn(cx, async move |cx| {
+            let mut rx = events_rx;
+            while let Some(event) = rx.next().await {
+                let result = cx.update(|_, cx| {
+                    terminal_for_events.update(cx, |t, cx| {
+                        t.process_event(event, cx);
+                    });
                 });
-            });
-            if result.is_err() { break; }
-        }
-    }).detach();
+                if result.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
 }
 
 pub struct AdeWindow {
@@ -75,18 +79,40 @@ pub struct AdeWindow {
 
 impl AdeWindow {
     /// Get a reference to the active tab's PaneContainer entity.
-    fn active_pane_container(&self) -> &gpui::Entity<PaneContainer> {
-        &self.tabs[self.active_tab_index].pane_container
+    /// Returns None if active_tab_index is out of bounds (CRASH-04).
+    fn active_pane_container(&self) -> Option<&gpui::Entity<PaneContainer>> {
+        self.tabs
+            .get(self.active_tab_index)
+            .map(|t| &t.pane_container)
+    }
+
+    /// Ensure active_tab_index is within bounds after tab removal.
+    /// Per D-02: invalid active_tab_index clamps to last valid entry.
+    fn clamp_active_tab(&mut self) {
+        if !self.tabs.is_empty() && self.active_tab_index >= self.tabs.len() {
+            self.active_tab_index = self.tabs.len() - 1;
+        }
     }
 
     // -- Tab lifecycle methods --
 
     /// Create a new tab, inheriting the CWD from the active pane (D-13).
+    /// PTY creation failure is handled gracefully: tab creation is skipped with error logged (CRASH-01).
     fn create_new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let cwd = self.active_pane_container().read(cx).active_cwd().clone();
+        let cwd = match self.active_pane_container() {
+            Some(container) => container.read(cx).active_cwd().cloned().unwrap_or_else(|| {
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
+            }),
+            None => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")),
+        };
         let size = TerminalSize::new(80, 24);
-        let (terminal_inner, events_rx) = new_terminal(Some(cwd.clone()), size)
-            .expect("Failed to create terminal");
+        let (terminal_inner, events_rx) = match new_terminal(Some(cwd.clone()), size) {
+            Ok(result) => result,
+            Err(e) => {
+                eprintln!("Failed to create terminal for new tab: {e}");
+                return;
+            }
+        };
 
         let terminal = cx.new(|_| terminal_inner);
         wire_terminal_events(&terminal, events_rx, window, cx);
@@ -95,9 +121,8 @@ impl AdeWindow {
         let view = cx.new(|cx| crate::terminal_view::TerminalView::new(terminal.clone(), cx));
         let focus_handle = view.read(cx).focus_handle().clone();
 
-        let pane_container = cx.new(|_| PaneContainer::new(
-            terminal, view, focus_handle.clone(), cwd, master_fd,
-        ));
+        let pane_container =
+            cx.new(|_| PaneContainer::new(terminal, view, focus_handle.clone(), cwd, master_fd));
 
         self.tabs.push(TabState {
             pane_container,
@@ -117,16 +142,13 @@ impl AdeWindow {
             return;
         }
         self.tabs.remove(index);
-        if self.active_tab_index >= self.tabs.len() {
-            self.active_tab_index = self.tabs.len() - 1;
-        }
+        self.clamp_active_tab();
         self.update_chrome_heights(cx);
-        let focus = self.tabs[self.active_tab_index]
-            .pane_container
-            .read(cx)
-            .active_pane_focus_handle()
-            .clone();
-        focus.focus(window, cx);
+        if let Some(tab) = self.tabs.get(self.active_tab_index) {
+            if let Some(focus) = tab.pane_container.read(cx).active_pane_focus_handle() {
+                focus.clone().focus(window, cx);
+            }
+        }
         cx.notify();
     }
 
@@ -136,22 +158,16 @@ impl AdeWindow {
             return;
         }
         self.active_tab_index = index;
-        let focus = self.tabs[index]
-            .pane_container
-            .read(cx)
-            .active_pane_focus_handle()
-            .clone();
-        focus.focus(window, cx);
-        // Trigger resize for newly visible tab (Pitfall 7)
-        let size = window.viewport_size();
-        self.tabs[index].pane_container.update(cx, |container, cx| {
-            container.resize_all(
-                f32::from(size.width),
-                f32::from(size.height),
-                window,
-                cx,
-            );
-        });
+        if let Some(tab) = self.tabs.get(index) {
+            if let Some(focus) = tab.pane_container.read(cx).active_pane_focus_handle() {
+                focus.clone().focus(window, cx);
+            }
+            // Trigger resize for newly visible tab (Pitfall 7)
+            let size = window.viewport_size();
+            tab.pane_container.clone().update(cx, |container, cx| {
+                container.resize_all(f32::from(size.width), f32::from(size.height), window, cx);
+            });
+        }
         cx.notify();
     }
 
@@ -182,29 +198,24 @@ impl AdeWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.active_pane_container()
-            .read(cx)
-            .active_view()
-            .clone()
-            .update(cx, |view, cx| {
-                view.copy_or_interrupt(window, cx);
-            });
+        if let Some(container) = self.active_pane_container() {
+            if let Some(view) = container.read(cx).active_view() {
+                view.clone().update(cx, |view, cx| {
+                    view.copy_or_interrupt(window, cx);
+                });
+            }
+        }
     }
 
     /// Handle the SelectAll action: delegate to TerminalView.
-    fn on_select_all(
-        &mut self,
-        _: &input::SelectAll,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.active_pane_container()
-            .read(cx)
-            .active_view()
-            .clone()
-            .update(cx, |view, cx| {
-                view.select_all(window, cx);
-            });
+    fn on_select_all(&mut self, _: &input::SelectAll, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(container) = self.active_pane_container() {
+            if let Some(view) = container.read(cx).active_view() {
+                view.clone().update(cx, |view, cx| {
+                    view.select_all(window, cx);
+                });
+            }
+        }
     }
 
     /// Handle the ToggleCodeReview action: switch between Terminal and Code Review modes.
@@ -225,19 +236,19 @@ impl AdeWindow {
         match self.mode {
             Mode::Terminal => {
                 // Re-focus the active pane
-                self.tabs[self.active_tab_index]
-                    .pane_container
-                    .read(cx)
-                    .active_pane_focus_handle()
-                    .clone()
-                    .focus(window, cx);
+                if let Some(tab) = self.tabs.get(self.active_tab_index) {
+                    if let Some(focus) = tab.pane_container.read(cx).active_pane_focus_handle() {
+                        focus.clone().focus(window, cx);
+                    }
+                }
             }
             Mode::CodeReview => {
                 // Detect active pane's CWD via process introspection (D-18)
-                let master_fd = self.tabs[self.active_tab_index]
-                    .pane_container
-                    .read(cx)
-                    .active_master_fd();
+                let master_fd = self
+                    .tabs
+                    .get(self.active_tab_index)
+                    .map(|tab| tab.pane_container.read(cx).active_master_fd())
+                    .flatten();
 
                 if let Some(fd) = master_fd {
                     if let Some(pgid) = tabs::process_info::foreground_pgid(fd) {
@@ -247,10 +258,9 @@ impl AdeWindow {
                             let new_repo = git2::Repository::discover(&cwd)
                                 .ok()
                                 .and_then(|r| r.workdir().map(|p| p.to_path_buf()));
-                            let old_repo =
-                                git2::Repository::discover(&self.current_git_cwd)
-                                    .ok()
-                                    .and_then(|r| r.workdir().map(|p| p.to_path_buf()));
+                            let old_repo = git2::Repository::discover(&self.current_git_cwd)
+                                .ok()
+                                .and_then(|r| r.workdir().map(|p| p.to_path_buf()));
 
                             if new_repo != old_repo {
                                 // Different repo -- replace GitProvider
@@ -296,37 +306,39 @@ impl AdeWindow {
     }
 
     /// Perform a pane split: create a new terminal in the active tab's PaneContainer.
-    fn do_split(
-        &mut self,
-        direction: SplitDirection,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let cwd = self.active_pane_container().read(cx).active_cwd().clone();
+    fn do_split(&mut self, direction: SplitDirection, window: &mut Window, cx: &mut Context<Self>) {
+        let cwd = match self.active_pane_container() {
+            Some(container) => container.read(cx).active_cwd().cloned().unwrap_or_else(|| {
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
+            }),
+            None => return,
+        };
 
-        self.tabs[self.active_tab_index]
-            .pane_container
-            .update(cx, |container, cx| {
+        if let Some(tab) = self.tabs.get(self.active_tab_index) {
+            tab.pane_container.clone().update(cx, |container, cx| {
                 container.split_pane(direction, cwd, window, cx);
             });
 
-        // Trigger resize for all panes in the active tab after split
-        let size = window.viewport_size();
-        let width = f32::from(size.width);
-        let height = f32::from(size.height);
-        self.tabs[self.active_tab_index]
-            .pane_container
-            .update(cx, |container, cx| {
+            // Trigger resize for all panes in the active tab after split
+            let size = window.viewport_size();
+            let width = f32::from(size.width);
+            let height = f32::from(size.height);
+            tab.pane_container.clone().update(cx, |container, cx| {
                 container.resize_all(width, height, window, cx);
             });
+        }
 
         cx.notify();
     }
 
     /// Handle Cmd+W: close the active pane. Cascade: pane -> tab -> app (D-11).
     fn on_close_pane(&mut self, _: &ClosePane, window: &mut Window, cx: &mut Context<Self>) {
-        let result = self.tabs[self.active_tab_index]
+        let Some(tab) = self.tabs.get(self.active_tab_index) else {
+            return;
+        };
+        let result = tab
             .pane_container
+            .clone()
             .update(cx, |container, cx| container.close_pane(cx));
         match result {
             panes::PaneCloseResult::Removed(handle) => {
@@ -343,8 +355,12 @@ impl AdeWindow {
 
     /// Handle Cmd+]: focus the next pane in the active tab.
     fn on_next_pane(&mut self, _: &NextPane, window: &mut Window, cx: &mut Context<Self>) {
-        let focus_handle = self.tabs[self.active_tab_index]
+        let Some(tab) = self.tabs.get(self.active_tab_index) else {
+            return;
+        };
+        let focus_handle = tab
             .pane_container
+            .clone()
             .update(cx, |container, cx| container.focus_next(cx));
         if let Some(handle) = focus_handle {
             handle.focus(window, cx);
@@ -354,8 +370,12 @@ impl AdeWindow {
 
     /// Handle Cmd+[: focus the previous pane in the active tab.
     fn on_prev_pane(&mut self, _: &PrevPane, window: &mut Window, cx: &mut Context<Self>) {
-        let focus_handle = self.tabs[self.active_tab_index]
+        let Some(tab) = self.tabs.get(self.active_tab_index) else {
+            return;
+        };
+        let focus_handle = tab
             .pane_container
+            .clone()
             .update(cx, |container, cx| container.focus_prev(cx));
         if let Some(handle) = focus_handle {
             handle.focus(window, cx);
@@ -489,7 +509,11 @@ impl Render for AdeWindow {
                     .flex_1()
                     .size_full()
                     .when(self.mode == Mode::Terminal, |d| {
-                        d.child(self.tabs[self.active_tab_index].pane_container.clone())
+                        d.children(
+                            self.tabs
+                                .get(self.active_tab_index)
+                                .map(|tab| tab.pane_container.clone()),
+                        )
                     })
                     .when(self.mode == Mode::CodeReview, |d| {
                         d.child(self.code_review_panel.clone())
@@ -548,8 +572,8 @@ fn main() {
 
             // Spawn initial terminal using new alacritty backend
             let size = TerminalSize::new(80, 24);
-            let (terminal_inner, events_rx) = new_terminal(Some(cwd.clone()), size)
-                .expect("Failed to create terminal");
+            let (terminal_inner, events_rx) =
+                new_terminal(Some(cwd.clone()), size).expect("Failed to create terminal");
 
             let terminal = cx.new(|_| terminal_inner);
             wire_terminal_events(&terminal, events_rx, window, cx);
@@ -559,9 +583,15 @@ fn main() {
             let terminal_focus_handle = view.read(cx).focus_handle().clone();
 
             // Create PaneContainer with the initial terminal
-            let pane_container = cx.new(|_| PaneContainer::new(
-                terminal, view, terminal_focus_handle.clone(), cwd, master_fd,
-            ));
+            let pane_container = cx.new(|_| {
+                PaneContainer::new(
+                    terminal,
+                    view,
+                    terminal_focus_handle.clone(),
+                    cwd,
+                    master_fd,
+                )
+            });
 
             // Create initial tab
             let initial_tab = TabState {
@@ -597,11 +627,11 @@ fn main() {
                         let size = window.viewport_size();
                         let width = f32::from(size.width);
                         let height = f32::from(size.height);
-                        this.tabs[this.active_tab_index]
-                            .pane_container
-                            .update(cx, |container, cx| {
+                        if let Some(tab) = this.tabs.get(this.active_tab_index) {
+                            tab.pane_container.clone().update(cx, |container, cx| {
                                 container.resize_all(width, height, window, cx);
                             });
+                        }
                     },
                 )
             });
@@ -693,31 +723,35 @@ fn main() {
             window
                 .spawn(cx, async move |cx| {
                     loop {
-                        cx.background_executor()
-                            .timer(Duration::from_secs(2))
-                            .await;
+                        cx.background_executor().timer(Duration::from_secs(2)).await;
                         let should_continue = cx
                             .update(|_, cx| {
-                                window_entity_for_process.update(
-                                    cx,
-                                    |this: &mut AdeWindow, cx| {
-                                        for tab in &mut this.tabs {
-                                            let fd = tab.pane_container.read(cx).active_master_fd();
-                                            if let Some(fd) = fd {
-                                                if let Some(pgid) =
-                                                    tabs::process_info::foreground_pgid(fd)
+                                window_entity_for_process.update(cx, |this: &mut AdeWindow, cx| {
+                                    for tab in &mut this.tabs {
+                                        let (child_exited, fd) = {
+                                            let container = tab.pane_container.read(cx);
+                                            (
+                                                container.active_child_exited(cx),
+                                                container.active_master_fd(),
+                                            )
+                                        };
+                                        if child_exited {
+                                            continue; // Skip FFI calls for exited processes
+                                        }
+                                        if let Some(fd) = fd {
+                                            if let Some(pgid) =
+                                                tabs::process_info::foreground_pgid(fd)
+                                            {
+                                                if let Some(name) =
+                                                    tabs::process_info::process_name(pgid)
                                                 {
-                                                    if let Some(name) =
-                                                        tabs::process_info::process_name(pgid)
-                                                    {
-                                                        tab.title = name;
-                                                    }
+                                                    tab.title = name;
                                                 }
                                             }
                                         }
-                                        cx.notify();
-                                    },
-                                );
+                                    }
+                                    cx.notify();
+                                });
                             })
                             .ok();
                         if should_continue.is_none() {
