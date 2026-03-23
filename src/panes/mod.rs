@@ -462,6 +462,8 @@ fn render_tree_recursive(
     match node {
         PaneTree::Leaf(id) => {
             let is_active = *id == active_pane_id;
+            let pane_id = *id;
+            let weak_click = weak.clone();
             if let Some(pane) = panes.get(id) {
                 div()
                     .flex_1()
@@ -469,6 +471,21 @@ fn render_tree_recursive(
                     .opacity(if is_active { 1.0 } else { 0.90 })
                     .text_size(px(14.0))
                     .p(px(4.0))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        move |_event: &gpui::MouseDownEvent,
+                              _window: &mut gpui::Window,
+                              cx: &mut gpui::App| {
+                            weak_click
+                                .update(cx, |container, cx| {
+                                    if container.active_pane_id != pane_id {
+                                        container.active_pane_id = pane_id;
+                                        cx.notify();
+                                    }
+                                })
+                                .ok();
+                        },
+                    )
                     .child(pane.view.clone())
                     .into_any_element()
             } else {
