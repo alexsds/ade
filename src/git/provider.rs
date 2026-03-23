@@ -8,6 +8,10 @@ use git2::{Oid, Repository, Sort, StatusOptions};
 
 use super::types::*;
 
+/// Maximum number of commits to load per repository.
+/// Prevents unbounded memory growth for very large repositories (100K+ commits).
+const MAX_COMMITS: usize = 50_000;
+
 /// Requests that can be sent to the git background thread.
 pub enum GitRequest {
     FetchLog { count: usize },
@@ -62,21 +66,26 @@ impl GitProvider {
 
             let mut active_revwalk: Option<git2::Revwalk<'_>> = None;
             let mut revwalk_exhausted = false;
+            let mut total_loaded: usize = 0;
 
             while let Ok(request) = request_rx.recv() {
                 let response = match request {
                     GitRequest::FetchLog { count } => {
-                        // Fresh load: reset revwalk state
+                        // Fresh load: reset revwalk state and commit counter
                         active_revwalk = None;
                         revwalk_exhausted = false;
+                        total_loaded = 0;
                         let decorations = build_decoration_map(&repo);
                         match repo.revwalk() {
                             Ok(mut revwalk) => {
                                 revwalk.push_head().ok();
                                 revwalk.set_sorting(Sort::TIME).ok();
+                                let capped_count = count.min(MAX_COMMITS);
                                 let commits =
-                                    collect_batch(&repo, &mut revwalk, count, &decorations);
-                                revwalk_exhausted = commits.len() < count;
+                                    collect_batch(&repo, &mut revwalk, capped_count, &decorations);
+                                total_loaded = commits.len();
+                                revwalk_exhausted =
+                                    commits.len() < capped_count || total_loaded >= MAX_COMMITS;
                                 active_revwalk = Some(revwalk);
                                 GitResponse::Log(commits)
                             }
@@ -84,7 +93,8 @@ impl GitProvider {
                         }
                     }
                     GitRequest::FetchMoreLog { batch_size } => {
-                        if revwalk_exhausted {
+                        let remaining = MAX_COMMITS.saturating_sub(total_loaded);
+                        if revwalk_exhausted || remaining == 0 {
                             GitResponse::MoreLog {
                                 commits: vec![],
                                 exhausted: true,
@@ -93,9 +103,16 @@ impl GitProvider {
                             let decorations = build_decoration_map(&repo);
                             match active_revwalk.as_mut() {
                                 Some(revwalk) => {
-                                    let commits =
-                                        collect_batch(&repo, revwalk, batch_size, &decorations);
-                                    let exhausted = commits.len() < batch_size;
+                                    let effective_batch = batch_size.min(remaining);
+                                    let commits = collect_batch(
+                                        &repo,
+                                        revwalk,
+                                        effective_batch,
+                                        &decorations,
+                                    );
+                                    total_loaded += commits.len();
+                                    let exhausted = commits.len() < effective_batch
+                                        || total_loaded >= MAX_COMMITS;
                                     revwalk_exhausted = exhausted;
                                     GitResponse::MoreLog { commits, exhausted }
                                 }
@@ -714,7 +731,11 @@ mod tests {
         revwalk.set_sorting(Sort::TIME).unwrap();
 
         let commits = collect_batch(&repo, &mut revwalk, 3, &decorations);
-        assert_eq!(commits.len(), 3, "Should return exactly 3 commits when repo has 10");
+        assert_eq!(
+            commits.len(),
+            3,
+            "Should return exactly 3 commits when repo has 10"
+        );
     }
 
     #[test]
@@ -733,7 +754,10 @@ mod tests {
         assert_eq!(remaining, 10);
         let batch_size: usize = 500;
         let effective_batch = batch_size.min(remaining);
-        assert_eq!(effective_batch, 10, "Should clamp batch to remaining budget");
+        assert_eq!(
+            effective_batch, 10,
+            "Should clamp batch to remaining budget"
+        );
 
         // Case 3: Exactly at cap -- zero remaining
         let total_loaded: usize = 50_000;
@@ -748,7 +772,10 @@ mod tests {
         // Case 5: Initial count clamped to MAX_COMMITS
         let count: usize = 100_000;
         let capped_count = count.min(max_commits);
-        assert_eq!(capped_count, 50_000, "Should clamp initial count to MAX_COMMITS");
+        assert_eq!(
+            capped_count, 50_000,
+            "Should clamp initial count to MAX_COMMITS"
+        );
 
         // Case 6: Initial count under cap -- no change
         let count: usize = 200;
@@ -822,7 +849,10 @@ mod tests {
                 second_count = commits.len();
             }
         }
-        assert_eq!(second_count, 10, "Fresh load should reset counter and return all commits");
+        assert_eq!(
+            second_count, 10,
+            "Fresh load should reset counter and return all commits"
+        );
     }
 
     #[test]
