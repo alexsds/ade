@@ -432,8 +432,13 @@ impl TerminalView {
             );
 
             {
+                let sel_type = match event.click_count {
+                    2 => SelectionType::Semantic,
+                    3 => SelectionType::Lines,
+                    _ => SelectionType::Simple,
+                };
                 let mut term = self.terminal.read(cx).term.lock();
-                term.selection = Some(Selection::new(SelectionType::Simple, point, side));
+                term.selection = Some(Selection::new(sel_type, point, side));
             }
             self.selecting = true;
             self.terminal.update(cx, |t, _| t.sync());
