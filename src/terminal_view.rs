@@ -546,11 +546,13 @@ impl TerminalView {
             return;
         }
 
-        // Selection ends on mouse up -- cache selected text so it survives TUI redraws
+        // Selection ends on mouse up -- copy to system clipboard immediately
+        // so it's available for paste in other panes (and survives TUI redraws)
         if self.selecting {
             let term = self.terminal.read(cx).term.lock();
             if let Some(text) = term.selection_to_string() {
-                self.pending_copy = Some(text);
+                self.pending_copy = Some(text.clone());
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
             }
         }
         self.selecting = false;
