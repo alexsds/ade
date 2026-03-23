@@ -105,7 +105,9 @@ fn mouse_position_to_cell(
     (col as u16, row as u16)
 }
 
-/// Convert mouse position to 0-based alacritty Point (line, column) and side.
+/// Convert mouse position to grid-absolute alacritty Point (line, column) and side.
+/// `display_offset` adjusts viewport row to grid-absolute line for correct
+/// selection when scrolled into scrollback history.
 fn mouse_position_to_point(
     position: gpui::Point<Pixels>,
     bounds: Bounds<Pixels>,
@@ -113,6 +115,7 @@ fn mouse_position_to_point(
     cell_height: f32,
     cols: usize,
     rows: usize,
+    display_offset: usize,
 ) -> (Point, Side) {
     let cell_width = cell_width.max(1.0); // INPUT-05: prevent div-by-zero
     let cell_height = cell_height.max(1.0); // INPUT-05: prevent div-by-zero
@@ -144,7 +147,10 @@ fn mouse_position_to_point(
         Side::Right
     };
 
-    (Point::new(Line(line), Column(col as usize)), side)
+    // Convert viewport row to grid-absolute line
+    let grid_line = line - display_offset as i32;
+
+    (Point::new(Line(grid_line), Column(col as usize)), side)
 }
 
 // ============================================================================
@@ -375,6 +381,7 @@ impl TerminalView {
         let content = self.terminal.read(cx).content();
         let cols = content.size.columns;
         let rows = content.size.screen_lines;
+        let display_offset = content.display_offset;
 
         // If mouse mode + SGR and shift NOT held: forward to app
         if mode.contains(TermMode::MOUSE_MODE)
@@ -421,6 +428,7 @@ impl TerminalView {
                 self.cell_height,
                 cols,
                 rows,
+                display_offset,
             );
 
             {
@@ -554,6 +562,7 @@ impl TerminalView {
         let content = self.terminal.read(cx).content();
         let cols = content.size.columns;
         let rows = content.size.screen_lines;
+        let display_offset = content.display_offset;
 
         // Mouse mode: forward motion events
         if mode.contains(TermMode::MOUSE_MODE)
@@ -601,6 +610,7 @@ impl TerminalView {
                 self.cell_height,
                 cols,
                 rows,
+                display_offset,
             );
 
             {
@@ -1028,7 +1038,7 @@ mod tests {
     fn test_mouse_position_to_point_basic() {
         let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(640.0), px(384.0)));
         let pos = point(px(40.0), px(16.0));
-        let (pt, side) = mouse_position_to_point(pos, bounds, 8.0, 16.0, 80, 24);
+        let (pt, side) = mouse_position_to_point(pos, bounds, 8.0, 16.0, 80, 24, 0);
         assert_eq!(pt.line, Line(1)); // 16/16 = 1.0, floor = 1
         assert_eq!(pt.column, Column(5)); // 40/8 = 5.0, floor = 5
         // 40 - 5*8 = 0, 0 < 4.0 -> Left
@@ -1039,7 +1049,7 @@ mod tests {
     fn test_mouse_position_to_point_right_side() {
         let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(640.0), px(384.0)));
         let pos = point(px(45.0), px(0.0));
-        let (pt, side) = mouse_position_to_point(pos, bounds, 8.0, 16.0, 80, 24);
+        let (pt, side) = mouse_position_to_point(pos, bounds, 8.0, 16.0, 80, 24, 0);
         assert_eq!(pt.column, Column(5)); // 45/8 = 5.625, floor = 5
         // 45 - 5*8 = 5, 5 >= 4.0 -> Right
         assert_eq!(side, Side::Right);
@@ -1122,7 +1132,7 @@ mod tests {
     fn test_mouse_position_to_point_zero_width() {
         let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(640.0), px(384.0)));
         let pos = point(px(40.0), px(16.0));
-        let (pt, _side) = mouse_position_to_point(pos, bounds, 0.0, 16.0, 80, 24);
+        let (pt, _side) = mouse_position_to_point(pos, bounds, 0.0, 16.0, 80, 24, 0);
         // With zero width clamped to 1.0: col = floor(40/1) = 40, clamped to 79
         assert!(
             pt.column.0 < 80,
@@ -1140,7 +1150,7 @@ mod tests {
     fn test_mouse_position_to_point_zero_height() {
         let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(640.0), px(384.0)));
         let pos = point(px(40.0), px(16.0));
-        let (pt, _side) = mouse_position_to_point(pos, bounds, 8.0, 0.0, 80, 24);
+        let (pt, _side) = mouse_position_to_point(pos, bounds, 8.0, 0.0, 80, 24, 0);
         // With zero height clamped to 1.0: line = floor(16/1) = 16
         assert!(
             pt.column.0 < 80,
