@@ -399,6 +399,35 @@ fn dim(rgb: Rgb) -> Rgb {
     }
 }
 
+/// Check whether an OSC 52 clipboard write should be accepted.
+/// Returns false if:
+/// - ADE_ALLOW_OSC52 env var is set to "0" (INPUT-02, checked per-event per D-02)
+/// - Text exceeds 100,000 bytes (INPUT-01, decoded size per Pitfall 1)
+/// Silent drops per D-03 (no log, no error).
+fn should_accept_osc52(text: &str) -> bool {
+    // INPUT-02: env var disable check (per-event, no caching per D-02)
+    if std::env::var("ADE_ALLOW_OSC52").as_deref() == Ok("0") {
+        return false;
+    }
+    // INPUT-01: size limit (100KB decoded text)
+    if text.len() > 100_000 {
+        return false;
+    }
+    true
+}
+
+/// Sanitize a window title set via OSC 0/2 escape sequences.
+/// - Strips control characters below 0x20 (except space) and DEL 0x7F (INPUT-04, D-04)
+/// - Truncates to 256 characters AFTER filtering (D-05, Pitfall 3)
+/// - Uses character count, not byte count (Pitfall 4)
+fn sanitize_title(title: &str) -> String {
+    title
+        .chars()
+        .filter(|&c| c >= ' ' && c != '\x7f')
+        .take(256)
+        .collect()
+}
+
 /// The new alacritty_terminal-backed Terminal entity.
 /// Wraps Term<EventProxy> in FairMutex, manages PTY lifecycle via EventLoop,
 /// and caches content snapshots for rendering.
@@ -535,7 +564,8 @@ impl Terminal {
                 cx.notify();
             }
             AlacEvent::Title(title) => {
-                self.title = Some(title);
+                // INPUT-04: strip control chars and truncate to 256 characters
+                self.title = Some(sanitize_title(&title));
                 cx.notify();
             }
             AlacEvent::Bell => {
@@ -546,6 +576,10 @@ impl Terminal {
                     clipboard_type,
                     alacritty_terminal::term::ClipboardType::Clipboard
                 ) {
+                    // INPUT-01/INPUT-02: guard OSC 52 clipboard writes
+                    if !should_accept_osc52(&text) {
+                        return; // Silent drop (D-03)
+                    }
                     self.pending_clipboard_store = Some(text);
                     cx.notify();
                 }
@@ -924,6 +958,81 @@ mod tests {
                 b: 0x00
             }
         );
+    }
+
+    // --- INPUT-01/INPUT-02: OSC 52 guard tests ---
+
+    #[test]
+    fn test_osc52_size_limit() {
+        // Text over 100,000 bytes should be rejected
+        let large_text = "x".repeat(100_001);
+        assert!(!should_accept_osc52(&large_text));
+    }
+
+    #[test]
+    fn test_osc52_under_limit() {
+        // Text at exactly 100,000 bytes should be accepted
+        let text = "x".repeat(100_000);
+        assert!(should_accept_osc52(&text));
+    }
+
+    #[test]
+    fn test_osc52_env_disabled() {
+        // When ADE_ALLOW_OSC52=0, should reject
+        // SAFETY: test runs with --test-threads=1 to avoid env var races
+        unsafe { std::env::set_var("ADE_ALLOW_OSC52", "0") };
+        let result = should_accept_osc52("hello");
+        unsafe { std::env::remove_var("ADE_ALLOW_OSC52") };
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_osc52_env_allowed() {
+        // When ADE_ALLOW_OSC52 is unset, should accept
+        // SAFETY: test runs with --test-threads=1 to avoid env var races
+        unsafe { std::env::remove_var("ADE_ALLOW_OSC52") };
+        assert!(should_accept_osc52("hello"));
+
+        // When ADE_ALLOW_OSC52 is set to anything other than "0", should accept
+        unsafe { std::env::set_var("ADE_ALLOW_OSC52", "1") };
+        let result = should_accept_osc52("hello");
+        unsafe { std::env::remove_var("ADE_ALLOW_OSC52") };
+        assert!(result);
+    }
+
+    // --- INPUT-04: Window title sanitization tests ---
+
+    #[test]
+    fn test_title_strips_control_chars() {
+        // Title with embedded control characters should have them removed
+        let title = "Hello\x01\x02World\x7f";
+        assert_eq!(sanitize_title(title), "HelloWorld");
+    }
+
+    #[test]
+    fn test_title_truncation() {
+        // Title with 300 printable chars should be truncated to 256
+        let title = "a".repeat(300);
+        let sanitized = sanitize_title(&title);
+        assert_eq!(sanitized.len(), 256);
+        assert_eq!(sanitized.chars().count(), 256);
+    }
+
+    #[test]
+    fn test_title_preserves_valid() {
+        // Valid title passes through unchanged
+        assert_eq!(sanitize_title("Hello World"), "Hello World");
+    }
+
+    #[test]
+    fn test_title_unicode() {
+        // CJK chars: truncate by character count, not byte count
+        // Each CJK char is 3 bytes in UTF-8
+        let title: String = std::iter::repeat_n('\u{4e00}', 300).collect(); // 300 CJK chars
+        let sanitized = sanitize_title(&title);
+        assert_eq!(sanitized.chars().count(), 256);
+        // In bytes: 256 * 3 = 768 bytes (not 256 bytes)
+        assert_eq!(sanitized.len(), 768);
     }
 
     #[test]
