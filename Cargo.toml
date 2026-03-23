@@ -5,8 +5,7 @@ edition = "2024"
 
 [dependencies]
 gpui = { git = "https://github.com/zed-industries/zed", rev = "cff3ac6f93f506330034652f0d2389591bfb45a0", package = "gpui" }
-git2 = "0.20"
-syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+git2 = { version = "0.20", default-features = false }
 chrono = "0.4"
 libc = "0.2"
 tracing = "0.1"

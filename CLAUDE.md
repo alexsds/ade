@@ -21,8 +21,7 @@ cargo fmt --all -- --check           # format check
 ### Dependency Stack
 - **GPUI** (from Zed repo, pinned git rev) — GPU-accelerated UI framework
 - **alacritty_terminal** (0.25.1, crates.io) — VT100/xterm terminal emulation, PTY spawning, and I/O
-- **git2** — libgit2 bindings for all git operations
-- **syntect** — syntax highlighting for diff viewer (dependency wired, highlighter currently stubbed in `diff_view.rs`)
+- **git2** — libgit2 bindings for all git operations (default-features disabled: no SSH/HTTPS transport)
 
 ### Source Layout (`src/`)
 
