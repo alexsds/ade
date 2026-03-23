@@ -21,14 +21,26 @@ use futures::channel::mpsc as futures_mpsc;
 
 /// Detect the user's login shell from the POSIX password database.
 /// Works reliably when launched from Finder (where $SHELL may be unset).
+/// Uses reentrant getpwuid_r for thread safety (UNSAFE-03).
 /// Falls back to /bin/zsh if the lookup fails.
 #[cfg(test)]
 fn detect_user_shell() -> String {
     unsafe {
         let uid = libc::getuid();
-        let pw = libc::getpwuid(uid);
-        if !pw.is_null() {
-            let shell_ptr = (*pw).pw_shell;
+        let mut pwd: libc::passwd = std::mem::zeroed();
+        let mut result: *mut libc::passwd = std::ptr::null_mut();
+        let mut buf = vec![0u8; 1024];
+
+        let ret = libc::getpwuid_r(
+            uid,
+            &mut pwd,
+            buf.as_mut_ptr() as *mut libc::c_char,
+            buf.len(),
+            &mut result,
+        );
+
+        if ret == 0 && !result.is_null() {
+            let shell_ptr = (*result).pw_shell;
             if !shell_ptr.is_null() {
                 if let Ok(s) = CStr::from_ptr(shell_ptr).to_str() {
                     if !s.is_empty() {
@@ -42,13 +54,25 @@ fn detect_user_shell() -> String {
 }
 
 /// Detect the user's home directory from the POSIX password database.
+/// Uses reentrant getpwuid_r for thread safety (UNSAFE-03).
 /// Falls back to $HOME env var, then "/".
 pub fn detect_home_dir() -> std::path::PathBuf {
     unsafe {
         let uid = libc::getuid();
-        let pw = libc::getpwuid(uid);
-        if !pw.is_null() {
-            let dir_ptr = (*pw).pw_dir;
+        let mut pwd: libc::passwd = std::mem::zeroed();
+        let mut result: *mut libc::passwd = std::ptr::null_mut();
+        let mut buf = vec![0u8; 1024];
+
+        let ret = libc::getpwuid_r(
+            uid,
+            &mut pwd,
+            buf.as_mut_ptr() as *mut libc::c_char,
+            buf.len(),
+            &mut result,
+        );
+
+        if ret == 0 && !result.is_null() {
+            let dir_ptr = (*result).pw_dir;
             if !dir_ptr.is_null() {
                 if let Ok(s) = CStr::from_ptr(dir_ptr).to_str() {
                     if !s.is_empty() {

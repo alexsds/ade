@@ -49,7 +49,8 @@ pub fn process_cwd(pid: i32) -> Option<PathBuf> {
             std::mem::size_of::<libc::proc_vnodepathinfo>() as libc::c_int,
         )
     };
-    if ret <= 0 {
+    let expected_size = std::mem::size_of::<libc::proc_vnodepathinfo>() as i32;
+    if ret != expected_size {
         return None;
     }
     // vip_path is [[c_char; 32]; 32] which is a contiguous 1024-byte buffer (MAXPATHLEN).
