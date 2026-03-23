@@ -1064,8 +1064,16 @@ mod tests {
         let pos = point(px(40.0), px(16.0));
         let (pt, _side) = mouse_position_to_point(pos, bounds, 0.0, 16.0, 80, 24);
         // With zero width clamped to 1.0: col = floor(40/1) = 40, clamped to 79
-        assert!(pt.column.0 < 80, "column {} out of range [0, 79]", pt.column.0);
-        assert!(pt.line.0 >= 0 && pt.line.0 < 24, "line {} out of range [0, 23]", pt.line.0);
+        assert!(
+            pt.column.0 < 80,
+            "column {} out of range [0, 79]",
+            pt.column.0
+        );
+        assert!(
+            pt.line.0 >= 0 && pt.line.0 < 24,
+            "line {} out of range [0, 23]",
+            pt.line.0
+        );
     }
 
     #[test]
@@ -1074,8 +1082,16 @@ mod tests {
         let pos = point(px(40.0), px(16.0));
         let (pt, _side) = mouse_position_to_point(pos, bounds, 8.0, 0.0, 80, 24);
         // With zero height clamped to 1.0: line = floor(16/1) = 16
-        assert!(pt.column.0 < 80, "column {} out of range [0, 79]", pt.column.0);
-        assert!(pt.line.0 >= 0 && pt.line.0 < 24, "line {} out of range [0, 23]", pt.line.0);
+        assert!(
+            pt.column.0 < 80,
+            "column {} out of range [0, 79]",
+            pt.column.0
+        );
+        assert!(
+            pt.line.0 >= 0 && pt.line.0 < 24,
+            "line {} out of range [0, 23]",
+            pt.line.0
+        );
     }
 
     #[test]
