@@ -774,10 +774,9 @@ impl TerminalView {
     /// Handle Cmd+C: copy selected text if selection exists, else send SIGINT.
     pub fn copy_or_interrupt(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let maybe_text = {
-            let mut term = self.terminal.read(cx).term.lock();
+            let term = self.terminal.read(cx).term.lock();
             if term.selection.is_some() {
                 let text = term.selection_to_string();
-                term.selection = None;
                 text
             } else {
                 None
