@@ -66,6 +66,9 @@ fn mouse_position_to_cell(
     cols: usize,
     rows: usize,
 ) -> (u16, u16) {
+    let cell_width = cell_width.max(1.0); // INPUT-05: prevent div-by-zero
+    let cell_height = cell_height.max(1.0); // INPUT-05: prevent div-by-zero
+
     let local_x = f32::from(position.x) - f32::from(bounds.left());
     let local_y = f32::from(position.y) - f32::from(bounds.top());
 
@@ -97,6 +100,9 @@ fn mouse_position_to_point(
     cols: usize,
     rows: usize,
 ) -> (Point, Side) {
+    let cell_width = cell_width.max(1.0); // INPUT-05: prevent div-by-zero
+    let cell_height = cell_height.max(1.0); // INPUT-05: prevent div-by-zero
+
     let local_x = f32::from(position.x) - f32::from(bounds.left());
     let local_y = f32::from(position.y) - f32::from(bounds.top());
 
