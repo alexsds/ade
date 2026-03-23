@@ -81,14 +81,14 @@ impl PaneContainer {
     ///
     /// Spawns a PTY via new_terminal(), wires the event loop into a GPUI async task,
     /// creates a TerminalView, and returns the complete PaneState.
+    /// Returns Err if PTY creation fails (CRASH-02).
     fn create_terminal_for_pane(
         cwd: Option<std::path::PathBuf>,
         window: &mut Window,
         cx: &mut App,
-    ) -> PaneState {
+    ) -> Result<PaneState, Box<dyn std::error::Error>> {
         let size = TerminalSize::new(80, 24);
-        let (terminal_inner, events_rx) = new_terminal(cwd.clone(), size)
-            .expect("Failed to create terminal");
+        let (terminal_inner, events_rx) = new_terminal(cwd.clone(), size)?;
 
         let terminal = cx.new(|_| terminal_inner);
 
@@ -110,13 +110,13 @@ impl PaneContainer {
         let view = cx.new(|cx| TerminalView::new(terminal.clone(), cx));
         let focus_handle = view.read(cx).focus_handle().clone();
 
-        PaneState {
+        Ok(PaneState {
             terminal,
             view,
             focus_handle,
             cwd: cwd.unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
             master_fd,
-        }
+        })
     }
 
     /// Split the active pane, creating a new terminal in the given direction.
@@ -130,7 +130,13 @@ impl PaneContainer {
         let new_id = self.next_id;
         self.next_id += 1;
 
-        let state = Self::create_terminal_for_pane(Some(cwd), window, cx);
+        let state = match Self::create_terminal_for_pane(Some(cwd), window, cx) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Failed to create terminal for split: {e}");
+                return;
+            }
+        };
         let focus_handle = state.focus_handle.clone();
         self.panes.insert(new_id, state);
 
@@ -191,18 +197,21 @@ impl PaneContainer {
     }
 
     /// Returns the active pane's TerminalView entity.
-    pub fn active_view(&self) -> &gpui::Entity<TerminalView> {
-        &self.panes[&self.active_pane_id].view
+    /// Returns None if the active pane ID is not found (CRASH-03).
+    pub fn active_view(&self) -> Option<&gpui::Entity<TerminalView>> {
+        self.panes.get(&self.active_pane_id).map(|p| &p.view)
     }
 
     /// Returns the active pane's focus handle.
-    pub fn active_pane_focus_handle(&self) -> &gpui::FocusHandle {
-        &self.panes[&self.active_pane_id].focus_handle
+    /// Returns None if the active pane ID is not found (CRASH-03).
+    pub fn active_pane_focus_handle(&self) -> Option<&gpui::FocusHandle> {
+        self.panes.get(&self.active_pane_id).map(|p| &p.focus_handle)
     }
 
     /// Returns the active pane's CWD (for inheriting on split).
-    pub fn active_cwd(&self) -> &std::path::PathBuf {
-        &self.panes[&self.active_pane_id].cwd
+    /// Returns None if the active pane ID is not found (CRASH-03).
+    pub fn active_cwd(&self) -> Option<&std::path::PathBuf> {
+        self.panes.get(&self.active_pane_id).map(|p| &p.cwd)
     }
 
     /// Returns the raw FD of the active pane's PTY master (for process introspection).
@@ -211,6 +220,14 @@ impl PaneContainer {
         self.panes.get(&self.active_pane_id).map(|p| p.master_fd)
     }
 
+    /// Returns true if the active pane's terminal child has exited.
+    /// Returns true (safe default) if the pane is not found.
+    pub fn active_child_exited(&self, cx: &App) -> bool {
+        self.panes
+            .get(&self.active_pane_id)
+            .map(|p| p.terminal.read(cx).child_exited)
+            .unwrap_or(true)
+    }
 
     /// Resize all panes based on the available space.
     ///
