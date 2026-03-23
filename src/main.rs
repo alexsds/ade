@@ -649,6 +649,19 @@ fn main() {
             });
             resize_subscription.detach();
 
+            // Initial resize: sync terminal grid to actual window size (prevents
+            // 80x24 default from creating artificial scrollback before first resize event)
+            window_entity.update(cx, |this, cx| {
+                let size = window.viewport_size();
+                let width = f32::from(size.width);
+                let height = f32::from(size.height);
+                if let Some(tab) = this.tabs.get(this.active_tab_index) {
+                    tab.pane_container.clone().update(cx, |container, cx| {
+                        container.resize_all(width, height, window, cx);
+                    });
+                }
+            });
+
             // Focus the initial terminal
             terminal_focus_handle.focus(window, cx);
 
