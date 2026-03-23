@@ -127,8 +127,8 @@ impl TerminalSize {
 
     pub fn window_size(&self) -> WindowSize {
         WindowSize {
-            num_lines: self.screen_lines as u16,
-            num_cols: self.columns as u16,
+            num_lines: self.screen_lines.min(u16::MAX as usize) as u16,
+            num_cols: self.columns.min(u16::MAX as usize) as u16,
             cell_width: self.cell_width,
             cell_height: self.cell_height,
         }
@@ -401,12 +401,12 @@ fn dim(rgb: Rgb) -> Rgb {
 
 /// Check whether an OSC 52 clipboard write should be accepted.
 /// Returns false if:
-/// - ADE_ALLOW_OSC52 env var is set to "0" (INPUT-02, checked per-event per D-02)
+/// - ADE_ALLOW_OSC52 env var is NOT set to "1" (opt-in, secure default)
 /// - Text exceeds 100,000 bytes (INPUT-01, decoded size per Pitfall 1)
 /// Silent drops per D-03 (no log, no error).
 fn should_accept_osc52(text: &str) -> bool {
-    // INPUT-02: env var disable check (per-event, no caching per D-02)
-    if std::env::var("ADE_ALLOW_OSC52").as_deref() == Ok("0") {
+    // Opt-in: OSC 52 is disabled by default. Set ADE_ALLOW_OSC52=1 to enable.
+    if std::env::var("ADE_ALLOW_OSC52").as_deref() != Ok("1") {
         return false;
     }
     // INPUT-01: size limit (100KB decoded text)
@@ -418,12 +418,39 @@ fn should_accept_osc52(text: &str) -> bool {
 
 /// Sanitize a window title set via OSC 0/2 escape sequences.
 /// - Strips control characters below 0x20 (except space) and DEL 0x7F (INPUT-04, D-04)
+/// - Strips C1 control characters (U+0080-U+009F) and Unicode bidi overrides
 /// - Truncates to 256 characters AFTER filtering (D-05, Pitfall 3)
 /// - Uses character count, not byte count (Pitfall 4)
 fn sanitize_title(title: &str) -> String {
     title
         .chars()
-        .filter(|&c| c >= ' ' && c != '\x7f')
+        .filter(|&c| {
+            if c < ' ' || c == '\x7f' {
+                return false;
+            }
+            // Strip C1 control characters
+            if ('\u{0080}'..='\u{009F}').contains(&c) {
+                return false;
+            }
+            // Strip Unicode bidi overrides
+            if matches!(
+                c,
+                '\u{200E}'
+                    | '\u{200F}'
+                    | '\u{202A}'
+                    | '\u{202B}'
+                    | '\u{202C}'
+                    | '\u{202D}'
+                    | '\u{202E}'
+                    | '\u{2066}'
+                    | '\u{2067}'
+                    | '\u{2068}'
+                    | '\u{2069}'
+            ) {
+                return false;
+            }
+            true
+        })
         .take(256)
         .collect()
 }
@@ -596,6 +623,14 @@ impl Terminal {
     }
 }
 
+impl Drop for Terminal {
+    fn drop(&mut self) {
+        // Send shutdown to the EventLoop I/O thread to cleanly stop the PTY.
+        // This ensures child shell processes are not orphaned when tabs/panes close.
+        let _ = self.pty_tx.0.send(Msg::Shutdown);
+    }
+}
+
 /// Create a new alacritty_terminal-backed Terminal.
 ///
 /// Spawns a PTY with a login shell, creates the EventLoop I/O thread,
@@ -758,8 +793,8 @@ mod tests {
         let proxy = EventProxy(tx);
         proxy.send_event(AlacEvent::Bell);
         // Channel should have the event
-        match rx.try_next() {
-            Ok(Some(AlacEvent::Bell)) => {} // expected
+        match rx.try_recv() {
+            Ok(AlacEvent::Bell) => {} // expected
             other => panic!("Expected Bell event, got {:?}", other),
         }
     }
@@ -964,36 +999,36 @@ mod tests {
 
     #[test]
     fn test_osc52_size_limit() {
-        // Text over 100,000 bytes should be rejected
+        // Text over 100,000 bytes should be rejected even when enabled
+        // SAFETY: test runs with --test-threads=1 to avoid env var races
+        unsafe { std::env::set_var("ADE_ALLOW_OSC52", "1") };
         let large_text = "x".repeat(100_001);
         assert!(!should_accept_osc52(&large_text));
+        unsafe { std::env::remove_var("ADE_ALLOW_OSC52") };
     }
 
     #[test]
     fn test_osc52_under_limit() {
-        // Text at exactly 100,000 bytes should be accepted
+        // Text at exactly 100,000 bytes should be accepted when enabled
+        // SAFETY: test runs with --test-threads=1 to avoid env var races
+        unsafe { std::env::set_var("ADE_ALLOW_OSC52", "1") };
         let text = "x".repeat(100_000);
         assert!(should_accept_osc52(&text));
+        unsafe { std::env::remove_var("ADE_ALLOW_OSC52") };
     }
 
     #[test]
-    fn test_osc52_env_disabled() {
-        // When ADE_ALLOW_OSC52=0, should reject
+    fn test_osc52_default_disabled() {
+        // OSC 52 is now disabled by default (opt-in)
         // SAFETY: test runs with --test-threads=1 to avoid env var races
-        unsafe { std::env::set_var("ADE_ALLOW_OSC52", "0") };
-        let result = should_accept_osc52("hello");
         unsafe { std::env::remove_var("ADE_ALLOW_OSC52") };
-        assert!(!result);
+        assert!(!should_accept_osc52("hello"));
     }
 
     #[test]
-    fn test_osc52_env_allowed() {
-        // When ADE_ALLOW_OSC52 is unset, should accept
+    fn test_osc52_env_enabled() {
+        // When ADE_ALLOW_OSC52=1, should accept
         // SAFETY: test runs with --test-threads=1 to avoid env var races
-        unsafe { std::env::remove_var("ADE_ALLOW_OSC52") };
-        assert!(should_accept_osc52("hello"));
-
-        // When ADE_ALLOW_OSC52 is set to anything other than "0", should accept
         unsafe { std::env::set_var("ADE_ALLOW_OSC52", "1") };
         let result = should_accept_osc52("hello");
         unsafe { std::env::remove_var("ADE_ALLOW_OSC52") };

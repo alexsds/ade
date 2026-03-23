@@ -6,11 +6,23 @@ use std::thread;
 
 use git2::{Oid, Repository, Sort, StatusOptions};
 
-use super::types::*;
+use super::types::{sanitize_git_string, *};
 
 /// Maximum number of commits to load per repository.
 /// Prevents unbounded memory growth for very large repositories (100K+ commits).
 const MAX_COMMITS: usize = 50_000;
+
+/// Maximum number of file deltas to process in a single diff.
+/// Prevents OOM from commits touching thousands of files.
+const MAX_DIFF_FILES: usize = 5_000;
+
+/// Maximum total number of diff lines across all files in a single diff.
+/// Prevents OOM from extremely large diffs (e.g., large binary-to-text).
+const MAX_DIFF_LINES: usize = 500_000;
+
+/// Maximum byte length of a single diff line's content.
+/// Lines exceeding this are truncated with a marker.
+const MAX_LINE_LENGTH: usize = 10_000;
 
 /// Requests that can be sent to the git background thread.
 pub enum GitRequest {
@@ -78,8 +90,16 @@ impl GitProvider {
                         let decorations = build_decoration_map(&repo);
                         match repo.revwalk() {
                             Ok(mut revwalk) => {
-                                revwalk.push_head().ok();
-                                revwalk.set_sorting(Sort::TIME).ok();
+                                if let Err(e) = revwalk.push_head() {
+                                    let _ = response_tx.send(GitResponse::Error(format!(
+                                        "Failed to push HEAD to revwalk: {}",
+                                        e
+                                    )));
+                                    continue;
+                                }
+                                if let Err(e) = revwalk.set_sorting(Sort::TIME) {
+                                    tracing::warn!("Failed to set revwalk sorting: {}", e);
+                                }
                                 let capped_count = count.min(MAX_COMMITS);
                                 let commits =
                                     collect_batch(&repo, &mut revwalk, capped_count, &decorations);
@@ -151,26 +171,44 @@ impl GitProvider {
 
     /// Request the commit log (most recent `count` commits from HEAD).
     pub fn request_log(&self, count: usize) {
-        let _ = self.request_tx.send(GitRequest::FetchLog { count });
+        if self
+            .request_tx
+            .send(GitRequest::FetchLog { count })
+            .is_err()
+        {
+            tracing::warn!("Git background thread disconnected (FetchLog)");
+        }
     }
 
     /// Request the diff for the given commit OID (hex string).
     pub fn request_diff(&self, oid_hex: &str) {
-        let _ = self.request_tx.send(GitRequest::FetchDiff {
-            commit_oid: oid_hex.to_string(),
-        });
+        if self
+            .request_tx
+            .send(GitRequest::FetchDiff {
+                commit_oid: oid_hex.to_string(),
+            })
+            .is_err()
+        {
+            tracing::warn!("Git background thread disconnected (FetchDiff)");
+        }
     }
 
     /// Request the current branch status (name + dirty flag).
     pub fn request_status(&self) {
-        let _ = self.request_tx.send(GitRequest::FetchStatus);
+        if self.request_tx.send(GitRequest::FetchStatus).is_err() {
+            tracing::warn!("Git background thread disconnected (FetchStatus)");
+        }
     }
 
     /// Request more commits from the persistent revwalk (incremental batch).
     pub fn request_more_log(&self, batch_size: usize) {
-        let _ = self
+        if self
             .request_tx
-            .send(GitRequest::FetchMoreLog { batch_size });
+            .send(GitRequest::FetchMoreLog { batch_size })
+            .is_err()
+        {
+            tracing::warn!("Git background thread disconnected (FetchMoreLog)");
+        }
     }
 
     /// Non-blocking poll for responses from the background thread.
@@ -194,7 +232,7 @@ fn collect_batch(
     count: usize,
     decorations: &HashMap<Oid, Vec<Decoration>>,
 ) -> Vec<CommitInfo> {
-    let mut commits = Vec::with_capacity(count);
+    let mut commits = Vec::with_capacity(count.min(10_000));
     let mut collected = 0;
     while collected < count {
         match revwalk.next() {
@@ -205,10 +243,10 @@ fn collect_batch(
                     let commit_decorations = decorations.get(&oid).cloned().unwrap_or_default();
                     commits.push(CommitInfo {
                         oid: oid.to_string(),
-                        summary: commit.summary().unwrap_or("").to_string(),
-                        body: commit.body().map(|b| b.to_string()),
-                        author_name: author.name().unwrap_or("").to_string(),
-                        author_email: author.email().unwrap_or("").to_string(),
+                        summary: sanitize_git_string(commit.summary().unwrap_or("")),
+                        body: commit.body().map(|b| sanitize_git_string(b)),
+                        author_name: sanitize_git_string(author.name().unwrap_or("")),
+                        author_email: sanitize_git_string(author.email().unwrap_or("")),
                         time_seconds: time.seconds(),
                         time_offset: time.offset_minutes(),
                         decorations: commit_decorations,
@@ -232,7 +270,7 @@ fn build_decoration_map(repo: &Repository) -> HashMap<Oid, Vec<Decoration>> {
         for branch_result in branches {
             if let Ok((branch, _)) = branch_result {
                 let name = match branch.name() {
-                    Ok(Some(n)) => n.to_string(),
+                    Ok(Some(n)) => sanitize_git_string(n),
                     _ => continue,
                 };
                 let reference = match branch.into_reference().resolve() {
@@ -255,7 +293,7 @@ fn build_decoration_map(repo: &Repository) -> HashMap<Oid, Vec<Decoration>> {
                 // Peel to commit (handles both lightweight and annotated tags)
                 if let Ok(obj) = reference.peel(git2::ObjectType::Commit) {
                     map.entry(obj.id()).or_default().push(Decoration::Tag {
-                        name: tag_name.to_string(),
+                        name: sanitize_git_string(tag_name),
                     });
                 }
             }
@@ -266,6 +304,7 @@ fn build_decoration_map(repo: &Repository) -> HashMap<Oid, Vec<Decoration>> {
 }
 
 /// Compute the diff for a single commit (against its first parent, or empty tree for root).
+/// Enforces size limits to prevent OOM from malicious/huge diffs.
 fn compute_diff(repo: &Repository, oid: Oid) -> Result<DiffData, git2::Error> {
     let commit = repo.find_commit(oid)?;
     let commit_tree = commit.tree()?;
@@ -278,15 +317,17 @@ fn compute_diff(repo: &Repository, oid: Oid) -> Result<DiffData, git2::Error> {
 
     let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
 
-    // Collect file changes from deltas
+    // Collect file changes from deltas (capped to MAX_DIFF_FILES)
     let mut files: Vec<FileChange> = Vec::new();
-    for delta in diff.deltas() {
-        let path = delta
-            .new_file()
-            .path()
-            .unwrap_or(std::path::Path::new(""))
-            .to_string_lossy()
-            .to_string();
+    let num_deltas = diff.deltas().len().min(MAX_DIFF_FILES);
+    for delta in diff.deltas().take(num_deltas) {
+        let path = sanitize_git_string(
+            &delta
+                .new_file()
+                .path()
+                .unwrap_or(std::path::Path::new(""))
+                .to_string_lossy(),
+        );
         let status_char = match delta.status() {
             git2::Delta::Added => 'A',
             git2::Delta::Modified => 'M',
@@ -308,9 +349,18 @@ fn compute_diff(repo: &Repository, oid: Oid) -> Result<DiffData, git2::Error> {
     let file_diffs: RefCell<Vec<FileDiff>> = RefCell::new(Vec::new());
     let current_file: RefCell<Option<FileDiff>> = RefCell::new(None);
     let current_hunk: RefCell<Option<DiffHunk>> = RefCell::new(None);
+    let total_lines: RefCell<usize> = RefCell::new(0);
+    let file_count: RefCell<usize> = RefCell::new(0);
 
     diff.foreach(
         &mut |delta, _progress| {
+            // Enforce file count limit
+            let count = *file_count.borrow();
+            if count >= MAX_DIFF_FILES {
+                return false; // stop iteration
+            }
+            *file_count.borrow_mut() = count + 1;
+
             // File callback: start a new file
             if let Some(mut file) = current_file.borrow_mut().take() {
                 if let Some(hunk) = current_hunk.borrow_mut().take() {
@@ -318,12 +368,13 @@ fn compute_diff(repo: &Repository, oid: Oid) -> Result<DiffData, git2::Error> {
                 }
                 file_diffs.borrow_mut().push(file);
             }
-            let path = delta
-                .new_file()
-                .path()
-                .unwrap_or(std::path::Path::new(""))
-                .to_string_lossy()
-                .to_string();
+            let path = sanitize_git_string(
+                &delta
+                    .new_file()
+                    .path()
+                    .unwrap_or(std::path::Path::new(""))
+                    .to_string_lossy(),
+            );
             *current_file.borrow_mut() = Some(FileDiff {
                 path,
                 additions: 0,
@@ -332,8 +383,15 @@ fn compute_diff(repo: &Repository, oid: Oid) -> Result<DiffData, git2::Error> {
             });
             true
         },
-        None, // binary callback
+        Some(&mut |_delta, _binary| {
+            // Binary callback: mark current file as binary (skip line-level diff)
+            true
+        }),
         Some(&mut |_delta, hunk| {
+            // Enforce total line count limit
+            if *total_lines.borrow() >= MAX_DIFF_LINES {
+                return false;
+            }
             // Hunk callback: start a new hunk
             if let Some(ref mut file) = *current_file.borrow_mut() {
                 if let Some(prev_hunk) = current_hunk.borrow_mut().take() {
@@ -351,6 +409,13 @@ fn compute_diff(repo: &Repository, oid: Oid) -> Result<DiffData, git2::Error> {
             true
         }),
         Some(&mut |_delta, _hunk, line| {
+            // Enforce total line count limit
+            let lines_so_far = *total_lines.borrow();
+            if lines_so_far >= MAX_DIFF_LINES {
+                return false;
+            }
+            *total_lines.borrow_mut() = lines_so_far + 1;
+
             // Line callback: add line to current hunk
             let line_type = match line.origin() {
                 '+' => DiffLineType::Add,
@@ -360,9 +425,14 @@ fn compute_diff(repo: &Repository, oid: Oid) -> Result<DiffData, git2::Error> {
                 _ => DiffLineType::Context,
             };
 
-            let content = std::str::from_utf8(line.content())
-                .unwrap_or("")
-                .to_string();
+            let raw_content = std::str::from_utf8(line.content()).unwrap_or("");
+            let content = if raw_content.len() > MAX_LINE_LENGTH {
+                let mut truncated = raw_content[..MAX_LINE_LENGTH].to_string();
+                truncated.push_str("... (truncated)");
+                truncated
+            } else {
+                raw_content.to_string()
+            };
 
             if line_type == DiffLineType::Add {
                 if let Some(ref mut file) = *current_file.borrow_mut() {

@@ -1,3 +1,44 @@
+/// Strip control characters and Unicode bidi overrides from git-sourced strings.
+/// Prevents UI spoofing via crafted commit messages, branch names, file paths, etc.
+/// Removes: C0 control chars (except tab/newline), DEL, C1 control chars,
+/// and Unicode bidirectional override characters.
+pub fn sanitize_git_string(s: &str) -> String {
+    s.chars()
+        .filter(|&c| {
+            // Allow tab and newline
+            if c == '\t' || c == '\n' {
+                return true;
+            }
+            // Strip C0 control characters (U+0000-U+001F) and DEL (U+007F)
+            if c < ' ' || c == '\x7f' {
+                return false;
+            }
+            // Strip C1 control characters (U+0080-U+009F)
+            if ('\u{0080}'..='\u{009F}').contains(&c) {
+                return false;
+            }
+            // Strip Unicode bidirectional overrides and isolates
+            if matches!(
+                c,
+                '\u{200E}' // LEFT-TO-RIGHT MARK
+                | '\u{200F}' // RIGHT-TO-LEFT MARK
+                | '\u{202A}' // LEFT-TO-RIGHT EMBEDDING
+                | '\u{202B}' // RIGHT-TO-LEFT EMBEDDING
+                | '\u{202C}' // POP DIRECTIONAL FORMATTING
+                | '\u{202D}' // LEFT-TO-RIGHT OVERRIDE
+                | '\u{202E}' // RIGHT-TO-LEFT OVERRIDE
+                | '\u{2066}' // LEFT-TO-RIGHT ISOLATE
+                | '\u{2067}' // RIGHT-TO-LEFT ISOLATE
+                | '\u{2068}' // FIRST STRONG ISOLATE
+                | '\u{2069}' // POP DIRECTIONAL ISOLATE
+            ) {
+                return false;
+            }
+            true
+        })
+        .collect()
+}
+
 /// Branch/tag decoration for a commit
 #[derive(Debug, Clone)]
 pub enum Decoration {
@@ -79,6 +120,11 @@ pub struct DiffData {
 pub fn format_relative_time(seconds_since_epoch: i64, _offset_minutes: i32) -> String {
     let now = chrono::Utc::now().timestamp();
     let diff = now - seconds_since_epoch;
+
+    // Handle future timestamps (crafted commits can have arbitrary dates)
+    if diff < 0 {
+        return "just now".to_string();
+    }
 
     if diff < 60 {
         "just now".to_string()
@@ -267,6 +313,43 @@ mod tests {
         let now = chrono::Utc::now().timestamp();
         assert_eq!(format_relative_time(now - 31536000, 0), "1 year ago");
         assert_eq!(format_relative_time(now - 63072000, 0), "2 years ago");
+    }
+
+    #[test]
+    fn test_format_relative_time_future() {
+        let now = chrono::Utc::now().timestamp();
+        // Future timestamps should display "just now" (not negative)
+        assert_eq!(format_relative_time(now + 3600, 0), "just now");
+        assert_eq!(format_relative_time(now + 86400, 0), "just now");
+    }
+
+    #[test]
+    fn test_sanitize_git_string_strips_control_chars() {
+        assert_eq!(sanitize_git_string("hello\x01\x02world\x7f"), "helloworld");
+    }
+
+    #[test]
+    fn test_sanitize_git_string_preserves_tab_newline() {
+        assert_eq!(sanitize_git_string("hello\tworld\n"), "hello\tworld\n");
+    }
+
+    #[test]
+    fn test_sanitize_git_string_strips_bidi() {
+        // U+202E = RIGHT-TO-LEFT OVERRIDE
+        assert_eq!(sanitize_git_string("hello\u{202E}world"), "helloworld");
+        // U+200F = RIGHT-TO-LEFT MARK
+        assert_eq!(sanitize_git_string("hello\u{200F}world"), "helloworld");
+    }
+
+    #[test]
+    fn test_sanitize_git_string_strips_c1_control() {
+        // U+0085 = NEXT LINE (C1 control)
+        assert_eq!(sanitize_git_string("hello\u{0085}world"), "helloworld");
+    }
+
+    #[test]
+    fn test_sanitize_git_string_preserves_normal_unicode() {
+        assert_eq!(sanitize_git_string("日本語テスト"), "日本語テスト");
     }
 
     #[test]

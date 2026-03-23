@@ -27,11 +27,14 @@ use crate::terminal_element::TerminalElement;
 // Input sanitization helpers
 // ============================================================================
 
-/// Strip the bracketed paste end-bracket escape sequence from pasted text.
-/// Prevents paste injection by removing ALL occurrences of \x1b[201~ (INPUT-03, D-06).
+/// Maximum paste size in bytes (1MB). Prevents memory pressure from huge clipboard payloads.
+const MAX_PASTE_SIZE: usize = 1_048_576;
+
+/// Strip bracketed paste escape sequences from pasted text.
+/// Prevents paste injection by removing ALL occurrences of both start and end brackets.
 /// Uses str::replace() to strip all occurrences (Pitfall 2: not replacen).
 fn sanitize_bracketed_paste(text: &str) -> String {
-    text.replace("\x1b[201~", "")
+    text.replace("\x1b[200~", "").replace("\x1b[201~", "")
 }
 
 // ============================================================================
@@ -688,6 +691,16 @@ impl TerminalView {
             return;
         };
 
+        // Enforce paste size limit to prevent memory pressure
+        if text.len() > MAX_PASTE_SIZE {
+            tracing::warn!(
+                "Paste rejected: {} bytes exceeds {}B limit",
+                text.len(),
+                MAX_PASTE_SIZE
+            );
+            return;
+        }
+
         let mode = self.terminal.read(cx).content().mode;
 
         if mode.contains(TermMode::BRACKETED_PASTE) {
@@ -709,20 +722,17 @@ impl TerminalView {
     // Selection queries and operations
     // ========================================================================
 
-    /// Check whether a text selection currently exists (used by AdeWindow for CopyOrInterrupt routing).
     /// Handle Cmd+A: select all visible content in the terminal.
     /// Selects from the topmost line of scrollback history to the bottommost screen line.
+    /// Uses a single lock acquisition to avoid TOCTOU race between reading dimensions and setting selection.
     pub fn select_all(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         use alacritty_terminal::grid::Dimensions;
 
-        let term = self.terminal.read(cx).term.lock();
-        let top = term.topmost_line();
-        let bottom = term.bottommost_line();
-        let last_col = term.last_column();
-        drop(term);
-
         {
             let mut term = self.terminal.read(cx).term.lock();
+            let top = term.topmost_line();
+            let bottom = term.bottommost_line();
+            let last_col = term.last_column();
             // Create a selection spanning all content: anchor at top-left, then update to bottom-right
             let start = Point::new(top, Column(0));
             let end = Point::new(bottom, last_col);

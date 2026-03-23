@@ -65,12 +65,9 @@ fn render_file_row(
         _ => (rgba(0x48484830), rgba(0x8b949eff)),
     };
 
-    // Split path into directory and filename
-    let (dir_part, file_part) = match file.path.rfind('/') {
-        Some(pos) => (
-            Some(format!("{}/", &file.path[..pos])),
-            file.path[pos + 1..].to_string(),
-        ),
+    // Split path into directory and filename (using rsplit_once for UTF-8 safety)
+    let (dir_part, file_part) = match file.path.rsplit_once('/') {
+        Some((dir, name)) => (Some(format!("{}/", dir)), name.to_string()),
         None => (None, file.path.clone()),
     };
 

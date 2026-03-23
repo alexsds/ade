@@ -96,9 +96,16 @@ impl AdeWindow {
 
     // -- Tab lifecycle methods --
 
+    /// Maximum number of tabs allowed (prevents resource exhaustion from unbounded tab creation).
+    const MAX_TABS: usize = 50;
+
     /// Create a new tab, inheriting the CWD from the active pane (D-13).
     /// PTY creation failure is handled gracefully: tab creation is skipped with error logged (CRASH-01).
     fn create_new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tabs.len() >= Self::MAX_TABS {
+            tracing::warn!("Tab limit reached ({}), refusing new tab", Self::MAX_TABS);
+            return;
+        }
         let cwd = match self.active_pane_container() {
             Some(container) => container.read(cx).active_cwd().cloned().unwrap_or_else(|| {
                 std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
@@ -572,8 +579,13 @@ fn main() {
 
             // Spawn initial terminal using new alacritty backend
             let size = TerminalSize::new(80, 24);
-            let (terminal_inner, events_rx) =
-                new_terminal(Some(cwd.clone()), size).expect("Failed to create terminal");
+            let (terminal_inner, events_rx) = match new_terminal(Some(cwd.clone()), size) {
+                Ok(result) => result,
+                Err(e) => {
+                    eprintln!("Fatal: Failed to create initial terminal: {e}");
+                    std::process::exit(1);
+                }
+            };
 
             let terminal = cx.new(|_| terminal_inner);
             wire_terminal_events(&terminal, events_rx, window, cx);

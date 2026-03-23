@@ -179,11 +179,7 @@ fn render_spinner_row() -> impl IntoElement {
 /// Render the commit detail section shown below the commit list when a
 /// commit is selected. Shows short hash, author, and full body.
 pub fn render_commit_detail(commit: &CommitInfo) -> impl IntoElement {
-    let short_hash = if commit.oid.len() >= 7 {
-        &commit.oid[..7]
-    } else {
-        &commit.oid
-    };
+    let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid);
 
     let author_line = format!("{} <{}>", commit.author_name, commit.author_email);
 

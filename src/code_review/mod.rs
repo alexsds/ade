@@ -73,10 +73,16 @@ impl CodeReviewPanel {
         self.diff_data = Some(diff);
     }
 
+    /// Maximum commits the panel will hold (defense-in-depth, independent of provider cap).
+    const MAX_PANEL_COMMITS: usize = 50_000;
+
     /// Append incrementally loaded commits to the existing list.
     /// Does NOT reset selection, files, or diff state.
+    /// Enforces a panel-side cap to prevent unbounded memory growth.
     pub fn append_commits(&mut self, new_commits: Vec<CommitInfo>, exhausted: bool) {
         if new_commits.is_empty() {
+            self.all_commits_loaded = true;
+        } else if self.commits.len() + new_commits.len() > Self::MAX_PANEL_COMMITS {
             self.all_commits_loaded = true;
         } else {
             self.commits.extend(new_commits);

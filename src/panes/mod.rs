@@ -123,6 +123,9 @@ impl PaneContainer {
         })
     }
 
+    /// Maximum number of panes per tab (prevents resource exhaustion).
+    const MAX_PANES: usize = 16;
+
     /// Split the active pane, creating a new terminal in the given direction.
     pub fn split_pane(
         &mut self,
@@ -131,6 +134,10 @@ impl PaneContainer {
         window: &mut Window,
         cx: &mut App,
     ) {
+        if self.panes.len() >= Self::MAX_PANES {
+            tracing::warn!("Pane limit reached ({}), refusing split", Self::MAX_PANES);
+            return;
+        }
         let new_id = self.next_id;
         self.next_id += 1;
 
