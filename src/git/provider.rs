@@ -705,6 +705,127 @@ mod tests {
     }
 
     #[test]
+    fn test_collect_batch_respects_count() {
+        // Create a repo with 10 commits, request only 3 -- should return exactly 3
+        let (_dir, repo) = create_test_repo_with_n_commits(10);
+        let decorations = build_decoration_map(&repo);
+        let mut revwalk = repo.revwalk().expect("revwalk");
+        revwalk.push_head().unwrap();
+        revwalk.set_sorting(Sort::TIME).unwrap();
+
+        let commits = collect_batch(&repo, &mut revwalk, 3, &decorations);
+        assert_eq!(commits.len(), 3, "Should return exactly 3 commits when repo has 10");
+    }
+
+    #[test]
+    fn test_commit_cap_arithmetic() {
+        // Test the cap arithmetic that will be used in FetchLog/FetchMoreLog handlers
+        let max_commits: usize = 50_000;
+
+        // Case 1: No commits loaded yet -- full budget available
+        let total_loaded: usize = 0;
+        let remaining = max_commits.saturating_sub(total_loaded);
+        assert_eq!(remaining, 50_000);
+
+        // Case 2: Some commits loaded -- partial budget
+        let total_loaded: usize = 49_990;
+        let remaining = max_commits.saturating_sub(total_loaded);
+        assert_eq!(remaining, 10);
+        let batch_size: usize = 500;
+        let effective_batch = batch_size.min(remaining);
+        assert_eq!(effective_batch, 10, "Should clamp batch to remaining budget");
+
+        // Case 3: Exactly at cap -- zero remaining
+        let total_loaded: usize = 50_000;
+        let remaining = max_commits.saturating_sub(total_loaded);
+        assert_eq!(remaining, 0);
+
+        // Case 4: Over cap (safety) -- saturating_sub returns 0
+        let total_loaded: usize = 50_001;
+        let remaining = max_commits.saturating_sub(total_loaded);
+        assert_eq!(remaining, 0);
+
+        // Case 5: Initial count clamped to MAX_COMMITS
+        let count: usize = 100_000;
+        let capped_count = count.min(max_commits);
+        assert_eq!(capped_count, 50_000, "Should clamp initial count to MAX_COMMITS");
+
+        // Case 6: Initial count under cap -- no change
+        let count: usize = 200;
+        let capped_count = count.min(max_commits);
+        assert_eq!(capped_count, 200, "Should not clamp when under MAX_COMMITS");
+    }
+
+    #[test]
+    fn test_commit_cap_enforced_via_provider() {
+        // Integration test: create a repo with 15 commits, load via GitProvider,
+        // verify exhaustion is reported correctly.
+        let (_dir, repo) = create_test_repo_with_n_commits(15);
+        let repo_path = repo.workdir().expect("workdir").to_path_buf();
+        let provider = GitProvider::new(repo_path);
+
+        // Request initial load with large count
+        provider.request_log(200);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+
+        let mut total_received = 0;
+        while let Some(response) = provider.try_recv() {
+            match response {
+                GitResponse::Log(commits) => {
+                    total_received += commits.len();
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(total_received, 15, "Should load all 15 commits");
+
+        // Request more -- should be exhausted
+        provider.request_more_log(500);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+
+        while let Some(response) = provider.try_recv() {
+            match response {
+                GitResponse::MoreLog { commits, exhausted } => {
+                    assert!(exhausted, "Should be exhausted after loading all commits");
+                    assert!(commits.is_empty(), "Should have no more commits");
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn test_commit_cap_resets_on_fresh_load() {
+        // Verify that requesting FetchLog again resets internal state
+        // so the full budget is available for a new repo/load.
+        let (_dir, repo) = create_test_repo_with_n_commits(10);
+        let repo_path = repo.workdir().expect("workdir").to_path_buf();
+        let provider = GitProvider::new(repo_path);
+
+        // First load
+        provider.request_log(200);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let mut first_count = 0;
+        while let Some(response) = provider.try_recv() {
+            if let GitResponse::Log(commits) = response {
+                first_count = commits.len();
+            }
+        }
+        assert_eq!(first_count, 10);
+
+        // Second fresh load (simulates repo switch) -- should get all 10 again
+        provider.request_log(200);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let mut second_count = 0;
+        while let Some(response) = provider.try_recv() {
+            if let GitResponse::Log(commits) = response {
+                second_count = commits.len();
+            }
+        }
+        assert_eq!(second_count, 10, "Fresh load should reset counter and return all commits");
+    }
+
+    #[test]
     fn test_request_more_log_method() {
         let (_dir, repo) = create_test_repo();
         let repo_path = repo.workdir().expect("workdir").to_path_buf();
