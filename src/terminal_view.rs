@@ -239,6 +239,8 @@ pub struct TerminalView {
     marked_selected_range_utf16: Range<usize>,
     /// Whether a mouse drag selection is in progress
     selecting: bool,
+    /// Whether the mouse actually moved during selection (distinguishes click from drag)
+    dragged: bool,
     /// Cached selected text -- survives TUI app redraws that clear alacritty selection
     pending_copy: Option<String>,
 }
@@ -253,6 +255,7 @@ impl TerminalView {
             marked_text: None,
             marked_selected_range_utf16: 0..0,
             selecting: false,
+            dragged: false,
             pending_copy: None,
         }
     }
@@ -441,6 +444,7 @@ impl TerminalView {
                 term.selection = Some(Selection::new(sel_type, point, side));
             }
             self.selecting = true;
+            self.dragged = event.click_count >= 2; // double/triple click counts as drag
             self.terminal.update(cx, |t, _| t.sync());
             cx.notify();
         }
@@ -548,8 +552,8 @@ impl TerminalView {
 
         // Selection ends on mouse up -- copy to system clipboard immediately
         // so it's available for paste in other panes (and survives TUI redraws).
-        // Only copy if there's actual content (not a single click with no drag).
-        if self.selecting {
+        // Only copy if there was an actual drag or multi-click (not a single click to focus).
+        if self.selecting && self.dragged {
             let term = self.terminal.read(cx).term.lock();
             if let Some(text) = term.selection_to_string() {
                 if !text.is_empty() {
@@ -613,6 +617,7 @@ impl TerminalView {
 
         // Selection drag: update selection endpoint
         if self.selecting && event.dragging() {
+            self.dragged = true;
             let (point, side) = mouse_position_to_point(
                 event.position,
                 bounds,
