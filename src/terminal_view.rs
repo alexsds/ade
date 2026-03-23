@@ -24,6 +24,17 @@ use crate::terminal::Terminal;
 use crate::terminal_element::TerminalElement;
 
 // ============================================================================
+// Input sanitization helpers
+// ============================================================================
+
+/// Strip the bracketed paste end-bracket escape sequence from pasted text.
+/// Prevents paste injection by removing ALL occurrences of \x1b[201~ (INPUT-03, D-06).
+/// Uses str::replace() to strip all occurrences (Pitfall 2: not replacen).
+fn sanitize_bracketed_paste(text: &str) -> String {
+    text.replace("\x1b[201~", "")
+}
+
+// ============================================================================
 // SGR mouse helpers (ported from vendor/gpui-ghostty view/mod.rs)
 // ============================================================================
 
@@ -674,10 +685,12 @@ impl TerminalView {
         let mode = self.terminal.read(cx).content().mode;
 
         if mode.contains(TermMode::BRACKETED_PASTE) {
+            // INPUT-03: strip end-bracket escape to prevent paste injection
+            let safe_text = sanitize_bracketed_paste(&text);
             // Wrap in bracketed paste sequences
             let mut bytes = Vec::new();
             bytes.extend_from_slice(b"\x1b[200~");
-            bytes.extend_from_slice(text.as_bytes());
+            bytes.extend_from_slice(safe_text.as_bytes());
             bytes.extend_from_slice(b"\x1b[201~");
             self.terminal.update(cx, |t, _| t.write_to_pty(bytes));
         } else {
@@ -1028,5 +1041,28 @@ mod tests {
         let range = utf16_range_to_utf8(s, 1..3);
         // UTF-8: 'a' = 1 byte, poo = 4 bytes, 'b' = 1 byte
         assert_eq!(range, Some(1..5));
+    }
+
+    // --- INPUT-03: Bracketed paste sanitization tests ---
+
+    #[test]
+    fn test_bracketed_paste_strips_end_bracket() {
+        // Single occurrence of end-bracket sequence should be removed
+        let text = "hello\x1b[201~world";
+        assert_eq!(sanitize_bracketed_paste(text), "helloworld");
+    }
+
+    #[test]
+    fn test_bracketed_paste_strips_multiple() {
+        // Multiple occurrences should all be removed (Pitfall 2)
+        let text = "a\x1b[201~b\x1b[201~c";
+        assert_eq!(sanitize_bracketed_paste(text), "abc");
+    }
+
+    #[test]
+    fn test_bracketed_paste_preserves_normal() {
+        // Normal text without the sequence passes through unchanged
+        let text = "hello world";
+        assert_eq!(sanitize_bracketed_paste(text), "hello world");
     }
 }
