@@ -1029,4 +1029,56 @@ mod tests {
         // UTF-8: 'a' = 1 byte, poo = 4 bytes, 'b' = 1 byte
         assert_eq!(range, Some(1..5));
     }
+
+    // INPUT-05: Division-by-zero guard tests for mouse coordinate functions
+
+    #[test]
+    fn test_mouse_position_to_cell_zero_width() {
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(640.0), px(384.0)));
+        let pos = point(px(40.0), px(16.0));
+        let (col, row) = mouse_position_to_cell(pos, bounds, 0.0, 16.0, 80, 24);
+        // With zero width clamped to 1.0: col = floor(40/1) + 1 = 41, clamped to 80
+        assert!(col >= 1 && col <= 80, "col {} out of range [1, 80]", col);
+        assert!(row >= 1 && row <= 24, "row {} out of range [1, 24]", row);
+    }
+
+    #[test]
+    fn test_mouse_position_to_cell_zero_height() {
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(640.0), px(384.0)));
+        let pos = point(px(40.0), px(16.0));
+        let (col, row) = mouse_position_to_cell(pos, bounds, 8.0, 0.0, 80, 24);
+        // With zero height clamped to 1.0: row = floor(16/1) + 1 = 17
+        assert!(col >= 1 && col <= 80, "col {} out of range [1, 80]", col);
+        assert!(row >= 1 && row <= 24, "row {} out of range [1, 24]", row);
+    }
+
+    #[test]
+    fn test_mouse_position_to_point_zero_width() {
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(640.0), px(384.0)));
+        let pos = point(px(40.0), px(16.0));
+        let (pt, _side) = mouse_position_to_point(pos, bounds, 0.0, 16.0, 80, 24);
+        // With zero width clamped to 1.0: col = floor(40/1) = 40, clamped to 79
+        assert!(pt.column.0 < 80, "column {} out of range [0, 79]", pt.column.0);
+        assert!(pt.line.0 >= 0 && pt.line.0 < 24, "line {} out of range [0, 23]", pt.line.0);
+    }
+
+    #[test]
+    fn test_mouse_position_to_point_zero_height() {
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(640.0), px(384.0)));
+        let pos = point(px(40.0), px(16.0));
+        let (pt, _side) = mouse_position_to_point(pos, bounds, 8.0, 0.0, 80, 24);
+        // With zero height clamped to 1.0: line = floor(16/1) = 16
+        assert!(pt.column.0 < 80, "column {} out of range [0, 79]", pt.column.0);
+        assert!(pt.line.0 >= 0 && pt.line.0 < 24, "line {} out of range [0, 23]", pt.line.0);
+    }
+
+    #[test]
+    fn test_mouse_position_to_cell_both_zero() {
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(640.0), px(384.0)));
+        let pos = point(px(40.0), px(16.0));
+        let (col, row) = mouse_position_to_cell(pos, bounds, 0.0, 0.0, 80, 24);
+        // Both zero clamped to 1.0: should produce valid coordinates
+        assert!(col >= 1 && col <= 80, "col {} out of range [1, 80]", col);
+        assert!(row >= 1 && row <= 24, "row {} out of range [1, 24]", row);
+    }
 }
