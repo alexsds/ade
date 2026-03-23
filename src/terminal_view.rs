@@ -547,12 +547,15 @@ impl TerminalView {
         }
 
         // Selection ends on mouse up -- copy to system clipboard immediately
-        // so it's available for paste in other panes (and survives TUI redraws)
+        // so it's available for paste in other panes (and survives TUI redraws).
+        // Only copy if there's actual content (not a single click with no drag).
         if self.selecting {
             let term = self.terminal.read(cx).term.lock();
             if let Some(text) = term.selection_to_string() {
-                self.pending_copy = Some(text.clone());
-                cx.write_to_clipboard(ClipboardItem::new_string(text));
+                if !text.is_empty() {
+                    self.pending_copy = Some(text.clone());
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
             }
         }
         self.selecting = false;
