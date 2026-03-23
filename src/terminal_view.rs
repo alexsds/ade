@@ -233,6 +233,8 @@ pub struct TerminalView {
     marked_selected_range_utf16: Range<usize>,
     /// Whether a mouse drag selection is in progress
     selecting: bool,
+    /// Cached selected text -- survives TUI app redraws that clear alacritty selection
+    pending_copy: Option<String>,
 }
 
 impl TerminalView {
@@ -245,6 +247,7 @@ impl TerminalView {
             marked_text: None,
             marked_selected_range_utf16: 0..0,
             selecting: false,
+            pending_copy: None,
         }
     }
 
@@ -408,6 +411,8 @@ impl TerminalView {
         }
 
         // Selection mode (INPT-04): start a new selection on left click
+        // Clear cached copy text -- new selection starting
+        self.pending_copy = None;
         if event.button == MouseButton::Left {
             let (point, side) = mouse_position_to_point(
                 event.position,
@@ -528,7 +533,13 @@ impl TerminalView {
             return;
         }
 
-        // Selection ends on mouse up -- selection stays until cleared
+        // Selection ends on mouse up -- cache selected text so it survives TUI redraws
+        if self.selecting {
+            let term = self.terminal.read(cx).term.lock();
+            if let Some(text) = term.selection_to_string() {
+                self.pending_copy = Some(text);
+            }
+        }
         self.selecting = false;
     }
 
@@ -763,7 +774,10 @@ impl TerminalView {
             }
         };
 
-        if let Some(text) = maybe_text {
+        // Fall back to cached text if TUI app cleared the selection
+        let text = maybe_text.or_else(|| self.pending_copy.take());
+
+        if let Some(text) = text {
             // Copy selection to clipboard
             cx.write_to_clipboard(ClipboardItem::new_string(text));
             self.terminal.update(cx, |t, _| t.sync());
