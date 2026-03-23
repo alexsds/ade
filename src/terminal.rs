@@ -555,8 +555,11 @@ impl Terminal {
     }
 
     /// Write bytes to the PTY (keyboard input).
+    /// Scrolls to bottom first so the user sees current output.
     pub fn write_to_pty(&self, data: Vec<u8>) {
         use alacritty_terminal::event::Notify;
+        use alacritty_terminal::grid::Scroll;
+        self.term.lock().scroll_display(Scroll::Bottom);
         self.pty_tx.notify(data);
     }
 
