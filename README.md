@@ -85,15 +85,11 @@ Selecting a commit auto-selects the first changed file and loads its diff. Activ
 | Cmd+{ | Previous tab |
 | Cmd+1 through Cmd+9 | Switch to tab N |
 
-## Architecture
+## Tech Stack
 
-~9,300 lines of Rust. 195 tests.
-
-- **GPUI** — GPU-accelerated rendering with `uniform_list` virtualization
-- **alacritty_terminal** — VT100/xterm terminal emulation and PTY I/O
-- **git2** — libgit2 bindings for commit log, diff, and branch status
-- Background threads for PTY and git operations; main thread polls via channels
-- FairMutex snapshot-and-release pattern for lock-free rendering
+- **[GPUI](https://github.com/zed-industries/zed)** — GPU-accelerated rendering with `uniform_list` virtualization
+- **[alacritty_terminal](https://crates.io/crates/alacritty_terminal)** — VT100/xterm terminal emulation and PTY I/O
+- **[git2](https://crates.io/crates/git2)** — libgit2 bindings for commit log, diff, and branch status
 
 ## License
 
