@@ -218,6 +218,7 @@ impl Render for CodeReviewPanel {
         // Compute active panel state for selection color differentiation
         let is_commit_list_active = self.active_panel == ActivePanel::CommitList;
         let is_file_list_active = self.active_panel == ActivePanel::FileList;
+        let is_diff_view_active = self.active_panel == ActivePanel::DiffView;
 
         // Build commit list content
         let commit_list_content: gpui::AnyElement = if self.loading {
@@ -369,11 +370,25 @@ impl Render for CodeReviewPanel {
                                     ),
                             )
                             // Right: diff viewer (remaining space, uniform_list handles scroll)
-                            .child(if let Some(file_diff) = self.selected_file_diff() {
-                                diff_view::render_diff_view(file_diff, &self.syntax_highlighter)
-                                    .into_any_element()
-                            } else {
-                                diff_view::render_diff_empty().into_any_element()
+                            .child({
+                                let diff_content = if let Some(file_diff) = self.selected_file_diff() {
+                                    diff_view::render_diff_view(file_diff, &self.syntax_highlighter)
+                                        .into_any_element()
+                                } else {
+                                    diff_view::render_diff_empty().into_any_element()
+                                };
+                                let diff_wrapper = div()
+                                    .flex_1()
+                                    .size_full()
+                                    .overflow_hidden()
+                                    .child(diff_content);
+                                if is_diff_view_active {
+                                    diff_wrapper
+                                        .border_l_2()
+                                        .border_color(rgba(0x264f78ff))
+                                } else {
+                                    diff_wrapper
+                                }
                             }),
                     ),
             )
