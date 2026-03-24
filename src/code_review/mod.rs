@@ -72,6 +72,8 @@ pub struct CodeReviewPanel {
     pub diff_scroll_handle: UniformListScrollHandle,
     /// Tracks the viewport top line index for diff panel keyboard scrolling.
     pub diff_scroll_top: usize,
+    /// Number of diff rows visible in the viewport (updated during render).
+    pub diff_visible_rows: usize,
 }
 
 impl CodeReviewPanel {
@@ -94,6 +96,7 @@ impl CodeReviewPanel {
             file_scroll_handle: UniformListScrollHandle::new(),
             diff_scroll_handle: UniformListScrollHandle::new(),
             diff_scroll_top: 0,
+            diff_visible_rows: 0,
         }
     }
 
@@ -239,9 +242,11 @@ impl CodeReviewPanel {
             .scroll_to_item(new_index, ScrollStrategy::Nearest);
     }
 
-    /// Scroll the diff viewport down by one row. Stops at the last row.
+    /// Scroll the diff viewport down by one row. Stops when last row is visible.
     pub fn scroll_diff_down(&mut self, total_rows: usize) {
-        if self.diff_scroll_top >= total_rows.saturating_sub(1) {
+        // Max scroll = total rows minus visible viewport rows (so last row is at bottom)
+        let max_scroll = total_rows.saturating_sub(self.diff_visible_rows.max(1));
+        if self.diff_scroll_top >= max_scroll {
             return;
         }
         self.diff_scroll_top += 1;
@@ -311,6 +316,19 @@ impl Render for CodeReviewPanel {
                 move |range_end: usize, _window: &mut Window, cx: &mut gpui::App| {
                     weak.update(cx, |this, _| {
                         this.visible_range_end = range_end;
+                    })
+                    .ok();
+                },
+            )
+        };
+
+        // Callback to track how many diff rows are visible in the viewport
+        let on_diff_visible_count: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
+            let weak = weak.clone();
+            Arc::new(
+                move |count: usize, _window: &mut Window, cx: &mut gpui::App| {
+                    weak.update(cx, |this, _| {
+                        this.diff_visible_rows = count;
                     })
                     .ok();
                 },
@@ -481,6 +499,7 @@ impl Render for CodeReviewPanel {
                                             file_diff,
                                             &self.syntax_highlighter,
                                             &self.diff_scroll_handle,
+                                            on_diff_visible_count.clone(),
                                         )
                                         .into_any_element()
                                     } else {

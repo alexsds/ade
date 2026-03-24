@@ -3,10 +3,12 @@
 //! Uses uniform_list for smooth scrolling — only visible lines are rendered.
 //! Line-type coloring: green for additions, red for removals, blue for hunk headers.
 
+use std::sync::Arc;
+
 use crate::git::types::{DiffLineType, FileDiff};
 use gpui::{
-    FontWeight, IntoElement, Styled, TextAlign, UniformListScrollHandle, div, prelude::*, px, rgba,
-    uniform_list,
+    FontWeight, IntoElement, Styled, TextAlign, UniformListScrollHandle, Window, div, prelude::*,
+    px, rgba, uniform_list,
 };
 
 /// Placeholder for future syntax highlighting.
@@ -82,6 +84,7 @@ pub fn render_diff_view(
     file_diff: &FileDiff,
     highlighter: &SyntaxHighlighter,
     scroll_handle: &UniformListScrollHandle,
+    on_visible_count: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>,
 ) -> impl IntoElement {
     let rows = flatten_and_highlight_diff(file_diff, highlighter);
     let row_count = rows.len();
@@ -99,7 +102,9 @@ pub fn render_diff_view(
         // Virtualized diff lines (only visible rows rendered)
         .child(
             uniform_list("diff-lines", row_count, {
-                move |range, _window, _cx| {
+                move |range, window, cx| {
+                    let visible = range.end - range.start;
+                    on_visible_count(visible, window, cx);
                     range
                         .map(|ix| {
                             let row = rows[ix].clone();
@@ -296,7 +301,9 @@ mod tests {
         let file_diff = sample_file_diff();
         let hl = SyntaxHighlighter::new();
         let sh = UniformListScrollHandle::new();
-        let _element = render_diff_view(&file_diff, &hl, &sh);
+        let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _| {});
+        let _element = render_diff_view(&file_diff, &hl, &sh, noop);
     }
 
     #[test]
@@ -314,7 +321,9 @@ mod tests {
         };
         let hl = SyntaxHighlighter::new();
         let sh = UniformListScrollHandle::new();
-        let _element = render_diff_view(&file_diff, &hl, &sh);
+        let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _| {});
+        let _element = render_diff_view(&file_diff, &hl, &sh, noop);
     }
 
     #[test]
@@ -335,7 +344,9 @@ mod tests {
         };
         let hl = SyntaxHighlighter::new();
         let sh = UniformListScrollHandle::new();
-        let _element = render_diff_view(&file_diff, &hl, &sh);
+        let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _| {});
+        let _element = render_diff_view(&file_diff, &hl, &sh, noop);
     }
 
     #[test]
