@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use crate::git::types::{CommitInfo, DiffData, FileChange, FileDiff};
 use gpui::{
-    Context, FontWeight, IntoElement, ScrollStrategy, Styled, UniformListScrollHandle, Window, div,
-    prelude::*, px, rgba,
+    Context, FontWeight, IntoElement, ScrollStrategy, SharedString, Styled,
+    UniformListScrollHandle, Window, div, prelude::*, px, rgba,
 };
 
 /// Which tab is active in the Code Review panel.
@@ -392,246 +392,417 @@ impl CodeReviewPanel {
     }
 }
 
+/// Render the review tab bar with Changes and History tabs.
+/// Active tab has a blue bottom border (D-02). Replaces "Commits" header (D-01).
+fn render_review_tab_bar(
+    active_tab: ReviewTab,
+    on_switch: Arc<dyn Fn(ReviewTab, &mut Window, &mut gpui::App) + 'static>,
+) -> impl IntoElement {
+    div()
+        .w_full()
+        .h(px(28.0))
+        .flex()
+        .flex_row()
+        .border_b_1()
+        .border_color(rgba(0x333333ff))
+        .child(render_tab_label(
+            "Changes",
+            active_tab == ReviewTab::Changes,
+            {
+                let on_switch = on_switch.clone();
+                Arc::new(move |window: &mut Window, cx: &mut gpui::App| {
+                    on_switch(ReviewTab::Changes, window, cx)
+                })
+            },
+        ))
+        .child(render_tab_label(
+            "History",
+            active_tab == ReviewTab::History,
+            {
+                let on_switch = on_switch.clone();
+                Arc::new(move |window: &mut Window, cx: &mut gpui::App| {
+                    on_switch(ReviewTab::History, window, cx)
+                })
+            },
+        ))
+}
+
+fn render_tab_label(
+    label: &str,
+    is_active: bool,
+    on_click: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
+) -> impl IntoElement {
+    div()
+        .id(SharedString::from(format!("tab-{}", label.to_lowercase())))
+        .px(px(12.0))
+        .py(px(6.0))
+        .cursor_pointer()
+        .text_xs()
+        .text_color(if is_active {
+            rgba(0xddddddff)
+        } else {
+            rgba(0x888888ff)
+        })
+        // Active tab: blue bottom border (D-02)
+        .when(is_active, |d| {
+            d.border_b_2().border_color(rgba(0x0078d4ff))
+        })
+        .on_click(move |_event, window, cx| {
+            on_click(window, cx);
+        })
+        .child(label.to_string())
+}
+
 impl Render for CodeReviewPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let selected_commit_index = self.selected_commit_index;
-        let selected_file_index = self.selected_file_index;
-        let file_count = self.files.len();
-
-        // Create Arc callbacks using weak entity handle
         let weak = cx.weak_entity();
-        let commit_on_select: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
-            let weak = weak.clone();
-            Arc::new(move |ix: usize, _window: &mut Window, cx: &mut gpui::App| {
-                weak.update(cx, |this, cx| {
-                    this.select_commit(ix);
-                    cx.notify();
-                })
-                .ok();
-            })
-        };
 
-        let file_on_select: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
-            let weak = weak.clone();
-            Arc::new(move |ix: usize, _window: &mut Window, cx: &mut gpui::App| {
-                weak.update(cx, |this, cx| {
-                    this.select_file(ix);
-                    cx.notify();
-                })
-                .ok();
-            })
-        };
-
-        // Callback to report visible range end for near-bottom detection (D-01)
-        let on_range_visible: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
+        // Tab bar on_switch callback (D-01, D-02)
+        let tab_on_switch: Arc<dyn Fn(ReviewTab, &mut Window, &mut gpui::App) + 'static> = {
             let weak = weak.clone();
             Arc::new(
-                move |range_end: usize, _window: &mut Window, cx: &mut gpui::App| {
-                    weak.update(cx, |this, _| {
-                        this.visible_range_end = range_end;
+                move |tab: ReviewTab, _window: &mut Window, cx: &mut gpui::App| {
+                    weak.update(cx, |this, cx| {
+                        this.switch_to_review_tab(tab);
+                        cx.notify();
                     })
                     .ok();
                 },
             )
         };
 
-        // Callback to track how many diff rows are visible in the viewport
-        let on_diff_visible_count: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
-            let weak = weak.clone();
-            Arc::new(
-                move |count: usize, _window: &mut Window, cx: &mut gpui::App| {
-                    weak.update(cx, |this, _| {
-                        this.diff_visible_rows = count;
+        if self.active_tab == ReviewTab::History {
+            // === History tab: 3-column layout ===
+            let selected_commit_index = self.selected_commit_index;
+            let selected_file_index = self.selected_file_index;
+            let file_count = self.files.len();
+
+            let commit_on_select: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
+                let weak = weak.clone();
+                Arc::new(move |ix: usize, _window: &mut Window, cx: &mut gpui::App| {
+                    weak.update(cx, |this, cx| {
+                        this.select_commit(ix);
+                        cx.notify();
                     })
                     .ok();
-                },
-            )
-        };
+                })
+            };
 
-        // Compute active panel state for selection color differentiation
-        let is_commit_list_active = self.active_panel == ActivePanel::CommitList;
-        let is_file_list_active = self.active_panel == ActivePanel::FileList;
-        let is_diff_view_active = self.active_panel == ActivePanel::DiffView;
+            let file_on_select: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
+                let weak = weak.clone();
+                Arc::new(move |ix: usize, _window: &mut Window, cx: &mut gpui::App| {
+                    weak.update(cx, |this, cx| {
+                        this.select_file(ix);
+                        cx.notify();
+                    })
+                    .ok();
+                })
+            };
 
-        // Build commit list content
-        let commit_list_content: gpui::AnyElement = if self.loading {
-            div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_sm()
-                .text_color(rgba(0x888888ff))
-                .child("Loading commits...")
-                .into_any_element()
-        } else if self.commits.is_empty() {
-            div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_sm()
-                .text_color(rgba(0x888888ff))
-                .child("No commits found")
-                .into_any_element()
-        } else {
-            commit_list::render_commit_list(
-                &self.commits,
-                selected_commit_index,
-                commit_on_select,
-                self.loading_more,
-                self.all_commits_loaded,
-                on_range_visible,
-                is_commit_list_active,
-                &self.commit_scroll_handle,
-            )
-            .into_any_element()
-        };
+            let on_range_visible: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
+                let weak = weak.clone();
+                Arc::new(
+                    move |range_end: usize, _window: &mut Window, cx: &mut gpui::App| {
+                        weak.update(cx, |this, _| {
+                            this.visible_range_end = range_end;
+                        })
+                        .ok();
+                    },
+                )
+            };
 
-        // Build file list content
-        let file_list_content = file_list::render_file_list(
-            &self.files,
-            selected_file_index,
-            file_on_select,
-            is_file_list_active,
-            &self.file_scroll_handle,
-        );
+            let on_diff_visible_count: Arc<
+                dyn Fn(usize, &mut Window, &mut gpui::App) + 'static,
+            > = {
+                let weak = weak.clone();
+                Arc::new(
+                    move |count: usize, _window: &mut Window, cx: &mut gpui::App| {
+                        weak.update(cx, |this, _| {
+                            this.diff_visible_rows = count;
+                        })
+                        .ok();
+                    },
+                )
+            };
 
-        // Build commit detail section
-        let commit_detail: Option<gpui::AnyElement> = self
-            .selected_commit()
-            .map(|commit| commit_list::render_commit_detail(commit).into_any_element());
+            let is_commit_list_active = self.active_panel == ActivePanel::CommitList;
+            let is_file_list_active = self.active_panel == ActivePanel::FileList;
+            let is_diff_view_active = self.active_panel == ActivePanel::DiffView;
 
-        // Changed files header text
-        let files_header_text = if file_count > 0 {
-            format!("Changed Files ({})", file_count)
-        } else {
-            "Changed Files".to_string()
-        };
-
-        let left_panel = div()
-            .w(px(280.0))
-            .flex_shrink_0()
-            .h_full()
-            .flex()
-            .flex_col()
-            .border_r_1()
-            .border_color(rgba(0x333333ff))
-            // Header: "Commits"
-            .child(
+            // Build commit list content
+            let commit_list_content: gpui::AnyElement = if self.loading {
                 div()
-                    .w_full()
-                    .px(px(8.0))
-                    .py(px(6.0))
-                    .border_b_1()
-                    .border_color(rgba(0x333333ff))
-                    .text_xs()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(rgba(0xccccccff))
-                    .child("Commits"),
-            )
-            // Scrollable commit list
-            .child(div().flex_1().overflow_hidden().child(commit_list_content));
-
-        // Commit detail with max height and scroll (like GitHub Desktop)
-        let commit_detail_section: Option<gpui::AnyElement> = commit_detail.map(|detail| {
-            div()
-                .id("commit-detail-scroll")
-                .w_full()
-                .max_h(px(150.0))
-                .overflow_y_scroll()
-                .border_b_1()
-                .border_color(rgba(0x333333ff))
-                .child(detail)
-                .into_any_element()
-        });
-
-        // Build the full 3-panel layout
-        // Outer: full size, row direction
-        // Left: commit list (280px)
-        // Right: column with [commit detail (max 150px, scrollable)] + [row of file list + diff]
-        div()
-            .size_full()
-            .flex()
-            .flex_row()
-            .bg(rgba(0x1e1e1eff))
-            // Left: commit list (~280px)
-            .child(left_panel)
-            // Right area: commit detail on top, then file list + diff below
-            .child(
-                div()
-                    .id("right-area")
-                    .flex_1()
                     .size_full()
                     .flex()
-                    .flex_col()
-                    // Commit detail (optional, max 150px, scrollable)
-                    .children(commit_detail_section)
-                    // File list + diff viewer (fills remaining space)
-                    .child(
-                        div()
-                            .id("files-and-diff")
-                            .flex_1()
-                            .w_full()
-                            .overflow_hidden()
-                            .flex()
-                            .flex_row()
-                            // Middle: file list (fixed 240px)
-                            .child(
-                                div()
-                                    .w(px(240.0))
-                                    .flex_shrink_0()
-                                    .h_full()
-                                    .flex()
-                                    .flex_col()
-                                    .border_r_1()
-                                    .border_color(rgba(0x333333ff))
-                                    // Header: "Changed Files (N)"
-                                    .child(
-                                        div()
-                                            .w_full()
-                                            .px(px(8.0))
-                                            .py(px(6.0))
-                                            .border_b_1()
-                                            .border_color(rgba(0x333333ff))
-                                            .text_xs()
-                                            .font_weight(FontWeight::BOLD)
-                                            .text_color(rgba(0xccccccff))
-                                            .child(files_header_text),
-                                    )
-                                    // File list
-                                    .child(
-                                        div().flex_1().overflow_hidden().child(file_list_content),
-                                    ),
-                            )
-                            // Right: diff viewer (remaining space, uniform_list handles scroll)
-                            .child({
-                                let diff_content =
-                                    if let Some(file_diff) = self.selected_file_diff() {
-                                        diff_view::render_diff_view(
-                                            file_diff,
-                                            &self.syntax_highlighter,
-                                            &self.diff_scroll_handle,
-                                            on_diff_visible_count.clone(),
+                    .items_center()
+                    .justify_center()
+                    .text_sm()
+                    .text_color(rgba(0x888888ff))
+                    .child("Loading commits...")
+                    .into_any_element()
+            } else if self.commits.is_empty() {
+                div()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_sm()
+                    .text_color(rgba(0x888888ff))
+                    .child("No commits found")
+                    .into_any_element()
+            } else {
+                commit_list::render_commit_list(
+                    &self.commits,
+                    selected_commit_index,
+                    commit_on_select,
+                    self.loading_more,
+                    self.all_commits_loaded,
+                    on_range_visible,
+                    is_commit_list_active,
+                    &self.commit_scroll_handle,
+                )
+                .into_any_element()
+            };
+
+            let file_list_content = file_list::render_file_list(
+                &self.files,
+                selected_file_index,
+                file_on_select,
+                is_file_list_active,
+                &self.file_scroll_handle,
+            );
+
+            let commit_detail: Option<gpui::AnyElement> = self
+                .selected_commit()
+                .map(|commit| commit_list::render_commit_detail(commit).into_any_element());
+
+            let files_header_text = if file_count > 0 {
+                format!("Changed Files ({})", file_count)
+            } else {
+                "Changed Files".to_string()
+            };
+
+            // Left panel: 280px with tab bar header + commit list
+            let left_panel = div()
+                .w(px(280.0))
+                .flex_shrink_0()
+                .h_full()
+                .flex()
+                .flex_col()
+                .border_r_1()
+                .border_color(rgba(0x333333ff))
+                // Tab bar replaces "Commits" header (D-01)
+                .child(render_review_tab_bar(self.active_tab, tab_on_switch))
+                // Scrollable commit list
+                .child(div().flex_1().overflow_hidden().child(commit_list_content));
+
+            // Commit detail with max height and scroll (like GitHub Desktop)
+            let commit_detail_section: Option<gpui::AnyElement> =
+                commit_detail.map(|detail| {
+                    div()
+                        .id("commit-detail-scroll")
+                        .w_full()
+                        .max_h(px(150.0))
+                        .overflow_y_scroll()
+                        .border_b_1()
+                        .border_color(rgba(0x333333ff))
+                        .child(detail)
+                        .into_any_element()
+                });
+
+            div()
+                .size_full()
+                .flex()
+                .flex_row()
+                .bg(rgba(0x1e1e1eff))
+                .child(left_panel)
+                .child(
+                    div()
+                        .id("right-area")
+                        .flex_1()
+                        .size_full()
+                        .flex()
+                        .flex_col()
+                        .children(commit_detail_section)
+                        .child(
+                            div()
+                                .id("files-and-diff")
+                                .flex_1()
+                                .w_full()
+                                .overflow_hidden()
+                                .flex()
+                                .flex_row()
+                                .child(
+                                    div()
+                                        .w(px(240.0))
+                                        .flex_shrink_0()
+                                        .h_full()
+                                        .flex()
+                                        .flex_col()
+                                        .border_r_1()
+                                        .border_color(rgba(0x333333ff))
+                                        .child(
+                                            div()
+                                                .w_full()
+                                                .px(px(8.0))
+                                                .py(px(6.0))
+                                                .border_b_1()
+                                                .border_color(rgba(0x333333ff))
+                                                .text_xs()
+                                                .font_weight(FontWeight::BOLD)
+                                                .text_color(rgba(0xccccccff))
+                                                .child(files_header_text),
                                         )
-                                        .into_any_element()
-                                    } else {
-                                        diff_view::render_diff_empty().into_any_element()
-                                    };
-                                div()
-                                    .flex_1()
-                                    .size_full()
-                                    .overflow_hidden()
-                                    .border_t_2()
-                                    .border_color(if is_diff_view_active {
-                                        rgba(0x264f78ff)
-                                    } else {
-                                        rgba(0x00000000)
-                                    })
-                                    .child(diff_content)
-                            }),
-                    ),
-            )
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .overflow_hidden()
+                                                .child(file_list_content),
+                                        ),
+                                )
+                                .child({
+                                    let diff_content =
+                                        if let Some(file_diff) = self.selected_file_diff() {
+                                            diff_view::render_diff_view(
+                                                file_diff,
+                                                &self.syntax_highlighter,
+                                                &self.diff_scroll_handle,
+                                                on_diff_visible_count.clone(),
+                                            )
+                                            .into_any_element()
+                                        } else {
+                                            diff_view::render_diff_empty().into_any_element()
+                                        };
+                                    div()
+                                        .flex_1()
+                                        .size_full()
+                                        .overflow_hidden()
+                                        .border_t_2()
+                                        .border_color(if is_diff_view_active {
+                                            rgba(0x264f78ff)
+                                        } else {
+                                            rgba(0x00000000)
+                                        })
+                                        .child(diff_content)
+                                }),
+                        ),
+                )
+                .into_any_element()
+        } else {
+            // === Changes tab: 2-column layout (D-07, D-08, D-09) ===
+            let is_changes_file_list_active = self.active_panel == ActivePanel::ChangesFileList;
+            let is_changes_diff_view_active = self.active_panel == ActivePanel::ChangesDiffView;
+
+            let changes_file_on_select: Arc<
+                dyn Fn(usize, &mut Window, &mut gpui::App) + 'static,
+            > = {
+                let weak = weak.clone();
+                Arc::new(move |ix: usize, _window: &mut Window, cx: &mut gpui::App| {
+                    weak.update(cx, |this, cx| {
+                        if ix < this.changes_files.len() {
+                            this.selected_changes_file_index = Some(ix);
+                        }
+                        cx.notify();
+                    })
+                    .ok();
+                })
+            };
+
+            let on_changes_diff_visible_count: Arc<
+                dyn Fn(usize, &mut Window, &mut gpui::App) + 'static,
+            > = {
+                let weak = weak.clone();
+                Arc::new(
+                    move |count: usize, _window: &mut Window, cx: &mut gpui::App| {
+                        weak.update(cx, |this, _| {
+                            this.changes_diff_visible_rows = count;
+                        })
+                        .ok();
+                    },
+                )
+            };
+
+            let changes_files_header_text = if self.changes_files.is_empty() {
+                "Changed Files".to_string()
+            } else {
+                format!("Changed Files ({})", self.changes_files.len())
+            };
+
+            let changes_file_list_content = file_list::render_file_list(
+                &self.changes_files,
+                self.selected_changes_file_index,
+                changes_file_on_select,
+                is_changes_file_list_active,
+                &self.changes_file_scroll_handle,
+            );
+
+            // Left panel: 240px with tab bar header + file list (D-08)
+            let left_panel = div()
+                .w(px(240.0))
+                .flex_shrink_0()
+                .h_full()
+                .flex()
+                .flex_col()
+                .border_r_1()
+                .border_color(rgba(0x333333ff))
+                // Tab bar (D-01)
+                .child(render_review_tab_bar(self.active_tab, tab_on_switch))
+                // Changed files header
+                .child(
+                    div()
+                        .w_full()
+                        .px(px(8.0))
+                        .py(px(6.0))
+                        .border_b_1()
+                        .border_color(rgba(0x333333ff))
+                        .text_xs()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(rgba(0xccccccff))
+                        .child(changes_files_header_text),
+                )
+                // File list
+                .child(
+                    div()
+                        .flex_1()
+                        .overflow_hidden()
+                        .child(changes_file_list_content),
+                );
+
+            // Diff panel (D-09: full remaining width)
+            let changes_diff_content =
+                if let Some(file_diff) = self.selected_changes_file_diff() {
+                    diff_view::render_diff_view(
+                        file_diff,
+                        &self.syntax_highlighter,
+                        &self.changes_diff_scroll_handle,
+                        on_changes_diff_visible_count.clone(),
+                    )
+                    .into_any_element()
+                } else {
+                    diff_view::render_diff_empty().into_any_element()
+                };
+
+            div()
+                .size_full()
+                .flex()
+                .flex_row()
+                .bg(rgba(0x1e1e1eff))
+                .child(left_panel)
+                .child(
+                    div()
+                        .flex_1()
+                        .size_full()
+                        .overflow_hidden()
+                        .border_t_2()
+                        .border_color(if is_changes_diff_view_active {
+                            rgba(0x264f78ff)
+                        } else {
+                            rgba(0x00000000)
+                        })
+                        .child(changes_diff_content),
+                )
+                .into_any_element()
+        }
     }
 }
 
