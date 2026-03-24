@@ -11,7 +11,10 @@ pub mod file_list;
 use std::sync::Arc;
 
 use crate::git::types::{CommitInfo, DiffData, FileChange, FileDiff};
-use gpui::{Context, FontWeight, IntoElement, Styled, Window, div, prelude::*, px, rgba};
+use gpui::{
+    Context, FontWeight, IntoElement, ScrollStrategy, Styled, UniformListScrollHandle, Window, div,
+    prelude::*, px, rgba,
+};
 
 /// Which panel in Code Review mode currently has keyboard focus (per D-02).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -61,6 +64,14 @@ pub struct CodeReviewPanel {
     pub visible_range_end: usize,
     /// Which panel currently has keyboard focus (per D-02). Defaults to CommitList (D-06).
     pub active_panel: ActivePanel,
+    /// Scroll handle for programmatic scroll control of the commit list.
+    pub commit_scroll_handle: UniformListScrollHandle,
+    /// Scroll handle for programmatic scroll control of the file list.
+    pub file_scroll_handle: UniformListScrollHandle,
+    /// Scroll handle for programmatic scroll control of the diff view.
+    pub diff_scroll_handle: UniformListScrollHandle,
+    /// Tracks the viewport top line index for diff panel keyboard scrolling.
+    pub diff_scroll_top: usize,
 }
 
 impl CodeReviewPanel {
@@ -79,6 +90,10 @@ impl CodeReviewPanel {
             all_commits_loaded: false,
             visible_range_end: 0,
             active_panel: ActivePanel::CommitList,
+            commit_scroll_handle: UniformListScrollHandle::new(),
+            file_scroll_handle: UniformListScrollHandle::new(),
+            diff_scroll_handle: UniformListScrollHandle::new(),
+            diff_scroll_top: 0,
         }
     }
 
@@ -111,6 +126,8 @@ impl CodeReviewPanel {
         // D-07: auto-select first file when diff arrives
         self.selected_file_index = if self.files.is_empty() { None } else { Some(0) };
         self.diff_data = Some(diff);
+        // Reset diff scroll position when new diff loads
+        self.diff_scroll_top = 0;
     }
 
     /// Maximum commits the panel will hold (defense-in-depth, independent of provider cap).
@@ -162,6 +179,84 @@ impl CodeReviewPanel {
     /// Whether there are commits loaded but none selected (for auto-select on mode entry).
     pub fn needs_initial_selection(&self) -> bool {
         self.selected_commit_index.is_none() && !self.commits.is_empty()
+    }
+
+    /// Move commit selection up by one. Stops at index 0 (boundary stop per D-02).
+    /// Triggers cascade via select_commit (CASC-01/CASC-02).
+    pub fn move_commit_up(&mut self) {
+        let Some(index) = self.selected_commit_index else {
+            return;
+        };
+        if index == 0 {
+            return;
+        }
+        let new_index = index - 1;
+        self.select_commit(new_index);
+        self.commit_scroll_handle
+            .scroll_to_item(new_index, ScrollStrategy::Nearest);
+    }
+
+    /// Move commit selection down by one. Stops at last index (boundary stop per D-02).
+    /// Triggers cascade via select_commit (CASC-01/CASC-02).
+    pub fn move_commit_down(&mut self) {
+        let Some(index) = self.selected_commit_index else {
+            return;
+        };
+        if index >= self.commits.len().saturating_sub(1) {
+            return;
+        }
+        let new_index = index + 1;
+        self.select_commit(new_index);
+        self.commit_scroll_handle
+            .scroll_to_item(new_index, ScrollStrategy::Nearest);
+    }
+
+    /// Move file selection up by one. Stops at index 0 (boundary stop per D-02).
+    pub fn move_file_up(&mut self) {
+        let Some(index) = self.selected_file_index else {
+            return;
+        };
+        if index == 0 {
+            return;
+        }
+        let new_index = index - 1;
+        self.selected_file_index = Some(new_index);
+        self.file_scroll_handle
+            .scroll_to_item(new_index, ScrollStrategy::Nearest);
+    }
+
+    /// Move file selection down by one. Stops at last index (boundary stop per D-02).
+    pub fn move_file_down(&mut self) {
+        let Some(index) = self.selected_file_index else {
+            return;
+        };
+        if index >= self.files.len().saturating_sub(1) {
+            return;
+        }
+        let new_index = index + 1;
+        self.selected_file_index = Some(new_index);
+        self.file_scroll_handle
+            .scroll_to_item(new_index, ScrollStrategy::Nearest);
+    }
+
+    /// Scroll the diff viewport down by one row. Stops at the last row.
+    pub fn scroll_diff_down(&mut self, total_rows: usize) {
+        if self.diff_scroll_top >= total_rows.saturating_sub(1) {
+            return;
+        }
+        self.diff_scroll_top += 1;
+        self.diff_scroll_handle
+            .scroll_to_item(self.diff_scroll_top, ScrollStrategy::Top);
+    }
+
+    /// Scroll the diff viewport up by one row. Stops at row 0 (boundary stop per D-02).
+    pub fn scroll_diff_up(&mut self) {
+        if self.diff_scroll_top == 0 {
+            return;
+        }
+        self.diff_scroll_top -= 1;
+        self.diff_scroll_handle
+            .scroll_to_item(self.diff_scroll_top, ScrollStrategy::Top);
     }
 
     /// Return the diff for the currently selected file, if any.
@@ -371,7 +466,9 @@ impl Render for CodeReviewPanel {
                             )
                             // Right: diff viewer (remaining space, uniform_list handles scroll)
                             .child({
-                                let diff_content = if let Some(file_diff) = self.selected_file_diff() {
+                                let diff_content = if let Some(file_diff) =
+                                    self.selected_file_diff()
+                                {
                                     diff_view::render_diff_view(file_diff, &self.syntax_highlighter)
                                         .into_any_element()
                                 } else {
@@ -771,8 +868,18 @@ mod tests {
         let mut panel = CodeReviewPanel::new();
         let diff_data = DiffData {
             files: vec![
-                FileChange { path: "a.rs".into(), status_char: 'M', additions: 1, deletions: 0 },
-                FileChange { path: "b.rs".into(), status_char: 'A', additions: 2, deletions: 0 },
+                FileChange {
+                    path: "a.rs".into(),
+                    status_char: 'M',
+                    additions: 1,
+                    deletions: 0,
+                },
+                FileChange {
+                    path: "b.rs".into(),
+                    status_char: 'A',
+                    additions: 2,
+                    deletions: 0,
+                },
             ],
             file_diffs: vec![],
         };
@@ -786,9 +893,12 @@ mod tests {
     fn test_move_file_up_stops_at_zero() {
         let mut panel = CodeReviewPanel::new();
         let diff_data = DiffData {
-            files: vec![
-                FileChange { path: "a.rs".into(), status_char: 'M', additions: 1, deletions: 0 },
-            ],
+            files: vec![FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+            }],
             file_diffs: vec![],
         };
         panel.set_diff(diff_data);
@@ -802,8 +912,18 @@ mod tests {
         let mut panel = CodeReviewPanel::new();
         let diff_data = DiffData {
             files: vec![
-                FileChange { path: "a.rs".into(), status_char: 'M', additions: 1, deletions: 0 },
-                FileChange { path: "b.rs".into(), status_char: 'A', additions: 2, deletions: 0 },
+                FileChange {
+                    path: "a.rs".into(),
+                    status_char: 'M',
+                    additions: 1,
+                    deletions: 0,
+                },
+                FileChange {
+                    path: "b.rs".into(),
+                    status_char: 'A',
+                    additions: 2,
+                    deletions: 0,
+                },
             ],
             file_diffs: vec![],
         };
@@ -818,8 +938,18 @@ mod tests {
         let mut panel = CodeReviewPanel::new();
         let diff_data = DiffData {
             files: vec![
-                FileChange { path: "a.rs".into(), status_char: 'M', additions: 1, deletions: 0 },
-                FileChange { path: "b.rs".into(), status_char: 'A', additions: 2, deletions: 0 },
+                FileChange {
+                    path: "a.rs".into(),
+                    status_char: 'M',
+                    additions: 1,
+                    deletions: 0,
+                },
+                FileChange {
+                    path: "b.rs".into(),
+                    status_char: 'A',
+                    additions: 2,
+                    deletions: 0,
+                },
             ],
             file_diffs: vec![],
         };
