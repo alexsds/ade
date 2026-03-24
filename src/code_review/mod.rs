@@ -103,6 +103,13 @@ pub struct CodeReviewPanel {
     pub changes_diff_scroll_handle: UniformListScrollHandle,
     pub changes_diff_scroll_top: usize,
     pub changes_diff_visible_rows: usize,
+
+    /// File path for on-demand Changes diff loading (parallel to pending_diff_request for History).
+    /// Polled by main.rs to dispatch FetchWorkingTreeDiff.
+    pub pending_changes_diff_request: Option<String>,
+    /// Flag to request a fresh working tree file list from GitProvider.
+    /// Polled by main.rs to dispatch FetchWorkingTreeFiles.
+    pub pending_working_tree_request: bool,
 }
 
 impl CodeReviewPanel {
@@ -134,6 +141,8 @@ impl CodeReviewPanel {
             changes_diff_scroll_handle: UniformListScrollHandle::new(),
             changes_diff_scroll_top: 0,
             changes_diff_visible_rows: 0,
+            pending_changes_diff_request: None,
+            pending_working_tree_request: false,
         }
     }
 
@@ -323,7 +332,11 @@ impl CodeReviewPanel {
         }
         self.active_tab = tab;
         self.active_panel = match tab {
-            ReviewTab::Changes => ActivePanel::ChangesFileList,
+            ReviewTab::Changes => {
+                // Trigger working tree file list fetch on tab switch (per D-06)
+                self.pending_working_tree_request = true;
+                ActivePanel::ChangesFileList
+            }
             ReviewTab::History => ActivePanel::CommitList,
         };
     }
@@ -337,7 +350,7 @@ impl CodeReviewPanel {
             return;
         }
         let new_index = index - 1;
-        self.selected_changes_file_index = Some(new_index);
+        self.select_changes_file(new_index);
         self.changes_file_scroll_handle
             .scroll_to_item(new_index, ScrollStrategy::Nearest);
     }
@@ -351,7 +364,7 @@ impl CodeReviewPanel {
             return;
         }
         let new_index = index + 1;
-        self.selected_changes_file_index = Some(new_index);
+        self.select_changes_file(new_index);
         self.changes_file_scroll_handle
             .scroll_to_item(new_index, ScrollStrategy::Nearest);
     }
@@ -389,6 +402,35 @@ impl CodeReviewPanel {
         let file_index = self.selected_changes_file_index?;
         let diff_data = self.changes_diff_data.as_ref()?;
         diff_data.file_diffs.get(file_index)
+    }
+
+    /// Set the Changes tab file list. Auto-selects first file and triggers diff request (CHG-05).
+    pub fn set_changes_files(&mut self, files: Vec<FileChange>) {
+        self.changes_files = files;
+        if self.changes_files.is_empty() {
+            self.selected_changes_file_index = None;
+        } else {
+            self.selected_changes_file_index = Some(0);
+            // Auto-cascade: load diff for first file (per D-08)
+            self.pending_changes_diff_request = Some(self.changes_files[0].path.clone());
+        }
+        self.changes_diff_data = None;
+        self.changes_diff_scroll_top = 0;
+    }
+
+    /// Set the Changes tab diff data (from GitResponse::WorkingTreeDiff).
+    pub fn set_changes_diff(&mut self, diff: DiffData) {
+        self.changes_diff_data = Some(diff);
+        self.changes_diff_scroll_top = 0;
+    }
+
+    /// Select a Changes file by index. Triggers pending diff request for the selected file.
+    pub fn select_changes_file(&mut self, index: usize) {
+        if index < self.changes_files.len() {
+            self.selected_changes_file_index = Some(index);
+            self.pending_changes_diff_request = Some(self.changes_files[index].path.clone());
+            self.changes_diff_scroll_top = 0;
+        }
     }
 }
 
@@ -701,9 +743,7 @@ impl Render for CodeReviewPanel {
                 let weak = weak.clone();
                 Arc::new(move |ix: usize, _window: &mut Window, cx: &mut gpui::App| {
                     weak.update(cx, |this, cx| {
-                        if ix < this.changes_files.len() {
-                            this.selected_changes_file_index = Some(ix);
-                        }
+                        this.select_changes_file(ix);
                         cx.notify();
                     })
                     .ok();
@@ -1574,5 +1614,77 @@ mod tests {
         assert_eq!(panel.changes_diff_scroll_top, 0);
         panel.scroll_changes_diff_up();
         assert_eq!(panel.changes_diff_scroll_top, 0);
+    }
+
+    #[test]
+    fn test_set_changes_files_auto_cascade() {
+        let mut panel = CodeReviewPanel::new();
+        let files = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 5,
+                deletions: 2,
+                staging_state: None,
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'A',
+                additions: 10,
+                deletions: 0,
+                staging_state: None,
+            },
+        ];
+        panel.set_changes_files(files);
+        assert_eq!(panel.selected_changes_file_index, Some(0));
+        assert_eq!(
+            panel.pending_changes_diff_request,
+            Some("a.rs".to_string())
+        );
+        assert!(panel.changes_diff_data.is_none());
+    }
+
+    #[test]
+    fn test_set_changes_files_empty() {
+        let mut panel = CodeReviewPanel::new();
+        panel.set_changes_files(vec![]);
+        assert_eq!(panel.selected_changes_file_index, None);
+        assert_eq!(panel.pending_changes_diff_request, None);
+    }
+
+    #[test]
+    fn test_select_changes_file_triggers_diff_request() {
+        let mut panel = CodeReviewPanel::new();
+        panel.changes_files = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'M',
+                additions: 2,
+                deletions: 1,
+                staging_state: None,
+            },
+        ];
+        panel.select_changes_file(1);
+        assert_eq!(panel.selected_changes_file_index, Some(1));
+        assert_eq!(
+            panel.pending_changes_diff_request,
+            Some("b.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn test_switch_to_changes_tab_triggers_request() {
+        let mut panel = CodeReviewPanel::new();
+        panel.switch_to_review_tab(ReviewTab::Changes);
+        assert!(panel.pending_working_tree_request);
+        assert_eq!(panel.active_tab, ReviewTab::Changes);
+        assert_eq!(panel.active_panel, ActivePanel::ChangesFileList);
     }
 }
