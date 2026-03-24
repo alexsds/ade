@@ -700,6 +700,159 @@ mod tests {
         assert_eq!(panel.pending_diff_request, None);
     }
 
+    // --- Navigation method tests (Phase 18, Plan 01) ---
+
+    #[test]
+    fn test_move_commit_up_decrements_index() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2);
+        panel.move_commit_up();
+        assert_eq!(panel.selected_commit_index, Some(1));
+    }
+
+    #[test]
+    fn test_move_commit_up_stops_at_zero() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        // set_commits auto-selects index 0
+        assert_eq!(panel.selected_commit_index, Some(0));
+        panel.move_commit_up();
+        assert_eq!(panel.selected_commit_index, Some(0));
+    }
+
+    #[test]
+    fn test_move_commit_up_noop_when_none() {
+        let mut panel = CodeReviewPanel::new();
+        panel.selected_commit_index = None;
+        panel.move_commit_up();
+        assert_eq!(panel.selected_commit_index, None);
+    }
+
+    #[test]
+    fn test_move_commit_down_increments_index() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        // set_commits auto-selects index 0
+        panel.move_commit_down();
+        assert_eq!(panel.selected_commit_index, Some(1));
+    }
+
+    #[test]
+    fn test_move_commit_down_stops_at_last() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2);
+        panel.move_commit_down();
+        assert_eq!(panel.selected_commit_index, Some(2));
+    }
+
+    #[test]
+    fn test_move_commit_down_triggers_diff_request() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        // Clear pending_diff_request set by set_commits auto-select
+        panel.pending_diff_request = None;
+        panel.move_commit_down();
+        assert!(
+            panel.pending_diff_request.is_some(),
+            "moving commit down should trigger diff request (CASC-01/CASC-02)"
+        );
+        assert_eq!(panel.pending_diff_request, Some("oid1".to_string()));
+    }
+
+    #[test]
+    fn test_move_file_up_decrements_index() {
+        let mut panel = CodeReviewPanel::new();
+        let diff_data = DiffData {
+            files: vec![
+                FileChange { path: "a.rs".into(), status_char: 'M', additions: 1, deletions: 0 },
+                FileChange { path: "b.rs".into(), status_char: 'A', additions: 2, deletions: 0 },
+            ],
+            file_diffs: vec![],
+        };
+        panel.set_diff(diff_data);
+        panel.selected_file_index = Some(1);
+        panel.move_file_up();
+        assert_eq!(panel.selected_file_index, Some(0));
+    }
+
+    #[test]
+    fn test_move_file_up_stops_at_zero() {
+        let mut panel = CodeReviewPanel::new();
+        let diff_data = DiffData {
+            files: vec![
+                FileChange { path: "a.rs".into(), status_char: 'M', additions: 1, deletions: 0 },
+            ],
+            file_diffs: vec![],
+        };
+        panel.set_diff(diff_data);
+        assert_eq!(panel.selected_file_index, Some(0));
+        panel.move_file_up();
+        assert_eq!(panel.selected_file_index, Some(0));
+    }
+
+    #[test]
+    fn test_move_file_down_increments_index() {
+        let mut panel = CodeReviewPanel::new();
+        let diff_data = DiffData {
+            files: vec![
+                FileChange { path: "a.rs".into(), status_char: 'M', additions: 1, deletions: 0 },
+                FileChange { path: "b.rs".into(), status_char: 'A', additions: 2, deletions: 0 },
+            ],
+            file_diffs: vec![],
+        };
+        panel.set_diff(diff_data);
+        assert_eq!(panel.selected_file_index, Some(0));
+        panel.move_file_down();
+        assert_eq!(panel.selected_file_index, Some(1));
+    }
+
+    #[test]
+    fn test_move_file_down_stops_at_last() {
+        let mut panel = CodeReviewPanel::new();
+        let diff_data = DiffData {
+            files: vec![
+                FileChange { path: "a.rs".into(), status_char: 'M', additions: 1, deletions: 0 },
+                FileChange { path: "b.rs".into(), status_char: 'A', additions: 2, deletions: 0 },
+            ],
+            file_diffs: vec![],
+        };
+        panel.set_diff(diff_data);
+        panel.selected_file_index = Some(1);
+        panel.move_file_down();
+        assert_eq!(panel.selected_file_index, Some(1));
+    }
+
+    #[test]
+    fn test_scroll_diff_down_increments_top() {
+        let mut panel = CodeReviewPanel::new();
+        assert_eq!(panel.diff_scroll_top, 0);
+        panel.scroll_diff_down(100);
+        assert_eq!(panel.diff_scroll_top, 1);
+    }
+
+    #[test]
+    fn test_scroll_diff_up_decrements_top() {
+        let mut panel = CodeReviewPanel::new();
+        panel.diff_scroll_top = 5;
+        panel.scroll_diff_up();
+        assert_eq!(panel.diff_scroll_top, 4);
+    }
+
+    #[test]
+    fn test_scroll_diff_up_stops_at_zero() {
+        let mut panel = CodeReviewPanel::new();
+        assert_eq!(panel.diff_scroll_top, 0);
+        panel.scroll_diff_up();
+        assert_eq!(panel.diff_scroll_top, 0);
+    }
+
     #[test]
     fn test_set_commits_resets_active_panel() {
         let mut panel = CodeReviewPanel::new();
