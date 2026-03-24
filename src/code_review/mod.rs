@@ -443,9 +443,6 @@ fn render_tab_label(
         } else {
             rgba(0x888888ff)
         })
-        .when(is_active, |d| {
-            d.font_weight(FontWeight::SEMIBOLD)
-        })
         .flex()
         .items_center()
         .justify_center()
