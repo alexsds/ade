@@ -446,8 +446,10 @@ fn render_tab_label(
         .flex()
         .items_center()
         .justify_center()
-        // Active tab: blue bottom border (D-02)
-        .when(is_active, |d| d.border_b_2().border_color(rgba(0x0078d4ff)))
+        // Both tabs always have 2px bottom border to prevent layout jump;
+        // active = blue, inactive = transparent
+        .border_b_2()
+        .border_color(if is_active { rgba(0x0078d4ff) } else { rgba(0x00000000) })
         .on_click(move |_event, window, cx| {
             on_click(window, cx);
         })
