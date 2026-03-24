@@ -318,27 +318,63 @@ impl CodeReviewPanel {
     /// Switch to a review tab. Resets active_panel to first panel of target tab.
     /// Does NOT clear any state -- both tabs retain their data (D-13).
     pub fn switch_to_review_tab(&mut self, tab: ReviewTab) {
-        todo!("switch_to_review_tab not yet implemented");
+        if self.active_tab == tab {
+            return; // Already on this tab, don't reset active_panel
+        }
+        self.active_tab = tab;
+        self.active_panel = match tab {
+            ReviewTab::Changes => ActivePanel::ChangesFileList,
+            ReviewTab::History => ActivePanel::CommitList,
+        };
     }
 
     /// Move Changes tab file selection up. Boundary stop at 0.
     pub fn move_changes_file_up(&mut self) {
-        todo!("move_changes_file_up not yet implemented");
+        let Some(index) = self.selected_changes_file_index else {
+            return;
+        };
+        if index == 0 {
+            return;
+        }
+        let new_index = index - 1;
+        self.selected_changes_file_index = Some(new_index);
+        self.changes_file_scroll_handle
+            .scroll_to_item(new_index, ScrollStrategy::Nearest);
     }
 
     /// Move Changes tab file selection down. Boundary stop at last.
     pub fn move_changes_file_down(&mut self) {
-        todo!("move_changes_file_down not yet implemented");
+        let Some(index) = self.selected_changes_file_index else {
+            return;
+        };
+        if index >= self.changes_files.len().saturating_sub(1) {
+            return;
+        }
+        let new_index = index + 1;
+        self.selected_changes_file_index = Some(new_index);
+        self.changes_file_scroll_handle
+            .scroll_to_item(new_index, ScrollStrategy::Nearest);
     }
 
     /// Scroll Changes tab diff viewport up. Boundary stop at 0.
     pub fn scroll_changes_diff_up(&mut self) {
-        todo!("scroll_changes_diff_up not yet implemented");
+        if self.changes_diff_scroll_top == 0 {
+            return;
+        }
+        self.changes_diff_scroll_top -= 1;
+        self.changes_diff_scroll_handle
+            .scroll_to_item_strict(self.changes_diff_scroll_top, ScrollStrategy::Top);
     }
 
     /// Scroll Changes tab diff viewport down. Boundary stop at max.
     pub fn scroll_changes_diff_down(&mut self, total_rows: usize) {
-        todo!("scroll_changes_diff_down not yet implemented");
+        let max_scroll = total_rows.saturating_sub(self.changes_diff_visible_rows.max(1));
+        if self.changes_diff_scroll_top >= max_scroll {
+            return;
+        }
+        self.changes_diff_scroll_top += 1;
+        self.changes_diff_scroll_handle
+            .scroll_to_item_strict(self.changes_diff_scroll_top, ScrollStrategy::Top);
     }
 
     /// Return the total number of diff rows for the Changes tab selected file.

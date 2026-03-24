@@ -486,20 +486,19 @@ impl AdeWindow {
                 cx.notify();
             }
             "up" => {
-                self.code_review_panel.update(cx, |panel, _| {
-                    match panel.active_panel {
+                self.code_review_panel
+                    .update(cx, |panel, _| match panel.active_panel {
                         ActivePanel::CommitList => panel.move_commit_up(),
                         ActivePanel::FileList => panel.move_file_up(),
                         ActivePanel::DiffView => panel.scroll_diff_up(),
                         ActivePanel::ChangesFileList => panel.move_changes_file_up(),
                         ActivePanel::ChangesDiffView => panel.scroll_changes_diff_up(),
-                    }
-                });
+                    });
                 cx.notify();
             }
             "down" => {
-                self.code_review_panel.update(cx, |panel, _| {
-                    match panel.active_panel {
+                self.code_review_panel
+                    .update(cx, |panel, _| match panel.active_panel {
                         ActivePanel::CommitList => panel.move_commit_down(),
                         ActivePanel::FileList => panel.move_file_down(),
                         ActivePanel::DiffView => {
@@ -511,8 +510,7 @@ impl AdeWindow {
                             let total = panel.changes_diff_row_count();
                             panel.scroll_changes_diff_down(total);
                         }
-                    }
-                });
+                    });
                 cx.notify();
             }
             _ => {}
