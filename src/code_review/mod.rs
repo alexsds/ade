@@ -13,6 +13,34 @@ use std::sync::Arc;
 use crate::git::types::{CommitInfo, DiffData, FileChange, FileDiff};
 use gpui::{Context, FontWeight, IntoElement, Styled, Window, div, prelude::*, px, rgba};
 
+/// Which panel in Code Review mode currently has keyboard focus (per D-02).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ActivePanel {
+    CommitList,
+    FileList,
+    DiffView,
+}
+
+impl ActivePanel {
+    /// Move to the next panel (Right arrow). Wraps: Diff -> Commits (per D-04, D-05).
+    pub fn next(self) -> Self {
+        match self {
+            ActivePanel::CommitList => ActivePanel::FileList,
+            ActivePanel::FileList => ActivePanel::DiffView,
+            ActivePanel::DiffView => ActivePanel::CommitList,
+        }
+    }
+
+    /// Move to the previous panel (Left arrow). Wraps: Commits -> Diff (per D-04, D-05).
+    pub fn prev(self) -> Self {
+        match self {
+            ActivePanel::CommitList => ActivePanel::DiffView,
+            ActivePanel::FileList => ActivePanel::CommitList,
+            ActivePanel::DiffView => ActivePanel::FileList,
+        }
+    }
+}
+
 /// The Code Review panel entity, showing commit history and file changes.
 pub struct CodeReviewPanel {
     commits: Vec<CommitInfo>,
@@ -31,6 +59,8 @@ pub struct CodeReviewPanel {
     pub all_commits_loaded: bool,
     /// Tracks the end index of the visible range in the commit list (for near-bottom detection)
     pub visible_range_end: usize,
+    /// Which panel currently has keyboard focus (per D-02). Defaults to CommitList (D-06).
+    pub active_panel: ActivePanel,
 }
 
 impl CodeReviewPanel {
@@ -48,6 +78,7 @@ impl CodeReviewPanel {
             loading_more: false,
             all_commits_loaded: false,
             visible_range_end: 0,
+            active_panel: ActivePanel::CommitList,
         }
     }
 
@@ -463,6 +494,90 @@ mod tests {
             Some(0),
             "selected_file_index should be preserved"
         );
+    }
+
+    #[test]
+    fn test_active_panel_next() {
+        assert_eq!(ActivePanel::CommitList.next(), ActivePanel::FileList);
+        assert_eq!(ActivePanel::FileList.next(), ActivePanel::DiffView);
+        assert_eq!(ActivePanel::DiffView.next(), ActivePanel::CommitList);
+    }
+
+    #[test]
+    fn test_active_panel_prev() {
+        assert_eq!(ActivePanel::CommitList.prev(), ActivePanel::DiffView);
+        assert_eq!(ActivePanel::DiffView.prev(), ActivePanel::FileList);
+        assert_eq!(ActivePanel::FileList.prev(), ActivePanel::CommitList);
+    }
+
+    #[test]
+    fn test_new_panel_defaults_to_commit_list() {
+        let panel = CodeReviewPanel::new();
+        assert_eq!(panel.active_panel, ActivePanel::CommitList);
+    }
+
+    #[test]
+    fn test_panel_switch_preserves_commit_selection() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(1);
+        assert_eq!(panel.selected_commit_index, Some(1));
+
+        // Switch active panel -- selection must persist (VIS-04)
+        panel.active_panel = ActivePanel::FileList;
+        assert_eq!(panel.selected_commit_index, Some(1));
+
+        panel.active_panel = ActivePanel::DiffView;
+        assert_eq!(panel.selected_commit_index, Some(1));
+
+        panel.active_panel = ActivePanel::CommitList;
+        assert_eq!(panel.selected_commit_index, Some(1));
+    }
+
+    #[test]
+    fn test_panel_switch_preserves_file_selection() {
+        let mut panel = CodeReviewPanel::new();
+        let diff_data = DiffData {
+            files: vec![
+                FileChange {
+                    path: "a.rs".into(),
+                    status_char: 'M',
+                    additions: 1,
+                    deletions: 0,
+                },
+                FileChange {
+                    path: "b.rs".into(),
+                    status_char: 'A',
+                    additions: 5,
+                    deletions: 0,
+                },
+            ],
+            file_diffs: vec![
+                FileDiff {
+                    path: "a.rs".into(),
+                    additions: 1,
+                    deletions: 0,
+                    hunks: vec![],
+                },
+                FileDiff {
+                    path: "b.rs".into(),
+                    additions: 5,
+                    deletions: 0,
+                    hunks: vec![],
+                },
+            ],
+        };
+        panel.set_diff(diff_data);
+        panel.select_file(1);
+        assert_eq!(panel.selected_file_index, Some(1));
+
+        // Switch active panel -- file selection must persist (VIS-04)
+        panel.active_panel = ActivePanel::CommitList;
+        assert_eq!(panel.selected_file_index, Some(1));
+
+        panel.active_panel = ActivePanel::DiffView;
+        assert_eq!(panel.selected_file_index, Some(1));
     }
 
     #[test]
