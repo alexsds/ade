@@ -17,6 +17,7 @@ pub fn render_file_list(
     files: &[FileChange],
     selected_index: Option<usize>,
     on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
+    is_active: bool,
 ) -> gpui::AnyElement {
     if files.is_empty() {
         return div()
@@ -39,7 +40,7 @@ pub fn render_file_list(
                 let file = files[ix].clone();
                 let is_selected = Some(ix) == selected_index;
                 let on_select = on_select.clone();
-                render_file_row(&file, is_selected, ix, on_select)
+                render_file_row(&file, is_selected, ix, on_select, is_active)
             })
             .collect()
     })
@@ -53,6 +54,7 @@ fn render_file_row(
     is_selected: bool,
     index: usize,
     on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
+    is_active: bool,
 ) -> gpui::AnyElement {
     let status_char = file.status_char;
 
@@ -87,7 +89,11 @@ fn render_file_row(
         });
 
     if is_selected {
-        row = row.bg(rgba(0x264f78ff));
+        if is_active {
+            row = row.bg(rgba(0x264f78ff)); // D-08: bright (active panel)
+        } else {
+            row = row.bg(rgba(0x264f7840)); // D-09: dimmed (inactive panel)
+        }
     } else {
         row = row.hover(|style| style.bg(rgba(0x2a2d2eff)));
     }

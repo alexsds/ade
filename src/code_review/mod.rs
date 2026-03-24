@@ -159,6 +159,11 @@ impl CodeReviewPanel {
         self.selected_commit_index.and_then(|i| self.commits.get(i))
     }
 
+    /// Whether there are commits loaded but none selected (for auto-select on mode entry).
+    pub fn needs_initial_selection(&self) -> bool {
+        self.selected_commit_index.is_none() && !self.commits.is_empty()
+    }
+
     /// Return the diff for the currently selected file, if any.
     fn selected_file_diff(&self) -> Option<&FileDiff> {
         let file_index = self.selected_file_index?;
@@ -210,6 +215,10 @@ impl Render for CodeReviewPanel {
             )
         };
 
+        // Compute active panel state for selection color differentiation
+        let is_commit_list_active = self.active_panel == ActivePanel::CommitList;
+        let is_file_list_active = self.active_panel == ActivePanel::FileList;
+
         // Build commit list content
         let commit_list_content: gpui::AnyElement = if self.loading {
             div()
@@ -239,13 +248,18 @@ impl Render for CodeReviewPanel {
                 self.loading_more,
                 self.all_commits_loaded,
                 on_range_visible,
+                is_commit_list_active,
             )
             .into_any_element()
         };
 
         // Build file list content
-        let file_list_content =
-            file_list::render_file_list(&self.files, selected_file_index, file_on_select);
+        let file_list_content = file_list::render_file_list(
+            &self.files,
+            selected_file_index,
+            file_on_select,
+            is_file_list_active,
+        );
 
         // Build commit detail section
         let commit_detail: Option<gpui::AnyElement> = self

@@ -17,6 +17,7 @@ use gpui::{
     WindowOptions, actions, div, prelude::*, px, size,
 };
 
+use crate::code_review::ActivePanel;
 use crate::terminal::{TerminalSize, new_terminal};
 use alacritty_terminal::event::Event as AlacEvent;
 use futures::StreamExt as _;
@@ -287,6 +288,14 @@ impl AdeWindow {
                 }
                 // Focus own handle for Cmd+G toggle back
                 self.focus_handle.focus(window, cx);
+                // D-06: reset active panel to commit list on mode entry
+                // D-07: auto-select first commit if none selected
+                self.code_review_panel.update(cx, |panel, _| {
+                    panel.active_panel = ActivePanel::CommitList;
+                    if panel.needs_initial_selection() {
+                        panel.select_commit(0);
+                    }
+                });
             }
         }
         cx.notify();
@@ -445,6 +454,36 @@ impl AdeWindow {
     fn on_select_tab_9(&mut self, _: &SelectTab9, window: &mut Window, cx: &mut Context<Self>) {
         self.select_tab_by_number(9, window, cx);
     }
+
+    /// Handle arrow keys in Code Review mode for panel switching (NAV-04).
+    /// Only bare arrows (no modifiers) trigger panel switching (Pitfall 5).
+    fn on_code_review_key_down(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Only handle bare arrow keys -- skip if any modifier is held (Pitfall 5)
+        let mods = &event.keystroke.modifiers;
+        if mods.shift || mods.alt || mods.control || mods.platform {
+            return;
+        }
+        match event.keystroke.key.as_str() {
+            "right" => {
+                self.code_review_panel.update(cx, |panel, _| {
+                    panel.active_panel = panel.active_panel.next();
+                });
+                cx.notify();
+            }
+            "left" => {
+                self.code_review_panel.update(cx, |panel, _| {
+                    panel.active_panel = panel.active_panel.prev();
+                });
+                cx.notify();
+            }
+            _ => {}
+        }
+    }
 }
 
 impl Render for AdeWindow {
@@ -480,6 +519,10 @@ impl Render for AdeWindow {
             .on_action(cx.listener(Self::on_select_tab_7))
             .on_action(cx.listener(Self::on_select_tab_8))
             .on_action(cx.listener(Self::on_select_tab_9))
+            // Arrow key handler for Code Review panel switching (NAV-04)
+            .when(self.mode == Mode::CodeReview, |d| {
+                d.on_key_down(cx.listener(Self::on_code_review_key_down))
+            })
             // Toolbar (always visible)
             .child(toolbar::render_toolbar(
                 &self.branch_status.branch_name,

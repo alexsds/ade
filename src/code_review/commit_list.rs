@@ -23,6 +23,7 @@ pub fn render_commit_list(
     loading_more: bool,
     all_loaded: bool,
     on_range_visible: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
+    is_active: bool,
 ) -> impl IntoElement {
     let commits_len = commits.len();
     let commits: Vec<CommitInfo> = commits.to_vec();
@@ -44,7 +45,8 @@ pub fn render_commit_list(
                     let commit = commits[ix].clone();
                     let is_selected = Some(ix) == selected_index;
                     let on_select = on_select.clone();
-                    render_commit_row(commit, is_selected, ix, on_select).into_any_element()
+                    render_commit_row(commit, is_selected, ix, on_select, is_active)
+                        .into_any_element()
                 } else {
                     // Per D-03: spinner row at the bottom
                     render_spinner_row().into_any_element()
@@ -61,6 +63,7 @@ fn render_commit_row(
     is_selected: bool,
     index: usize,
     on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
+    is_active: bool,
 ) -> impl IntoElement {
     let author_time = format!(
         "{} -- {}",
@@ -87,7 +90,11 @@ fn render_commit_row(
         });
 
     if is_selected {
-        row = row.bg(rgba(0x264f78ff));
+        if is_active {
+            row = row.bg(rgba(0x264f78ff)); // D-08: bright (active panel)
+        } else {
+            row = row.bg(rgba(0x264f7840)); // D-09: dimmed (inactive panel)
+        }
     } else {
         row = row.hover(|style| style.bg(rgba(0x2a2d2eff)));
     }
