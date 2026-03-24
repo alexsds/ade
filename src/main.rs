@@ -286,6 +286,10 @@ impl AdeWindow {
                         }
                     }
                 }
+                // D-10: always request fresh git log on Code Review entry
+                // D-11: existing commits display immediately; fresh data replaces via set_commits on response
+                self.git_provider.request_log(200);
+                self.git_provider.request_status();
                 // Focus own handle for Cmd+G toggle back
                 self.focus_handle.focus(window, cx);
                 // D-06: reset active panel to commit list on mode entry
@@ -478,6 +482,29 @@ impl AdeWindow {
             "left" => {
                 self.code_review_panel.update(cx, |panel, _| {
                     panel.active_panel = panel.active_panel.prev();
+                });
+                cx.notify();
+            }
+            "up" => {
+                self.code_review_panel.update(cx, |panel, _| {
+                    match panel.active_panel {
+                        ActivePanel::CommitList => panel.move_commit_up(),
+                        ActivePanel::FileList => panel.move_file_up(),
+                        ActivePanel::DiffView => panel.scroll_diff_up(),
+                    }
+                });
+                cx.notify();
+            }
+            "down" => {
+                self.code_review_panel.update(cx, |panel, _| {
+                    match panel.active_panel {
+                        ActivePanel::CommitList => panel.move_commit_down(),
+                        ActivePanel::FileList => panel.move_file_down(),
+                        ActivePanel::DiffView => {
+                            let total = panel.diff_row_count();
+                            panel.scroll_diff_down(total);
+                        }
+                    }
                 });
                 cx.notify();
             }

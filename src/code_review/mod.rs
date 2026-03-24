@@ -259,6 +259,13 @@ impl CodeReviewPanel {
             .scroll_to_item(self.diff_scroll_top, ScrollStrategy::Top);
     }
 
+    /// Return the total number of diff rows for the currently selected file (for scroll boundary).
+    pub fn diff_row_count(&self) -> usize {
+        self.selected_file_diff()
+            .map(|fd| diff_view::flatten_and_highlight_diff(fd, &self.syntax_highlighter).len())
+            .unwrap_or(0)
+    }
+
     /// Return the diff for the currently selected file, if any.
     fn selected_file_diff(&self) -> Option<&FileDiff> {
         let file_index = self.selected_file_index?;
