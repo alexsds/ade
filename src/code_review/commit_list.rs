@@ -7,7 +7,10 @@
 use std::sync::Arc;
 
 use crate::git::types::{CommitInfo, Decoration, format_relative_time};
-use gpui::{App, FontWeight, IntoElement, Styled, Window, div, prelude::*, px, rgba, uniform_list};
+use gpui::{
+    App, FontWeight, IntoElement, Styled, UniformListScrollHandle, Window, div, prelude::*, px,
+    rgba, uniform_list,
+};
 
 /// Render a scrollable commit list using GPUI's uniform_list.
 ///
@@ -24,6 +27,7 @@ pub fn render_commit_list(
     all_loaded: bool,
     on_range_visible: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
     is_active: bool,
+    scroll_handle: &UniformListScrollHandle,
 ) -> impl IntoElement {
     let commits_len = commits.len();
     let commits: Vec<CommitInfo> = commits.to_vec();
@@ -55,6 +59,7 @@ pub fn render_commit_list(
             .collect()
     })
     .size_full()
+    .track_scroll(scroll_handle)
 }
 
 /// Render a single commit row (takes ownership of CommitInfo for lifetime safety).

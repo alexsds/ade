@@ -6,7 +6,10 @@
 use std::sync::Arc;
 
 use crate::git::types::FileChange;
-use gpui::{App, FontWeight, IntoElement, Styled, Window, div, prelude::*, px, rgba, uniform_list};
+use gpui::{
+    App, FontWeight, IntoElement, Styled, UniformListScrollHandle, Window, div, prelude::*, px,
+    rgba, uniform_list,
+};
 
 /// Render the changed files list for a selected commit.
 ///
@@ -18,6 +21,7 @@ pub fn render_file_list(
     selected_index: Option<usize>,
     on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
     is_active: bool,
+    scroll_handle: &UniformListScrollHandle,
 ) -> gpui::AnyElement {
     if files.is_empty() {
         return div()
@@ -45,6 +49,7 @@ pub fn render_file_list(
             .collect()
     })
     .size_full()
+    .track_scroll(scroll_handle)
     .into_any_element()
 }
 

@@ -4,7 +4,10 @@
 //! Line-type coloring: green for additions, red for removals, blue for hunk headers.
 
 use crate::git::types::{DiffLineType, FileDiff};
-use gpui::{FontWeight, IntoElement, Styled, TextAlign, div, prelude::*, px, rgba, uniform_list};
+use gpui::{
+    FontWeight, IntoElement, Styled, TextAlign, UniformListScrollHandle, div, prelude::*, px, rgba,
+    uniform_list,
+};
 
 /// Placeholder for future syntax highlighting.
 /// Line-type coloring used for now (smooth scroll performance).
@@ -75,7 +78,11 @@ const DIFF_LINE_HEIGHT: f32 = 20.0;
 
 /// Render a virtualized diff view using uniform_list.
 /// Only visible lines are rendered — smooth scrolling for any diff size.
-pub fn render_diff_view(file_diff: &FileDiff, highlighter: &SyntaxHighlighter) -> impl IntoElement {
+pub fn render_diff_view(
+    file_diff: &FileDiff,
+    highlighter: &SyntaxHighlighter,
+    scroll_handle: &UniformListScrollHandle,
+) -> impl IntoElement {
     let rows = flatten_and_highlight_diff(file_diff, highlighter);
     let row_count = rows.len();
     let path = file_diff.path.clone();
@@ -101,7 +108,8 @@ pub fn render_diff_view(file_diff: &FileDiff, highlighter: &SyntaxHighlighter) -
                         .collect()
                 }
             })
-            .size_full(),
+            .size_full()
+            .track_scroll(scroll_handle),
         )
 }
 
@@ -287,7 +295,8 @@ mod tests {
     fn test_render_diff_view_does_not_panic() {
         let file_diff = sample_file_diff();
         let hl = SyntaxHighlighter::new();
-        let _element = render_diff_view(&file_diff, &hl);
+        let sh = UniformListScrollHandle::new();
+        let _element = render_diff_view(&file_diff, &hl, &sh);
     }
 
     #[test]
@@ -304,7 +313,8 @@ mod tests {
             hunks: vec![],
         };
         let hl = SyntaxHighlighter::new();
-        let _element = render_diff_view(&file_diff, &hl);
+        let sh = UniformListScrollHandle::new();
+        let _element = render_diff_view(&file_diff, &hl, &sh);
     }
 
     #[test]
@@ -324,7 +334,8 @@ mod tests {
             }],
         };
         let hl = SyntaxHighlighter::new();
-        let _element = render_diff_view(&file_diff, &hl);
+        let sh = UniformListScrollHandle::new();
+        let _element = render_diff_view(&file_diff, &hl, &sh);
     }
 
     #[test]

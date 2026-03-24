@@ -345,6 +345,7 @@ impl Render for CodeReviewPanel {
                 self.all_commits_loaded,
                 on_range_visible,
                 is_commit_list_active,
+                &self.commit_scroll_handle,
             )
             .into_any_element()
         };
@@ -355,6 +356,7 @@ impl Render for CodeReviewPanel {
             selected_file_index,
             file_on_select,
             is_file_list_active,
+            &self.file_scroll_handle,
         );
 
         // Build commit detail section
@@ -466,14 +468,17 @@ impl Render for CodeReviewPanel {
                             )
                             // Right: diff viewer (remaining space, uniform_list handles scroll)
                             .child({
-                                let diff_content = if let Some(file_diff) =
-                                    self.selected_file_diff()
-                                {
-                                    diff_view::render_diff_view(file_diff, &self.syntax_highlighter)
+                                let diff_content =
+                                    if let Some(file_diff) = self.selected_file_diff() {
+                                        diff_view::render_diff_view(
+                                            file_diff,
+                                            &self.syntax_highlighter,
+                                            &self.diff_scroll_handle,
+                                        )
                                         .into_any_element()
-                                } else {
-                                    diff_view::render_diff_empty().into_any_element()
-                                };
+                                    } else {
+                                        diff_view::render_diff_empty().into_any_element()
+                                    };
                                 div()
                                     .flex_1()
                                     .size_full()
