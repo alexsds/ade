@@ -16,30 +16,45 @@ use gpui::{
     prelude::*, px, rgba,
 };
 
+/// Which tab is active in the Code Review panel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ReviewTab {
+    Changes,
+    History,
+}
+
 /// Which panel in Code Review mode currently has keyboard focus (per D-02).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActivePanel {
     CommitList,
     FileList,
     DiffView,
+    ChangesFileList,
+    ChangesDiffView,
 }
 
 impl ActivePanel {
     /// Move to the next panel (Right arrow). Wraps: Diff -> Commits (per D-04, D-05).
+    /// Changes tab: 2-panel circular (ChangesFileList <-> ChangesDiffView).
     pub fn next(self) -> Self {
         match self {
             ActivePanel::CommitList => ActivePanel::FileList,
             ActivePanel::FileList => ActivePanel::DiffView,
             ActivePanel::DiffView => ActivePanel::CommitList,
+            ActivePanel::ChangesFileList => ActivePanel::ChangesDiffView,
+            ActivePanel::ChangesDiffView => ActivePanel::ChangesFileList,
         }
     }
 
     /// Move to the previous panel (Left arrow). Wraps: Commits -> Diff (per D-04, D-05).
+    /// Changes tab: 2-panel circular (ChangesFileList <-> ChangesDiffView).
     pub fn prev(self) -> Self {
         match self {
             ActivePanel::CommitList => ActivePanel::DiffView,
             ActivePanel::FileList => ActivePanel::CommitList,
             ActivePanel::DiffView => ActivePanel::FileList,
+            ActivePanel::ChangesFileList => ActivePanel::ChangesDiffView,
+            ActivePanel::ChangesDiffView => ActivePanel::ChangesFileList,
         }
     }
 }
@@ -74,6 +89,20 @@ pub struct CodeReviewPanel {
     pub diff_scroll_top: usize,
     /// Number of diff rows visible in the viewport (updated during render).
     pub diff_visible_rows: usize,
+
+    /// Which review tab is active (Changes or History). Defaults to History (D-03).
+    pub active_tab: ReviewTab,
+
+    // Changes tab state (parallel to History's fields per D-14)
+    changes_files: Vec<FileChange>,
+    changes_diff_data: Option<DiffData>,
+    selected_changes_file_index: Option<usize>,
+
+    // Changes tab scroll handles (separate from History's per D-13)
+    pub changes_file_scroll_handle: UniformListScrollHandle,
+    pub changes_diff_scroll_handle: UniformListScrollHandle,
+    pub changes_diff_scroll_top: usize,
+    pub changes_diff_visible_rows: usize,
 }
 
 impl CodeReviewPanel {
@@ -97,6 +126,14 @@ impl CodeReviewPanel {
             diff_scroll_handle: UniformListScrollHandle::new(),
             diff_scroll_top: 0,
             diff_visible_rows: 0,
+            active_tab: ReviewTab::History,
+            changes_files: Vec::new(),
+            changes_diff_data: None,
+            selected_changes_file_index: None,
+            changes_file_scroll_handle: UniformListScrollHandle::new(),
+            changes_diff_scroll_handle: UniformListScrollHandle::new(),
+            changes_diff_scroll_top: 0,
+            changes_diff_visible_rows: 0,
         }
     }
 
@@ -275,6 +312,46 @@ impl CodeReviewPanel {
     fn selected_file_diff(&self) -> Option<&FileDiff> {
         let file_index = self.selected_file_index?;
         let diff_data = self.diff_data.as_ref()?;
+        diff_data.file_diffs.get(file_index)
+    }
+
+    /// Switch to a review tab. Resets active_panel to first panel of target tab.
+    /// Does NOT clear any state -- both tabs retain their data (D-13).
+    pub fn switch_to_review_tab(&mut self, tab: ReviewTab) {
+        todo!("switch_to_review_tab not yet implemented");
+    }
+
+    /// Move Changes tab file selection up. Boundary stop at 0.
+    pub fn move_changes_file_up(&mut self) {
+        todo!("move_changes_file_up not yet implemented");
+    }
+
+    /// Move Changes tab file selection down. Boundary stop at last.
+    pub fn move_changes_file_down(&mut self) {
+        todo!("move_changes_file_down not yet implemented");
+    }
+
+    /// Scroll Changes tab diff viewport up. Boundary stop at 0.
+    pub fn scroll_changes_diff_up(&mut self) {
+        todo!("scroll_changes_diff_up not yet implemented");
+    }
+
+    /// Scroll Changes tab diff viewport down. Boundary stop at max.
+    pub fn scroll_changes_diff_down(&mut self, total_rows: usize) {
+        todo!("scroll_changes_diff_down not yet implemented");
+    }
+
+    /// Return the total number of diff rows for the Changes tab selected file.
+    pub fn changes_diff_row_count(&self) -> usize {
+        self.selected_changes_file_diff()
+            .map(|fd| diff_view::flatten_and_highlight_diff(fd, &self.syntax_highlighter).len())
+            .unwrap_or(0)
+    }
+
+    /// Return the diff for the selected Changes file, if any.
+    fn selected_changes_file_diff(&self) -> Option<&FileDiff> {
+        let file_index = self.selected_changes_file_index?;
+        let diff_data = self.changes_diff_data.as_ref()?;
         diff_data.file_diffs.get(file_index)
     }
 }
@@ -1025,5 +1102,263 @@ mod tests {
             ActivePanel::CommitList,
             "D-06: active panel reset to CommitList"
         );
+    }
+
+    // --- Changes tab tests (Phase 20, Plan 01) ---
+
+    #[test]
+    fn test_changes_panel_next() {
+        assert_eq!(
+            ActivePanel::ChangesFileList.next(),
+            ActivePanel::ChangesDiffView
+        );
+        assert_eq!(
+            ActivePanel::ChangesDiffView.next(),
+            ActivePanel::ChangesFileList
+        );
+    }
+
+    #[test]
+    fn test_changes_panel_prev() {
+        assert_eq!(
+            ActivePanel::ChangesFileList.prev(),
+            ActivePanel::ChangesDiffView
+        );
+        assert_eq!(
+            ActivePanel::ChangesDiffView.prev(),
+            ActivePanel::ChangesFileList
+        );
+    }
+
+    #[test]
+    fn test_history_panel_next_unchanged() {
+        assert_eq!(ActivePanel::CommitList.next(), ActivePanel::FileList);
+        assert_eq!(ActivePanel::FileList.next(), ActivePanel::DiffView);
+        assert_eq!(ActivePanel::DiffView.next(), ActivePanel::CommitList);
+    }
+
+    #[test]
+    fn test_history_panel_prev_unchanged() {
+        assert_eq!(ActivePanel::CommitList.prev(), ActivePanel::DiffView);
+        assert_eq!(ActivePanel::DiffView.prev(), ActivePanel::FileList);
+        assert_eq!(ActivePanel::FileList.prev(), ActivePanel::CommitList);
+    }
+
+    #[test]
+    fn test_switch_to_review_tab_changes() {
+        let mut panel = CodeReviewPanel::new();
+        assert_eq!(panel.active_tab, ReviewTab::History);
+        panel.switch_to_review_tab(ReviewTab::Changes);
+        assert_eq!(panel.active_tab, ReviewTab::Changes);
+        assert_eq!(panel.active_panel, ActivePanel::ChangesFileList);
+    }
+
+    #[test]
+    fn test_switch_to_review_tab_history() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::Changes;
+        panel.active_panel = ActivePanel::ChangesDiffView;
+        panel.switch_to_review_tab(ReviewTab::History);
+        assert_eq!(panel.active_tab, ReviewTab::History);
+        assert_eq!(panel.active_panel, ActivePanel::CommitList);
+    }
+
+    #[test]
+    fn test_switch_tab_noop_when_already_on_tab() {
+        let mut panel = CodeReviewPanel::new();
+        // Start on History with DiffView active
+        panel.active_panel = ActivePanel::DiffView;
+        panel.switch_to_review_tab(ReviewTab::History);
+        // active_panel should NOT be reset since we're already on History
+        assert_eq!(panel.active_panel, ActivePanel::DiffView);
+    }
+
+    #[test]
+    fn test_tab_switch_preserves_changes_state() {
+        let mut panel = CodeReviewPanel::new();
+        // Set up Changes state
+        panel.active_tab = ReviewTab::Changes;
+        panel.active_panel = ActivePanel::ChangesFileList;
+        panel.changes_files = vec![
+            FileChange {
+                path: "x.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+            },
+            FileChange {
+                path: "y.rs".into(),
+                status_char: 'A',
+                additions: 2,
+                deletions: 0,
+            },
+        ];
+        panel.selected_changes_file_index = Some(1);
+
+        // Switch to History
+        panel.switch_to_review_tab(ReviewTab::History);
+        // Switch back to Changes
+        panel.switch_to_review_tab(ReviewTab::Changes);
+
+        // Changes state should be preserved (D-13)
+        assert_eq!(panel.changes_files.len(), 2);
+        assert_eq!(panel.selected_changes_file_index, Some(1));
+    }
+
+    #[test]
+    fn test_tab_switch_preserves_history_state() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2);
+        let diff_data = DiffData {
+            files: vec![FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+            }],
+            file_diffs: vec![FileDiff {
+                path: "a.rs".into(),
+                additions: 1,
+                deletions: 0,
+                hunks: vec![],
+            }],
+        };
+        panel.set_diff(diff_data);
+        panel.select_file(0);
+
+        // Switch to Changes
+        panel.switch_to_review_tab(ReviewTab::Changes);
+        // Switch back to History
+        panel.switch_to_review_tab(ReviewTab::History);
+
+        // History state should be preserved (D-13)
+        assert_eq!(panel.selected_commit_index, Some(2));
+        assert_eq!(panel.selected_file_index, Some(0));
+    }
+
+    #[test]
+    fn test_default_tab_is_history() {
+        let panel = CodeReviewPanel::new();
+        assert_eq!(panel.active_tab, ReviewTab::History);
+    }
+
+    #[test]
+    fn test_move_changes_file_up_decrements() {
+        let mut panel = CodeReviewPanel::new();
+        panel.changes_files = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+            },
+            FileChange {
+                path: "c.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+            },
+        ];
+        panel.selected_changes_file_index = Some(2);
+        panel.move_changes_file_up();
+        assert_eq!(panel.selected_changes_file_index, Some(1));
+    }
+
+    #[test]
+    fn test_move_changes_file_up_stops_at_zero() {
+        let mut panel = CodeReviewPanel::new();
+        panel.changes_files = vec![FileChange {
+            path: "a.rs".into(),
+            status_char: 'M',
+            additions: 1,
+            deletions: 0,
+        }];
+        panel.selected_changes_file_index = Some(0);
+        panel.move_changes_file_up();
+        assert_eq!(panel.selected_changes_file_index, Some(0));
+    }
+
+    #[test]
+    fn test_move_changes_file_up_noop_when_none() {
+        let mut panel = CodeReviewPanel::new();
+        panel.selected_changes_file_index = None;
+        panel.move_changes_file_up();
+        assert_eq!(panel.selected_changes_file_index, None);
+    }
+
+    #[test]
+    fn test_move_changes_file_down_increments() {
+        let mut panel = CodeReviewPanel::new();
+        panel.changes_files = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+            },
+        ];
+        panel.selected_changes_file_index = Some(0);
+        panel.move_changes_file_down();
+        assert_eq!(panel.selected_changes_file_index, Some(1));
+    }
+
+    #[test]
+    fn test_move_changes_file_down_stops_at_last() {
+        let mut panel = CodeReviewPanel::new();
+        panel.changes_files = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+            },
+        ];
+        panel.selected_changes_file_index = Some(1);
+        panel.move_changes_file_down();
+        assert_eq!(panel.selected_changes_file_index, Some(1));
+    }
+
+    #[test]
+    fn test_scroll_changes_diff_down_increments() {
+        let mut panel = CodeReviewPanel::new();
+        assert_eq!(panel.changes_diff_scroll_top, 0);
+        panel.scroll_changes_diff_down(100);
+        assert_eq!(panel.changes_diff_scroll_top, 1);
+    }
+
+    #[test]
+    fn test_scroll_changes_diff_up_decrements() {
+        let mut panel = CodeReviewPanel::new();
+        panel.changes_diff_scroll_top = 5;
+        panel.scroll_changes_diff_up();
+        assert_eq!(panel.changes_diff_scroll_top, 4);
+    }
+
+    #[test]
+    fn test_scroll_changes_diff_up_stops_at_zero() {
+        let mut panel = CodeReviewPanel::new();
+        assert_eq!(panel.changes_diff_scroll_top, 0);
+        panel.scroll_changes_diff_up();
+        assert_eq!(panel.changes_diff_scroll_top, 0);
     }
 }

@@ -491,6 +491,8 @@ impl AdeWindow {
                         ActivePanel::CommitList => panel.move_commit_up(),
                         ActivePanel::FileList => panel.move_file_up(),
                         ActivePanel::DiffView => panel.scroll_diff_up(),
+                        ActivePanel::ChangesFileList => panel.move_changes_file_up(),
+                        ActivePanel::ChangesDiffView => panel.scroll_changes_diff_up(),
                     }
                 });
                 cx.notify();
@@ -503,6 +505,11 @@ impl AdeWindow {
                         ActivePanel::DiffView => {
                             let total = panel.diff_row_count();
                             panel.scroll_diff_down(total);
+                        }
+                        ActivePanel::ChangesFileList => panel.move_changes_file_down(),
+                        ActivePanel::ChangesDiffView => {
+                            let total = panel.changes_diff_row_count();
+                            panel.scroll_changes_diff_down(total);
                         }
                     }
                 });
