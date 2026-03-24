@@ -30,6 +30,8 @@ pub enum GitRequest {
     FetchMoreLog { batch_size: usize },
     FetchDiff { commit_oid: String },
     FetchStatus,
+    FetchWorkingTreeFiles,
+    FetchWorkingTreeDiff { path: String },
 }
 
 /// Responses from the git background thread.
@@ -42,6 +44,8 @@ pub enum GitResponse {
     Diff(DiffData),
     Status(BranchStatus),
     Error(String),
+    WorkingTreeFiles(Vec<FileChange>),
+    WorkingTreeDiff(DiffData),
 }
 
 /// Git data provider that runs operations on a background thread.
@@ -156,6 +160,16 @@ impl GitProvider {
                         Ok(status) => GitResponse::Status(status),
                         Err(e) => GitResponse::Error(e.to_string()),
                     },
+                    GitRequest::FetchWorkingTreeFiles => match compute_working_tree_files(&repo) {
+                        Ok(files) => GitResponse::WorkingTreeFiles(files),
+                        Err(e) => GitResponse::Error(format!("Working tree files: {}", e)),
+                    },
+                    GitRequest::FetchWorkingTreeDiff { path } => {
+                        match compute_working_tree_file_diff(&repo, &path) {
+                            Ok(diff) => GitResponse::WorkingTreeDiff(diff),
+                            Err(e) => GitResponse::Error(format!("Working tree diff: {}", e)),
+                        }
+                    }
                 };
                 if response_tx.send(response).is_err() {
                     break;
@@ -208,6 +222,30 @@ impl GitProvider {
             .is_err()
         {
             tracing::warn!("Git background thread disconnected (FetchMoreLog)");
+        }
+    }
+
+    /// Request the list of working tree changed files with status and staging state.
+    pub fn request_working_tree_files(&self) {
+        if self
+            .request_tx
+            .send(GitRequest::FetchWorkingTreeFiles)
+            .is_err()
+        {
+            tracing::warn!("Git background thread disconnected (FetchWorkingTreeFiles)");
+        }
+    }
+
+    /// Request a per-file working tree diff filtered by path.
+    pub fn request_working_tree_diff(&self, path: &str) {
+        if self
+            .request_tx
+            .send(GitRequest::FetchWorkingTreeDiff {
+                path: path.to_string(),
+            })
+            .is_err()
+        {
+            tracing::warn!("Git background thread disconnected (FetchWorkingTreeDiff)");
         }
     }
 
@@ -508,6 +546,325 @@ fn get_branch_status(repo: &Repository) -> Result<BranchStatus, git2::Error> {
         branch_name,
         is_dirty,
     })
+}
+
+/// Compute the list of working tree changed files with status, stats, and staging state.
+/// Returns all files that differ between HEAD and the combined index+workdir.
+/// Handles empty repos (no HEAD) without crashing.
+fn compute_working_tree_files(repo: &Repository) -> Result<Vec<FileChange>, git2::Error> {
+    // Step 1: Get per-file status for staging state detection
+    let mut status_opts = StatusOptions::new();
+    status_opts
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .exclude_submodules(true);
+    let statuses = repo.statuses(Some(&mut status_opts))?;
+
+    let mut staging_map: HashMap<String, StagingState> = HashMap::new();
+    for entry in statuses.iter() {
+        let path = sanitize_git_string(entry.path().unwrap_or(""));
+        let status = entry.status();
+        let has_index = status.intersects(
+            git2::Status::INDEX_NEW
+                | git2::Status::INDEX_MODIFIED
+                | git2::Status::INDEX_DELETED
+                | git2::Status::INDEX_RENAMED
+                | git2::Status::INDEX_TYPECHANGE,
+        );
+        let has_wt = status.intersects(
+            git2::Status::WT_NEW
+                | git2::Status::WT_MODIFIED
+                | git2::Status::WT_DELETED
+                | git2::Status::WT_RENAMED
+                | git2::Status::WT_TYPECHANGE,
+        );
+        let state = match (has_index, has_wt) {
+            (true, false) => StagingState::Staged,
+            (false, true) => StagingState::Unstaged,
+            (true, true) => StagingState::Partial,
+            (false, false) => continue,
+        };
+        staging_map.insert(path, state);
+    }
+
+    // Step 2: Get combined diff HEAD -> workdir+index for file list + stats
+    // Handle empty repo (no HEAD)
+    let head_tree = match repo.head() {
+        Ok(head) => Some(head.peel_to_tree()?),
+        Err(e) if e.code() == git2::ErrorCode::UnbornBranch => None,
+        Err(e) if e.code() == git2::ErrorCode::NotFound => None,
+        Err(e) => return Err(e),
+    };
+
+    let mut diff_opts = git2::DiffOptions::new();
+    diff_opts
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .show_untracked_content(true);
+
+    let diff = repo.diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut diff_opts))?;
+
+    // Step 3: Process diff to build FileChange list
+    let mut files: Vec<FileChange> = Vec::new();
+    let num_deltas = diff.deltas().len().min(MAX_DIFF_FILES);
+
+    for delta in diff.deltas().take(num_deltas) {
+        let path = sanitize_git_string(
+            &delta
+                .new_file()
+                .path()
+                .unwrap_or(std::path::Path::new(""))
+                .to_string_lossy(),
+        );
+        let status_char = match delta.status() {
+            git2::Delta::Added => 'A',
+            git2::Delta::Modified => 'M',
+            git2::Delta::Deleted => 'D',
+            git2::Delta::Renamed => 'R',
+            git2::Delta::Copied => 'C',
+            git2::Delta::Untracked => '?',
+            _ => '?',
+        };
+        let staging_state = staging_map.get(&path).copied();
+        files.push(FileChange {
+            path,
+            status_char,
+            additions: 0,
+            deletions: 0,
+            staging_state,
+        });
+    }
+
+    // Second pass: count additions/deletions per file via foreach
+    let file_additions: RefCell<Vec<u64>> = RefCell::new(vec![0; files.len()]);
+    let file_deletions: RefCell<Vec<u64>> = RefCell::new(vec![0; files.len()]);
+    let file_index: RefCell<usize> = RefCell::new(0);
+    let total_lines: RefCell<usize> = RefCell::new(0);
+    let file_count: RefCell<usize> = RefCell::new(0);
+
+    let _ = diff.foreach(
+        &mut |_delta, _progress| {
+            let count = *file_count.borrow();
+            if count >= MAX_DIFF_FILES {
+                return false;
+            }
+            *file_index.borrow_mut() = count;
+            *file_count.borrow_mut() = count + 1;
+            true
+        },
+        None,
+        None,
+        Some(&mut |_delta, _hunk, line| {
+            let lines_so_far = *total_lines.borrow();
+            if lines_so_far >= MAX_DIFF_LINES {
+                return false;
+            }
+            *total_lines.borrow_mut() = lines_so_far + 1;
+
+            let idx = *file_index.borrow();
+            match line.origin() {
+                '+' => {
+                    if let Some(val) = file_additions.borrow_mut().get_mut(idx) {
+                        *val += 1;
+                    }
+                }
+                '-' => {
+                    if let Some(val) = file_deletions.borrow_mut().get_mut(idx) {
+                        *val += 1;
+                    }
+                }
+                _ => {}
+            }
+            true
+        }),
+    );
+
+    // Apply stats to files
+    let additions = file_additions.into_inner();
+    let deletions = file_deletions.into_inner();
+    for (i, file) in files.iter_mut().enumerate() {
+        if i < additions.len() {
+            file.additions = additions[i];
+        }
+        if i < deletions.len() {
+            file.deletions = deletions[i];
+        }
+    }
+
+    Ok(files)
+}
+
+/// Compute a per-file working tree diff filtered by pathspec.
+/// Returns full DiffData with hunks and lines for the specified file.
+/// Untracked files appear with all content as Add lines.
+fn compute_working_tree_file_diff(repo: &Repository, path: &str) -> Result<DiffData, git2::Error> {
+    // Handle empty repo (no HEAD)
+    let head_tree = match repo.head() {
+        Ok(head) => Some(head.peel_to_tree()?),
+        Err(e) if e.code() == git2::ErrorCode::UnbornBranch => None,
+        Err(e) if e.code() == git2::ErrorCode::NotFound => None,
+        Err(e) => return Err(e),
+    };
+
+    let mut diff_opts = git2::DiffOptions::new();
+    diff_opts
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .show_untracked_content(true)
+        .pathspec(path);
+
+    let diff = repo.diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut diff_opts))?;
+
+    // Collect file changes from deltas
+    let mut files: Vec<FileChange> = Vec::new();
+    let num_deltas = diff.deltas().len().min(MAX_DIFF_FILES);
+    for delta in diff.deltas().take(num_deltas) {
+        let file_path = sanitize_git_string(
+            &delta
+                .new_file()
+                .path()
+                .unwrap_or(std::path::Path::new(""))
+                .to_string_lossy(),
+        );
+        let status_char = match delta.status() {
+            git2::Delta::Added => 'A',
+            git2::Delta::Modified => 'M',
+            git2::Delta::Deleted => 'D',
+            git2::Delta::Renamed => 'R',
+            git2::Delta::Copied => 'C',
+            git2::Delta::Untracked => '?',
+            _ => '?',
+        };
+        files.push(FileChange {
+            path: file_path,
+            status_char,
+            additions: 0,
+            deletions: 0,
+            staging_state: None,
+        });
+    }
+
+    // Collect per-file diffs with hunks and lines (same pattern as compute_diff)
+    let file_diffs: RefCell<Vec<FileDiff>> = RefCell::new(Vec::new());
+    let current_file: RefCell<Option<FileDiff>> = RefCell::new(None);
+    let current_hunk: RefCell<Option<DiffHunk>> = RefCell::new(None);
+    let total_lines: RefCell<usize> = RefCell::new(0);
+    let file_count: RefCell<usize> = RefCell::new(0);
+
+    diff.foreach(
+        &mut |delta, _progress| {
+            let count = *file_count.borrow();
+            if count >= MAX_DIFF_FILES {
+                return false;
+            }
+            *file_count.borrow_mut() = count + 1;
+
+            if let Some(mut file) = current_file.borrow_mut().take() {
+                if let Some(hunk) = current_hunk.borrow_mut().take() {
+                    file.hunks.push(hunk);
+                }
+                file_diffs.borrow_mut().push(file);
+            }
+            let file_path = sanitize_git_string(
+                &delta
+                    .new_file()
+                    .path()
+                    .unwrap_or(std::path::Path::new(""))
+                    .to_string_lossy(),
+            );
+            *current_file.borrow_mut() = Some(FileDiff {
+                path: file_path,
+                additions: 0,
+                deletions: 0,
+                hunks: Vec::new(),
+            });
+            true
+        },
+        Some(&mut |_delta, _binary| true),
+        Some(&mut |_delta, hunk| {
+            if *total_lines.borrow() >= MAX_DIFF_LINES {
+                return false;
+            }
+            if let Some(ref mut file) = *current_file.borrow_mut() {
+                if let Some(prev_hunk) = current_hunk.borrow_mut().take() {
+                    file.hunks.push(prev_hunk);
+                }
+            }
+            let header = std::str::from_utf8(hunk.header())
+                .unwrap_or("")
+                .trim_end()
+                .to_string();
+            *current_hunk.borrow_mut() = Some(DiffHunk {
+                header,
+                lines: Vec::new(),
+            });
+            true
+        }),
+        Some(&mut |_delta, _hunk, line| {
+            let lines_so_far = *total_lines.borrow();
+            if lines_so_far >= MAX_DIFF_LINES {
+                return false;
+            }
+            *total_lines.borrow_mut() = lines_so_far + 1;
+
+            let line_type = match line.origin() {
+                '+' => DiffLineType::Add,
+                '-' => DiffLineType::Remove,
+                ' ' => DiffLineType::Context,
+                'H' | 'F' => DiffLineType::HunkHeader,
+                _ => DiffLineType::Context,
+            };
+
+            let raw_content = std::str::from_utf8(line.content()).unwrap_or("");
+            let content = if raw_content.len() > MAX_LINE_LENGTH {
+                let mut truncated = raw_content[..MAX_LINE_LENGTH].to_string();
+                truncated.push_str("... (truncated)");
+                truncated
+            } else {
+                raw_content.to_string()
+            };
+
+            if line_type == DiffLineType::Add {
+                if let Some(ref mut file) = *current_file.borrow_mut() {
+                    file.additions += 1;
+                }
+            } else if line_type == DiffLineType::Remove {
+                if let Some(ref mut file) = *current_file.borrow_mut() {
+                    file.deletions += 1;
+                }
+            }
+
+            if let Some(ref mut hunk) = *current_hunk.borrow_mut() {
+                hunk.lines.push(DiffLine {
+                    line_type,
+                    content,
+                    old_lineno: line.old_lineno(),
+                    new_lineno: line.new_lineno(),
+                });
+            }
+            true
+        }),
+    )?;
+
+    // Flush last file/hunk
+    if let Some(mut file) = current_file.borrow_mut().take() {
+        if let Some(hunk) = current_hunk.borrow_mut().take() {
+            file.hunks.push(hunk);
+        }
+        file_diffs.borrow_mut().push(file);
+    }
+
+    let file_diffs = file_diffs.into_inner();
+
+    // Update file change stats
+    for (i, fd) in file_diffs.iter().enumerate() {
+        if i < files.len() {
+            files[i].additions = fd.additions;
+            files[i].deletions = fd.deletions;
+        }
+    }
+
+    Ok(DiffData { files, file_diffs })
 }
 
 // ---------------------------------------------------------------------------
@@ -949,5 +1306,161 @@ mod tests {
                 _ => panic!("Expected MoreLog response"),
             }
         }
+    }
+
+    // --- Working tree tests (Phase 21, Plan 01) ---
+
+    #[test]
+    fn test_compute_working_tree_files_modified() {
+        let (dir, repo) = create_test_repo();
+        // Modify hello.txt without staging
+        let file_path = dir.path().join("hello.txt");
+        fs::write(&file_path, "hello world\nline 2\nline 3\n").expect("modify hello.txt");
+
+        let files = compute_working_tree_files(&repo).expect("compute working tree files");
+        assert!(!files.is_empty(), "Should have at least one changed file");
+        let hello = files
+            .iter()
+            .find(|f| f.path == "hello.txt")
+            .expect("hello.txt should be in changes");
+        assert_eq!(hello.status_char, 'M');
+        assert!(
+            hello.additions > 0 || hello.deletions > 0,
+            "Should have non-zero stats"
+        );
+        assert_eq!(hello.staging_state, Some(StagingState::Unstaged));
+    }
+
+    #[test]
+    fn test_untracked_file_in_working_tree() {
+        let (dir, repo) = create_test_repo();
+        // Add a new untracked file
+        let new_file = dir.path().join("newfile.txt");
+        fs::write(&new_file, "brand new content\n").expect("write newfile.txt");
+
+        let files = compute_working_tree_files(&repo).expect("compute working tree files");
+        let untracked = files
+            .iter()
+            .find(|f| f.path == "newfile.txt")
+            .expect("newfile.txt should be in changes");
+        assert_eq!(untracked.status_char, '?');
+        assert_eq!(untracked.staging_state, Some(StagingState::Unstaged));
+        assert!(
+            untracked.additions > 0,
+            "Untracked file should have additions"
+        );
+    }
+
+    #[test]
+    fn test_staged_file_working_tree() {
+        let (dir, repo) = create_test_repo();
+        // Modify hello.txt and stage it
+        let file_path = dir.path().join("hello.txt");
+        fs::write(&file_path, "hello world\nline 2\nstaged change\n").expect("modify hello.txt");
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("hello.txt")).unwrap();
+        index.write().unwrap();
+
+        let files = compute_working_tree_files(&repo).expect("compute working tree files");
+        let hello = files
+            .iter()
+            .find(|f| f.path == "hello.txt")
+            .expect("hello.txt should be in changes");
+        assert_eq!(hello.staging_state, Some(StagingState::Staged));
+    }
+
+    #[test]
+    fn test_partial_staging() {
+        let (dir, repo) = create_test_repo();
+        // Modify hello.txt, stage it, then modify again
+        let file_path = dir.path().join("hello.txt");
+        fs::write(&file_path, "hello world\nline 2\nstaged change\n").expect("modify hello.txt");
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("hello.txt")).unwrap();
+        index.write().unwrap();
+        // Modify again without staging
+        fs::write(
+            &file_path,
+            "hello world\nline 2\nstaged change\nunstaged change\n",
+        )
+        .expect("modify again");
+
+        let files = compute_working_tree_files(&repo).expect("compute working tree files");
+        let hello = files
+            .iter()
+            .find(|f| f.path == "hello.txt")
+            .expect("hello.txt should be in changes");
+        assert_eq!(hello.staging_state, Some(StagingState::Partial));
+    }
+
+    #[test]
+    fn test_compute_working_tree_file_diff() {
+        let (dir, repo) = create_test_repo();
+        // Modify hello.txt
+        let file_path = dir.path().join("hello.txt");
+        fs::write(&file_path, "hello world\nline 2\nnew line 3\n").expect("modify hello.txt");
+
+        let diff = compute_working_tree_file_diff(&repo, "hello.txt").expect("compute diff");
+        assert!(!diff.file_diffs.is_empty(), "Should have file diffs");
+        let file_diff = &diff.file_diffs[0];
+        assert_eq!(file_diff.path, "hello.txt");
+        assert!(!file_diff.hunks.is_empty(), "Should have hunks");
+        let has_add = file_diff
+            .hunks
+            .iter()
+            .any(|h| h.lines.iter().any(|l| l.line_type == DiffLineType::Add));
+        assert!(has_add, "Should have Add lines");
+    }
+
+    #[test]
+    fn test_untracked_file_diff_shows_all_content() {
+        let (dir, repo) = create_test_repo();
+        // Add untracked file with known content
+        let new_file = dir.path().join("brand_new.txt");
+        fs::write(&new_file, "line one\nline two\nline three\n").expect("write brand_new.txt");
+
+        let diff = compute_working_tree_file_diff(&repo, "brand_new.txt").expect("compute diff");
+        assert!(!diff.file_diffs.is_empty(), "Should have file diffs");
+        let file_diff = &diff.file_diffs[0];
+        // All lines should be Add type (D-05)
+        for hunk in &file_diff.hunks {
+            for line in &hunk.lines {
+                assert!(
+                    line.line_type == DiffLineType::Add
+                        || line.line_type == DiffLineType::HunkHeader,
+                    "Untracked file lines should be Add or HunkHeader, got {:?}",
+                    line.line_type
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_empty_repo_working_tree() {
+        // Init repo WITHOUT any commits
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let repo = Repository::init(dir.path()).expect("init repo");
+        let mut config = repo.config().expect("get config");
+        config
+            .set_str("user.name", "Test Author")
+            .expect("set name");
+        config
+            .set_str("user.email", "test@example.com")
+            .expect("set email");
+
+        // Add a file without committing
+        let file_path = dir.path().join("first.txt");
+        fs::write(&file_path, "first content\n").expect("write first.txt");
+
+        let files = compute_working_tree_files(&repo).expect("compute working tree files");
+        assert!(
+            !files.is_empty(),
+            "Empty repo should still show untracked files"
+        );
+        let first = files
+            .iter()
+            .find(|f| f.path == "first.txt")
+            .expect("first.txt should be present");
+        assert_eq!(first.status_char, '?');
     }
 }

@@ -804,6 +804,14 @@ fn main() {
                                                 });
                                                 cx.notify();
                                             }
+                                            git::GitResponse::WorkingTreeFiles(_files) => {
+                                                // Will be wired to UI in plan 02
+                                                cx.notify();
+                                            }
+                                            git::GitResponse::WorkingTreeDiff(_diff) => {
+                                                // Will be wired to UI in plan 02
+                                                cx.notify();
+                                            }
                                             git::GitResponse::Error(msg) => {
                                                 eprintln!("Git error: {}", msg);
                                             }
