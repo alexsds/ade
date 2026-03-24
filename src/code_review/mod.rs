@@ -246,7 +246,7 @@ impl CodeReviewPanel {
         }
         self.diff_scroll_top += 1;
         self.diff_scroll_handle
-            .scroll_to_item(self.diff_scroll_top, ScrollStrategy::Top);
+            .scroll_to_item_strict(self.diff_scroll_top, ScrollStrategy::Top);
     }
 
     /// Scroll the diff viewport up by one row. Stops at row 0 (boundary stop per D-02).
@@ -256,7 +256,7 @@ impl CodeReviewPanel {
         }
         self.diff_scroll_top -= 1;
         self.diff_scroll_handle
-            .scroll_to_item(self.diff_scroll_top, ScrollStrategy::Top);
+            .scroll_to_item_strict(self.diff_scroll_top, ScrollStrategy::Top);
     }
 
     /// Return the total number of diff rows for the currently selected file (for scroll boundary).
