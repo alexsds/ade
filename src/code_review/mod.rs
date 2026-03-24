@@ -86,7 +86,6 @@ impl CodeReviewPanel {
     /// Resets all incremental loading state for a fresh load.
     pub fn set_commits(&mut self, commits: Vec<CommitInfo>) {
         self.commits = commits;
-        self.selected_commit_index = None;
         self.files.clear();
         self.selected_file_index = None;
         self.diff_data = None;
@@ -95,12 +94,22 @@ impl CodeReviewPanel {
         self.loading_more = false;
         self.all_commits_loaded = false;
         self.visible_range_end = 0;
+        // D-07 / Pitfall 4: auto-select first commit when commits arrive
+        if self.commits.is_empty() {
+            self.selected_commit_index = None;
+        } else {
+            self.selected_commit_index = Some(0);
+            self.pending_diff_request = Some(self.commits[0].oid.clone());
+        }
+        // D-06: reset active panel to commit list on fresh load
+        self.active_panel = ActivePanel::CommitList;
     }
 
     /// Set the diff data (from GitResponse::Diff). Populates the file list.
     pub fn set_diff(&mut self, diff: DiffData) {
         self.files = diff.files.clone();
-        self.selected_file_index = None;
+        // D-07: auto-select first file when diff arrives
+        self.selected_file_index = if self.files.is_empty() { None } else { Some(0) };
         self.diff_data = Some(diff);
     }
 
@@ -599,6 +608,80 @@ mod tests {
         assert_eq!(
             panel.visible_range_end, 0,
             "visible_range_end should be reset"
+        );
+    }
+
+    #[test]
+    fn test_set_diff_auto_selects_first_file() {
+        let mut panel = CodeReviewPanel::new();
+        let diff_data = DiffData {
+            files: vec![FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+            }],
+            file_diffs: vec![FileDiff {
+                path: "a.rs".into(),
+                additions: 1,
+                deletions: 0,
+                hunks: vec![],
+            }],
+        };
+        panel.set_diff(diff_data);
+        assert_eq!(
+            panel.selected_file_index,
+            Some(0),
+            "D-07: first file auto-selected"
+        );
+    }
+
+    #[test]
+    fn test_set_diff_empty_files_no_selection() {
+        let mut panel = CodeReviewPanel::new();
+        let diff_data = DiffData {
+            files: vec![],
+            file_diffs: vec![],
+        };
+        panel.set_diff(diff_data);
+        assert_eq!(panel.selected_file_index, None);
+    }
+
+    #[test]
+    fn test_set_commits_auto_selects_first() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        assert_eq!(
+            panel.selected_commit_index,
+            Some(0),
+            "D-07: first commit auto-selected"
+        );
+        assert_eq!(
+            panel.pending_diff_request,
+            Some("oid0".to_string()),
+            "diff request triggered for first commit"
+        );
+    }
+
+    #[test]
+    fn test_set_commits_empty_no_selection() {
+        let mut panel = CodeReviewPanel::new();
+        panel.set_commits(vec![]);
+        assert_eq!(panel.selected_commit_index, None);
+        assert_eq!(panel.pending_diff_request, None);
+    }
+
+    #[test]
+    fn test_set_commits_resets_active_panel() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_panel = ActivePanel::DiffView;
+        let commits: Vec<CommitInfo> = (0..2).map(make_commit).collect();
+        panel.set_commits(commits);
+        assert_eq!(
+            panel.active_panel,
+            ActivePanel::CommitList,
+            "D-06: active panel reset to CommitList"
         );
     }
 }
