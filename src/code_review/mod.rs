@@ -381,11 +381,8 @@ impl Render for CodeReviewPanel {
                                     .flex_1()
                                     .size_full()
                                     .overflow_hidden()
-                                    .border_l_2()
-                                    .border_color(if is_diff_view_active {
-                                        rgba(0x264f78ff)
-                                    } else {
-                                        rgba(0x00000000)
+                                    .when(is_diff_view_active, |el| {
+                                        el.bg(rgba(0x264f7820))
                                     })
                                     .child(diff_content)
                             }),
