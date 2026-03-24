@@ -52,3 +52,7 @@ cargo fmt --all -- --check           # format check
 - **GPUI pinned rev**: GPUI is pulled from the Zed repo at a specific git rev in `Cargo.toml`. Updating it may introduce breaking API changes — test thoroughly.
 - **Cmd+C dual behavior**: `input.rs` binds Cmd+C to `CopyOrInterrupt` — copies text if selection exists, sends 0x03 (SIGINT) otherwise. Don't bind raw `Copy` to Cmd+C.
 - **FairMutex discipline**: Never hold the terminal FairMutex lock during GPUI layout/paint. Always snapshot during sync() and render from the snapshot.
+
+## Changelog
+
+After creating a git tag (e.g., via `/gsd:complete-milestone`), update `CHANGELOG.md` at the project root with a new version section. Follow [Keep a Changelog](https://keepachangelog.com/) format with Added/Changed/Fixed/Removed subsections. Source features from `.planning/PROJECT.md` validated requirements and phase summaries.

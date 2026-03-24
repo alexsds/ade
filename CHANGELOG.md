@@ -1,0 +1,81 @@
+# Changelog
+
+All notable changes to ADE (Advanced Developer Environment) are documented here.
+Format follows [Keep a Changelog](https://keepachangelog.com/).
+
+## [v1.4] — 2026-03-24 — Code Review Navigation
+
+### Added
+- Left/Right arrow panel switching with circular navigation (commits → files → diff → commits)
+- Up/Down arrow navigation in commit list, file list, and diff view
+- Auto-cascade: selecting a commit auto-selects first file and loads its diff
+- Active/inactive panel selection highlighting (bright blue vs dimmed blue)
+- Diff panel focus indicator (top accent bar)
+- Selection persistence across panel focus changes
+- Git history refresh on Code Review mode entry (Cmd+G)
+- 23 new unit tests for navigation state and scroll behavior
+
+### Fixed
+- Diff scroll using `scroll_to_item_strict` for reliable line-by-line viewport control
+- Diff scroll boundary capped using visible row count (no phantom scroll positions)
+
+## [v1.3] — 2026-03-23 — Security Review Fixes
+
+### Added
+- Comprehensive 5-agent security audit (28 findings fixed)
+- `sanitize_git_string()` for all git-sourced data (bidi/control char stripping)
+- OSC 52 clipboard guard (opt-in via `ADE_ALLOW_OSC52=1`)
+- Bracketed paste end-bracket stripping
+- Division-by-zero guards for mouse coordinate functions
+- Commit history cap at 50,000 commits
+
+### Fixed
+- Crash prevention: Option-returning pane accessors prevent panic on stale IDs
+- Thread-safe home dir detection (`getpwuid_r` over `getpwuid`)
+- Diff size limits (5K files, 500K lines, 10K chars/line)
+- Terminal Drop sends `Msg::Shutdown` to prevent orphan PTYs
+- Tab/pane creation limits (MAX_TABS=50, MAX_PANES=16)
+
+### Removed
+- `syntect` dependency (eliminated unmaintained `yaml-rust` transitive dep)
+- SSH/HTTPS transport from `git2` (unused, removed via `default-features=false`)
+
+## [v1.2] — 2026-03-23 — alacritty_terminal Migration
+
+### Changed
+- Migrated terminal backend from Ghostty to alacritty_terminal 0.25.1 (pure Rust, crates.io)
+- Rewrote cell-based rendering via new `TerminalElement` GPUI Element
+- Rewrote input handling via `TerminalView` entity with key encoding module
+- Rewrote pane/tab integration for alacritty_terminal types
+
+### Added
+- `key_encode.rs` — pure Rust key-to-escape-sequence encoding for xterm-256color
+- Double-click word selection, triple-click line selection
+- Scroll-to-bottom on keyboard/paste input
+
+### Removed
+- Ghostty terminal backend and all Zig build dependencies
+
+## [v1.1] — 2026-03-22 — App Packaging
+
+### Added
+- macOS .app bundle with Info.plist, app icon (.icns), and directory structure
+- `scripts/bundle-macos.sh` — build script to produce Ade.app
+- `scripts/create-dmg.sh` — DMG packaging with drag-to-install
+- Finder-launch shell detection via `getpwuid` FFI with CWD fallback
+
+## [v1.0] — 2026-03-22 — MVP
+
+### Added
+- Terminal embedding via alacritty_terminal with full PTY I/O
+- Toggleable git history panel (Cmd+G) with commit log, file list, and unified diff
+- Virtual scrolling for 100K+ commit repos (incremental batch loading)
+- Line-type diff coloring (green/red/blue for additions/removals/hunk headers)
+- Branch name and dirty/clean status in toolbar
+- Git panel auto-updates on CWD change
+- Vertical split (Cmd+D) and horizontal split (Cmd+Shift+D) with draggable dividers
+- Pane navigation via keyboard (Cmd+Opt+Arrow) with active pane dimming
+- Tabs: new (Cmd+T), close (Cmd+W), switch (Cmd+1-9, Cmd+Shift+[/])
+- Tab titles from process name/CWD
+- Native macOS look and feel with iTerm2-convention keybindings
+- Clipboard copy/paste, mouse selection, scrollback
