@@ -804,12 +804,16 @@ fn main() {
                                                 });
                                                 cx.notify();
                                             }
-                                            git::GitResponse::WorkingTreeFiles(_files) => {
-                                                // Will be wired to UI in plan 02
+                                            git::GitResponse::WorkingTreeFiles(files) => {
+                                                this.code_review_panel.update(cx, |panel, _cx| {
+                                                    panel.set_changes_files(files);
+                                                });
                                                 cx.notify();
                                             }
-                                            git::GitResponse::WorkingTreeDiff(_diff) => {
-                                                // Will be wired to UI in plan 02
+                                            git::GitResponse::WorkingTreeDiff(diff) => {
+                                                this.code_review_panel.update(cx, |panel, _cx| {
+                                                    panel.set_changes_diff(diff);
+                                                });
                                                 cx.notify();
                                             }
                                             git::GitResponse::Error(msg) => {
@@ -844,6 +848,31 @@ fn main() {
                                             p.loading_more = true;
                                         });
                                         this.git_provider.request_more_log(500); // D-02: 500 per incremental batch
+                                    }
+
+                                    // Check if CodeReviewPanel wants a Changes tab diff fetched
+                                    let pending_changes = this
+                                        .code_review_panel
+                                        .read(cx)
+                                        .pending_changes_diff_request
+                                        .clone();
+                                    if let Some(path) = pending_changes {
+                                        this.git_provider.request_working_tree_diff(&path);
+                                        this.code_review_panel.update(cx, |panel, _cx| {
+                                            panel.pending_changes_diff_request = None;
+                                        });
+                                    }
+
+                                    // Check if CodeReviewPanel wants a working tree file list fetched
+                                    let wants_wt = this
+                                        .code_review_panel
+                                        .read(cx)
+                                        .pending_working_tree_request;
+                                    if wants_wt {
+                                        this.git_provider.request_working_tree_files();
+                                        this.code_review_panel.update(cx, |panel, _cx| {
+                                            panel.pending_working_tree_request = false;
+                                        });
                                     }
                                 });
                             })

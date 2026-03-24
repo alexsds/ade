@@ -1637,10 +1637,7 @@ mod tests {
         ];
         panel.set_changes_files(files);
         assert_eq!(panel.selected_changes_file_index, Some(0));
-        assert_eq!(
-            panel.pending_changes_diff_request,
-            Some("a.rs".to_string())
-        );
+        assert_eq!(panel.pending_changes_diff_request, Some("a.rs".to_string()));
         assert!(panel.changes_diff_data.is_none());
     }
 
@@ -1673,10 +1670,7 @@ mod tests {
         ];
         panel.select_changes_file(1);
         assert_eq!(panel.selected_changes_file_index, Some(1));
-        assert_eq!(
-            panel.pending_changes_diff_request,
-            Some("b.rs".to_string())
-        );
+        assert_eq!(panel.pending_changes_diff_request, Some("b.rs".to_string()));
     }
 
     #[test]

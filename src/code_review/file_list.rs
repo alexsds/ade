@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use crate::git::types::FileChange;
+use crate::git::types::{FileChange, StagingState};
 use gpui::{
     App, FontWeight, IntoElement, Styled, UniformListScrollHandle, Window, div, prelude::*, px,
     rgba, uniform_list,
@@ -133,6 +133,51 @@ fn render_file_row(
             .text_color(badge_text)
             .child(String::from(status_char)),
     );
+
+    // Staged/unstaged dot indicator (per D-02, D-10, UI-SPEC)
+    // Only renders for Changes tab files (staging_state is Some)
+    if let Some(staging_state) = file.staging_state {
+        let dot = match staging_state {
+            StagingState::Staged => {
+                // Solid green circle (6px)
+                div()
+                    .size(px(6.0))
+                    .rounded_full()
+                    .bg(rgba(0x3fb950ff))
+                    .flex_shrink_0()
+            }
+            StagingState::Unstaged => {
+                // Solid orange circle (6px)
+                div()
+                    .size(px(6.0))
+                    .rounded_full()
+                    .bg(rgba(0xd29922ff))
+                    .flex_shrink_0()
+            }
+            StagingState::Partial => {
+                // Split dot: left green, right orange (6px total)
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_shrink_0()
+                    .child(
+                        div()
+                            .w(px(3.0))
+                            .h(px(6.0))
+                            .rounded_l(px(3.0))
+                            .bg(rgba(0x3fb950ff)),
+                    )
+                    .child(
+                        div()
+                            .w(px(3.0))
+                            .h(px(6.0))
+                            .rounded_r(px(3.0))
+                            .bg(rgba(0xd29922ff)),
+                    )
+            }
+        };
+        row = row.child(dot);
+    }
 
     // Filename with directory path dimmed
     let mut name_container = div()
