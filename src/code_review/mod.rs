@@ -804,12 +804,14 @@ mod tests {
                     status_char: 'M',
                     additions: 1,
                     deletions: 0,
+                    staging_state: None,
                 },
                 FileChange {
                     path: "b.rs".into(),
                     status_char: 'A',
                     additions: 5,
                     deletions: 0,
+                    staging_state: None,
                 },
             ],
             file_diffs: vec![
@@ -904,6 +906,7 @@ mod tests {
                 status_char: 'M',
                 additions: 5,
                 deletions: 2,
+                staging_state: None,
             }],
             file_diffs: vec![FileDiff {
                 path: "test.rs".into(),
@@ -977,12 +980,14 @@ mod tests {
                     status_char: 'M',
                     additions: 1,
                     deletions: 0,
+                    staging_state: None,
                 },
                 FileChange {
                     path: "b.rs".into(),
                     status_char: 'A',
                     additions: 5,
                     deletions: 0,
+                    staging_state: None,
                 },
             ],
             file_diffs: vec![
@@ -1043,6 +1048,7 @@ mod tests {
                 status_char: 'M',
                 additions: 1,
                 deletions: 0,
+                staging_state: None,
             }],
             file_diffs: vec![FileDiff {
                 path: "a.rs".into(),
@@ -1171,12 +1177,14 @@ mod tests {
                     status_char: 'M',
                     additions: 1,
                     deletions: 0,
+                    staging_state: None,
                 },
                 FileChange {
                     path: "b.rs".into(),
                     status_char: 'A',
                     additions: 2,
                     deletions: 0,
+                    staging_state: None,
                 },
             ],
             file_diffs: vec![],
@@ -1196,6 +1204,7 @@ mod tests {
                 status_char: 'M',
                 additions: 1,
                 deletions: 0,
+                staging_state: None,
             }],
             file_diffs: vec![],
         };
@@ -1215,12 +1224,14 @@ mod tests {
                     status_char: 'M',
                     additions: 1,
                     deletions: 0,
+                    staging_state: None,
                 },
                 FileChange {
                     path: "b.rs".into(),
                     status_char: 'A',
                     additions: 2,
                     deletions: 0,
+                    staging_state: None,
                 },
             ],
             file_diffs: vec![],
@@ -1241,12 +1252,14 @@ mod tests {
                     status_char: 'M',
                     additions: 1,
                     deletions: 0,
+                    staging_state: None,
                 },
                 FileChange {
                     path: "b.rs".into(),
                     status_char: 'A',
                     additions: 2,
                     deletions: 0,
+                    staging_state: None,
                 },
             ],
             file_diffs: vec![],
@@ -1375,12 +1388,14 @@ mod tests {
                 status_char: 'M',
                 additions: 1,
                 deletions: 0,
+                staging_state: None,
             },
             FileChange {
                 path: "y.rs".into(),
                 status_char: 'A',
                 additions: 2,
                 deletions: 0,
+                staging_state: None,
             },
         ];
         panel.selected_changes_file_index = Some(1);
@@ -1407,6 +1422,7 @@ mod tests {
                 status_char: 'M',
                 additions: 1,
                 deletions: 0,
+                staging_state: None,
             }],
             file_diffs: vec![FileDiff {
                 path: "a.rs".into(),
@@ -1443,18 +1459,21 @@ mod tests {
                 status_char: 'M',
                 additions: 1,
                 deletions: 0,
+                staging_state: None,
             },
             FileChange {
                 path: "b.rs".into(),
                 status_char: 'M',
                 additions: 1,
                 deletions: 0,
+                staging_state: None,
             },
             FileChange {
                 path: "c.rs".into(),
                 status_char: 'M',
                 additions: 1,
                 deletions: 0,
+                staging_state: None,
             },
         ];
         panel.selected_changes_file_index = Some(2);
@@ -1470,6 +1489,7 @@ mod tests {
             status_char: 'M',
             additions: 1,
             deletions: 0,
+            staging_state: None,
         }];
         panel.selected_changes_file_index = Some(0);
         panel.move_changes_file_up();
@@ -1493,12 +1513,14 @@ mod tests {
                 status_char: 'M',
                 additions: 1,
                 deletions: 0,
+                staging_state: None,
             },
             FileChange {
                 path: "b.rs".into(),
                 status_char: 'M',
                 additions: 1,
                 deletions: 0,
+                staging_state: None,
             },
         ];
         panel.selected_changes_file_index = Some(0);
@@ -1515,12 +1537,14 @@ mod tests {
                 status_char: 'M',
                 additions: 1,
                 deletions: 0,
+                staging_state: None,
             },
             FileChange {
                 path: "b.rs".into(),
                 status_char: 'M',
                 additions: 1,
                 deletions: 0,
+                staging_state: None,
             },
         ];
         panel.selected_changes_file_index = Some(1);

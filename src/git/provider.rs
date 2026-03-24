@@ -341,6 +341,7 @@ fn compute_diff(repo: &Repository, oid: Oid) -> Result<DiffData, git2::Error> {
             status_char,
             additions: 0, // will be filled from line iteration
             deletions: 0,
+            staging_state: None, // commit diffs don't have staging state
         });
     }
 

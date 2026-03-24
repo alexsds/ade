@@ -66,6 +66,14 @@ pub struct BranchStatus {
     pub is_dirty: bool,
 }
 
+/// Staging state for a working tree file change
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StagingState {
+    Staged,   // only INDEX_* flags set (green dot)
+    Unstaged, // only WT_* flags set (orange dot)
+    Partial,  // both INDEX_* and WT_* flags (split dot)
+}
+
 /// A changed file in a commit's diff
 #[derive(Debug, Clone)]
 pub struct FileChange {
@@ -73,6 +81,7 @@ pub struct FileChange {
     pub status_char: char, // 'A' added, 'M' modified, 'D' deleted, 'R' renamed, 'C' copied
     pub additions: u64,
     pub deletions: u64,
+    pub staging_state: Option<StagingState>, // None for commit diffs, Some for working tree
 }
 
 /// Type of diff line
@@ -211,17 +220,63 @@ mod tests {
     }
 
     #[test]
+    fn test_staging_state_traits() {
+        // StagingState must be Copy + Clone + PartialEq + Debug
+        let staged = StagingState::Staged;
+        let unstaged = StagingState::Unstaged;
+        let partial = StagingState::Partial;
+
+        // Copy
+        let staged_copy = staged;
+        assert_eq!(staged, staged_copy);
+
+        // PartialEq
+        assert_ne!(staged, unstaged);
+        assert_ne!(unstaged, partial);
+        assert_ne!(staged, partial);
+
+        // Debug
+        let debug_str = format!("{:?}", staged);
+        assert!(debug_str.contains("Staged"));
+    }
+
+    #[test]
+    fn test_file_change_with_staging_state() {
+        // FileChange with Some(StagingState)
+        let change_staged = FileChange {
+            path: "src/main.rs".to_string(),
+            status_char: 'M',
+            additions: 10,
+            deletions: 3,
+            staging_state: Some(StagingState::Staged),
+        };
+        assert_eq!(change_staged.staging_state, Some(StagingState::Staged));
+
+        // FileChange with None (commit diffs)
+        let change_none = FileChange {
+            path: "src/main.rs".to_string(),
+            status_char: 'M',
+            additions: 10,
+            deletions: 3,
+            staging_state: None,
+        };
+        assert_eq!(change_none.staging_state, None);
+    }
+
+    #[test]
     fn test_file_change_construction() {
         let change = FileChange {
             path: "src/main.rs".to_string(),
             status_char: 'M',
             additions: 10,
             deletions: 3,
+            staging_state: None,
         };
         assert_eq!(change.path, "src/main.rs");
         assert_eq!(change.status_char, 'M');
         assert_eq!(change.additions, 10);
         assert_eq!(change.deletions, 3);
+        assert_eq!(change.staging_state, None);
     }
 
     #[test]
@@ -253,6 +308,7 @@ mod tests {
                 status_char: 'A',
                 additions: 1,
                 deletions: 0,
+                staging_state: None,
             }],
             file_diffs: vec![FileDiff {
                 path: "hello.txt".to_string(),
