@@ -245,6 +245,7 @@ pub fn render_diff_empty() -> impl IntoElement {
         .flex()
         .items_center()
         .justify_center()
+        .text_sm()
         .text_color(rgba(0x666666ff))
         .child("Select a file to view its diff")
 }

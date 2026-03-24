@@ -23,15 +23,33 @@ pub fn render_file_list(
     is_active: bool,
     scroll_handle: &UniformListScrollHandle,
 ) -> gpui::AnyElement {
+    render_file_list_with_empty_msg(
+        files,
+        selected_index,
+        on_select,
+        is_active,
+        scroll_handle,
+        "Select a commit to view changes",
+    )
+}
+
+pub fn render_file_list_with_empty_msg(
+    files: &[FileChange],
+    selected_index: Option<usize>,
+    on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
+    is_active: bool,
+    scroll_handle: &UniformListScrollHandle,
+    empty_message: &str,
+) -> gpui::AnyElement {
     if files.is_empty() {
         return div()
             .size_full()
             .flex()
             .items_center()
             .justify_center()
-            .text_xs()
+            .text_sm()
             .text_color(rgba(0x666666ff))
-            .child("Select a commit to view changes")
+            .child(empty_message.to_string())
             .into_any_element();
     }
 

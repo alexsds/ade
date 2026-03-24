@@ -400,9 +400,9 @@ fn render_review_tab_bar(
 ) -> impl IntoElement {
     div()
         .w_full()
-        .h(px(28.0))
         .flex()
         .flex_row()
+        .bg(rgba(0x1e1e1eff))
         .border_b_1()
         .border_color(rgba(0x333333ff))
         .child(render_tab_label(
@@ -434,15 +434,21 @@ fn render_tab_label(
 ) -> impl IntoElement {
     div()
         .id(SharedString::from(format!("tab-{}", label.to_lowercase())))
-        .px(px(12.0))
-        .py(px(6.0))
+        .flex_1()
+        .py(px(8.0))
         .cursor_pointer()
         .text_xs()
         .text_color(if is_active {
-            rgba(0xddddddff)
+            rgba(0xeeeeeeff)
         } else {
             rgba(0x888888ff)
         })
+        .when(is_active, |d| {
+            d.font_weight(FontWeight::SEMIBOLD)
+        })
+        .flex()
+        .items_center()
+        .justify_center()
         // Active tab: blue bottom border (D-02)
         .when(is_active, |d| d.border_b_2().border_color(rgba(0x0078d4ff)))
         .on_click(move |_event, window, cx| {
@@ -629,7 +635,7 @@ impl Render for CodeReviewPanel {
                                 .flex_row()
                                 .child(
                                     div()
-                                        .w(px(240.0))
+                                        .w(px(280.0))
                                         .flex_shrink_0()
                                         .h_full()
                                         .flex()
@@ -715,23 +721,18 @@ impl Render for CodeReviewPanel {
                 )
             };
 
-            let changes_files_header_text = if self.changes_files.is_empty() {
-                "Changed Files".to_string()
-            } else {
-                format!("Changed Files ({})", self.changes_files.len())
-            };
-
-            let changes_file_list_content = file_list::render_file_list(
+            let changes_file_list_content = file_list::render_file_list_with_empty_msg(
                 &self.changes_files,
                 self.selected_changes_file_index,
                 changes_file_on_select,
                 is_changes_file_list_active,
                 &self.changes_file_scroll_handle,
+                "No uncommitted changes",
             );
 
             // Left panel: 240px with tab bar header + file list (D-08)
             let left_panel = div()
-                .w(px(240.0))
+                .w(px(280.0))
                 .flex_shrink_0()
                 .h_full()
                 .flex()
@@ -740,20 +741,7 @@ impl Render for CodeReviewPanel {
                 .border_color(rgba(0x333333ff))
                 // Tab bar (D-01)
                 .child(render_review_tab_bar(self.active_tab, tab_on_switch))
-                // Changed files header
-                .child(
-                    div()
-                        .w_full()
-                        .px(px(8.0))
-                        .py(px(6.0))
-                        .border_b_1()
-                        .border_color(rgba(0x333333ff))
-                        .text_xs()
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(rgba(0xccccccff))
-                        .child(changes_files_header_text),
-                )
-                // File list
+                // File list (directly below tabs, no separate header)
                 .child(
                     div()
                         .flex_1()
