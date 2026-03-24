@@ -377,18 +377,17 @@ impl Render for CodeReviewPanel {
                                 } else {
                                     diff_view::render_diff_empty().into_any_element()
                                 };
-                                let diff_wrapper = div()
+                                div()
                                     .flex_1()
                                     .size_full()
                                     .overflow_hidden()
-                                    .child(diff_content);
-                                if is_diff_view_active {
-                                    diff_wrapper
-                                        .border_l_2()
-                                        .border_color(rgba(0x264f78ff))
-                                } else {
-                                    diff_wrapper
-                                }
+                                    .border_l_2()
+                                    .border_color(if is_diff_view_active {
+                                        rgba(0x264f78ff)
+                                    } else {
+                                        rgba(0x00000000)
+                                    })
+                                    .child(diff_content)
                             }),
                     ),
             )
