@@ -17,7 +17,7 @@ use gpui::{
     WindowOptions, actions, div, prelude::*, px, size,
 };
 
-use crate::code_review::ActivePanel;
+use crate::code_review::{ActivePanel, ReviewTab};
 use crate::terminal::{TerminalSize, new_terminal};
 use alacritty_terminal::event::Event as AlacEvent;
 use futures::StreamExt as _;
@@ -295,6 +295,7 @@ impl AdeWindow {
                 // D-06: reset active panel to commit list on mode entry
                 // D-07: auto-select first commit if none selected
                 self.code_review_panel.update(cx, |panel, _| {
+                    panel.active_tab = ReviewTab::History; // D-03: default to History on mode entry
                     panel.active_panel = ActivePanel::CommitList;
                     if panel.needs_initial_selection() {
                         panel.select_commit(0);
@@ -432,31 +433,59 @@ impl AdeWindow {
     }
 
     fn on_select_tab_1(&mut self, _: &SelectTab1, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_tab_by_number(1, window, cx);
+        if self.mode == Mode::CodeReview {
+            self.code_review_panel.update(cx, |panel, _| {
+                panel.switch_to_review_tab(ReviewTab::Changes);
+            });
+            cx.notify();
+        } else {
+            self.select_tab_by_number(1, window, cx);
+        }
     }
     fn on_select_tab_2(&mut self, _: &SelectTab2, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_tab_by_number(2, window, cx);
+        if self.mode == Mode::CodeReview {
+            self.code_review_panel.update(cx, |panel, _| {
+                panel.switch_to_review_tab(ReviewTab::History);
+            });
+            cx.notify();
+        } else {
+            self.select_tab_by_number(2, window, cx);
+        }
     }
     fn on_select_tab_3(&mut self, _: &SelectTab3, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_tab_by_number(3, window, cx);
+        if self.mode != Mode::CodeReview {
+            self.select_tab_by_number(3, window, cx);
+        }
     }
     fn on_select_tab_4(&mut self, _: &SelectTab4, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_tab_by_number(4, window, cx);
+        if self.mode != Mode::CodeReview {
+            self.select_tab_by_number(4, window, cx);
+        }
     }
     fn on_select_tab_5(&mut self, _: &SelectTab5, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_tab_by_number(5, window, cx);
+        if self.mode != Mode::CodeReview {
+            self.select_tab_by_number(5, window, cx);
+        }
     }
     fn on_select_tab_6(&mut self, _: &SelectTab6, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_tab_by_number(6, window, cx);
+        if self.mode != Mode::CodeReview {
+            self.select_tab_by_number(6, window, cx);
+        }
     }
     fn on_select_tab_7(&mut self, _: &SelectTab7, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_tab_by_number(7, window, cx);
+        if self.mode != Mode::CodeReview {
+            self.select_tab_by_number(7, window, cx);
+        }
     }
     fn on_select_tab_8(&mut self, _: &SelectTab8, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_tab_by_number(8, window, cx);
+        if self.mode != Mode::CodeReview {
+            self.select_tab_by_number(8, window, cx);
+        }
     }
     fn on_select_tab_9(&mut self, _: &SelectTab9, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_tab_by_number(9, window, cx);
+        if self.mode != Mode::CodeReview {
+            self.select_tab_by_number(9, window, cx);
+        }
     }
 
     /// Handle arrow keys in Code Review mode for panel switching (NAV-04).

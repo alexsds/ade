@@ -444,9 +444,7 @@ fn render_tab_label(
             rgba(0x888888ff)
         })
         // Active tab: blue bottom border (D-02)
-        .when(is_active, |d| {
-            d.border_b_2().border_color(rgba(0x0078d4ff))
-        })
+        .when(is_active, |d| d.border_b_2().border_color(rgba(0x0078d4ff)))
         .on_click(move |_event, window, cx| {
             on_click(window, cx);
         })
@@ -511,9 +509,7 @@ impl Render for CodeReviewPanel {
                 )
             };
 
-            let on_diff_visible_count: Arc<
-                dyn Fn(usize, &mut Window, &mut gpui::App) + 'static,
-            > = {
+            let on_diff_visible_count: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
                 let weak = weak.clone();
                 Arc::new(
                     move |count: usize, _window: &mut Window, cx: &mut gpui::App| {
@@ -597,18 +593,17 @@ impl Render for CodeReviewPanel {
                 .child(div().flex_1().overflow_hidden().child(commit_list_content));
 
             // Commit detail with max height and scroll (like GitHub Desktop)
-            let commit_detail_section: Option<gpui::AnyElement> =
-                commit_detail.map(|detail| {
-                    div()
-                        .id("commit-detail-scroll")
-                        .w_full()
-                        .max_h(px(150.0))
-                        .overflow_y_scroll()
-                        .border_b_1()
-                        .border_color(rgba(0x333333ff))
-                        .child(detail)
-                        .into_any_element()
-                });
+            let commit_detail_section: Option<gpui::AnyElement> = commit_detail.map(|detail| {
+                div()
+                    .id("commit-detail-scroll")
+                    .w_full()
+                    .max_h(px(150.0))
+                    .overflow_y_scroll()
+                    .border_b_1()
+                    .border_color(rgba(0x333333ff))
+                    .child(detail)
+                    .into_any_element()
+            });
 
             div()
                 .size_full()
@@ -693,9 +688,7 @@ impl Render for CodeReviewPanel {
             let is_changes_file_list_active = self.active_panel == ActivePanel::ChangesFileList;
             let is_changes_diff_view_active = self.active_panel == ActivePanel::ChangesDiffView;
 
-            let changes_file_on_select: Arc<
-                dyn Fn(usize, &mut Window, &mut gpui::App) + 'static,
-            > = {
+            let changes_file_on_select: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
                 let weak = weak.clone();
                 Arc::new(move |ix: usize, _window: &mut Window, cx: &mut gpui::App| {
                     weak.update(cx, |this, cx| {
@@ -769,18 +762,17 @@ impl Render for CodeReviewPanel {
                 );
 
             // Diff panel (D-09: full remaining width)
-            let changes_diff_content =
-                if let Some(file_diff) = self.selected_changes_file_diff() {
-                    diff_view::render_diff_view(
-                        file_diff,
-                        &self.syntax_highlighter,
-                        &self.changes_diff_scroll_handle,
-                        on_changes_diff_visible_count.clone(),
-                    )
-                    .into_any_element()
-                } else {
-                    diff_view::render_diff_empty().into_any_element()
-                };
+            let changes_diff_content = if let Some(file_diff) = self.selected_changes_file_diff() {
+                diff_view::render_diff_view(
+                    file_diff,
+                    &self.syntax_highlighter,
+                    &self.changes_diff_scroll_handle,
+                    on_changes_diff_visible_count.clone(),
+                )
+                .into_any_element()
+            } else {
+                diff_view::render_diff_empty().into_any_element()
+            };
 
             div()
                 .size_full()
