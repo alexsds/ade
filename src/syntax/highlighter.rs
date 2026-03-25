@@ -93,13 +93,34 @@ impl SyntaxHighlighter {
             line_offsets.push((start, end));
             pos = end + 1;
         }
-        let events = match self
-            .highlighter
-            .highlight(&config, source.as_bytes(), None, |_| None)
-        {
-            Ok(events) => events,
-            Err(_) => return vec![Vec::new(); line_offsets.len()],
+        // Pre-populate injection configs for HTML
+        let js_config = if lang == Language::Html {
+            self.get_or_create_config(Language::JavaScript)
+        } else {
+            None
         };
+        let css_config = if lang == Language::Html {
+            self.get_or_create_config(Language::Css)
+        } else {
+            None
+        };
+        let mut injection_map: HashMap<&str, &HighlightConfiguration> = HashMap::new();
+        if let Some(ref c) = js_config {
+            injection_map.insert("javascript", c.as_ref());
+        }
+        if let Some(ref c) = css_config {
+            injection_map.insert("css", c.as_ref());
+        }
+
+        let events =
+            match self
+                .highlighter
+                .highlight(&config, source.as_bytes(), None, |lang_name| {
+                    injection_map.get(lang_name).copied()
+                }) {
+                Ok(events) => events,
+                Err(_) => return vec![Vec::new(); line_offsets.len()],
+            };
         let mut result: Vec<Vec<(Range<usize>, HighlightStyle)>> =
             vec![Vec::new(); line_offsets.len()];
         let mut style_stack: Vec<usize> = Vec::new();
@@ -165,6 +186,17 @@ impl SyntaxHighlighter {
             None => return vec![Vec::new(); total_rows],
         };
 
+        // Pre-populate injection configs for HTML (JS and CSS)
+        let js_config = self.get_or_create_config(Language::JavaScript);
+        let css_config = self.get_or_create_config(Language::Css);
+        let mut injection_map: HashMap<&str, &HighlightConfiguration> = HashMap::new();
+        if let Some(ref c) = js_config {
+            injection_map.insert("javascript", c.as_ref());
+        }
+        if let Some(ref c) = css_config {
+            injection_map.insert("css", c.as_ref());
+        }
+
         // Reconstruct sides
         let (new_side, new_offsets, old_side, old_offsets) = reconstruct_sides(file_diff);
 
@@ -174,10 +206,20 @@ impl SyntaxHighlighter {
         }
 
         // Highlight both sides
-        let new_highlights =
-            highlight_source(&mut self.highlighter, &config, &new_side, &new_offsets);
-        let old_highlights =
-            highlight_source(&mut self.highlighter, &config, &old_side, &old_offsets);
+        let new_highlights = highlight_source(
+            &mut self.highlighter,
+            &config,
+            &new_side,
+            &new_offsets,
+            &injection_map,
+        );
+        let old_highlights = highlight_source(
+            &mut self.highlighter,
+            &config,
+            &old_side,
+            &old_offsets,
+            &injection_map,
+        );
 
         // Merge: build result indexed by flat row
         let mut result: Vec<Vec<(Range<usize>, HighlightStyle)>> = vec![Vec::new(); total_rows];
@@ -272,11 +314,12 @@ fn reconstruct_sides(
 ///
 /// Returns a HashMap keyed by flat_row_index, each containing the highlights
 /// for that row with line-local byte offsets.
-fn highlight_source(
-    highlighter: &mut Highlighter,
-    config: &HighlightConfiguration,
-    source: &str,
+fn highlight_source<'a>(
+    highlighter: &'a mut Highlighter,
+    config: &'a HighlightConfiguration,
+    source: &'a str,
     line_offsets: &[(usize, usize, usize)],
+    injection_configs: &'a HashMap<&str, &'a HighlightConfiguration>,
 ) -> HashMap<usize, Vec<(Range<usize>, HighlightStyle)>> {
     let mut result: HashMap<usize, Vec<(Range<usize>, HighlightStyle)>> = HashMap::new();
 
@@ -284,7 +327,9 @@ fn highlight_source(
         return result;
     }
 
-    let events = match highlighter.highlight(config, source.as_bytes(), None, |_| None) {
+    let events = match highlighter.highlight(config, source.as_bytes(), None, |lang_name| {
+        injection_configs.get(lang_name).copied()
+    }) {
         Ok(events) => events,
         Err(_) => return result,
     };
@@ -678,6 +723,137 @@ mod tests {
         // Second call reuses cached config
         let _ = hl.highlight_file(source, Some(Language::Rust));
         assert_eq!(hl.configs.len(), 1);
+    }
+
+    #[test]
+    fn test_html_injection_javascript() {
+        let mut hl = SyntaxHighlighter::new();
+        let file_diff = FileDiff {
+            path: "test.html".to_string(),
+            additions: 1,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@ -0,0 +1,5 @@".to_string(),
+                lines: vec![
+                    DiffLine {
+                        line_type: DiffLineType::Add,
+                        content: "<html><body>".to_string(),
+                        old_lineno: None,
+                        new_lineno: Some(1),
+                    },
+                    DiffLine {
+                        line_type: DiffLineType::Add,
+                        content: "<script>".to_string(),
+                        old_lineno: None,
+                        new_lineno: Some(2),
+                    },
+                    DiffLine {
+                        line_type: DiffLineType::Add,
+                        content: "let x = 42;".to_string(),
+                        old_lineno: None,
+                        new_lineno: Some(3),
+                    },
+                    DiffLine {
+                        line_type: DiffLineType::Add,
+                        content: "</script>".to_string(),
+                        old_lineno: None,
+                        new_lineno: Some(4),
+                    },
+                    DiffLine {
+                        line_type: DiffLineType::Add,
+                        content: "</body></html>".to_string(),
+                        old_lineno: None,
+                        new_lineno: Some(5),
+                    },
+                ],
+            }],
+        };
+
+        let highlights = hl.highlight_diff(&file_diff);
+        // 1 hunk header + 5 lines = 6 rows
+        assert_eq!(highlights.len(), 6);
+        // Row 3 (index 3) is "let x = 42;" which should have JS highlights
+        assert!(
+            !highlights[3].is_empty(),
+            "JS content inside <script> should produce highlights"
+        );
+    }
+
+    #[test]
+    fn test_html_injection_css() {
+        let mut hl = SyntaxHighlighter::new();
+        let file_diff = FileDiff {
+            path: "test.html".to_string(),
+            additions: 1,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@ -0,0 +1,5 @@".to_string(),
+                lines: vec![
+                    DiffLine {
+                        line_type: DiffLineType::Add,
+                        content: "<html><head>".to_string(),
+                        old_lineno: None,
+                        new_lineno: Some(1),
+                    },
+                    DiffLine {
+                        line_type: DiffLineType::Add,
+                        content: "<style>".to_string(),
+                        old_lineno: None,
+                        new_lineno: Some(2),
+                    },
+                    DiffLine {
+                        line_type: DiffLineType::Add,
+                        content: "body { color: red; }".to_string(),
+                        old_lineno: None,
+                        new_lineno: Some(3),
+                    },
+                    DiffLine {
+                        line_type: DiffLineType::Add,
+                        content: "</style>".to_string(),
+                        old_lineno: None,
+                        new_lineno: Some(4),
+                    },
+                    DiffLine {
+                        line_type: DiffLineType::Add,
+                        content: "</head></html>".to_string(),
+                        old_lineno: None,
+                        new_lineno: Some(5),
+                    },
+                ],
+            }],
+        };
+
+        let highlights = hl.highlight_diff(&file_diff);
+        assert_eq!(highlights.len(), 6);
+        // Row 3 (index 3) is "body { color: red; }" which should have CSS highlights
+        assert!(
+            !highlights[3].is_empty(),
+            "CSS content inside <style> should produce highlights"
+        );
+    }
+
+    #[test]
+    fn test_injection_callback_returns_none_for_unknown() {
+        let mut hl = SyntaxHighlighter::new();
+        // HTML file with no script/style tags -- injection callback returns None, no crash
+        let file_diff = FileDiff {
+            path: "test.html".to_string(),
+            additions: 1,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@ -0,0 +1 @@".to_string(),
+                lines: vec![DiffLine {
+                    line_type: DiffLineType::Add,
+                    content: "<html><body><p>Hello</p></body></html>".to_string(),
+                    old_lineno: None,
+                    new_lineno: Some(1),
+                }],
+            }],
+        };
+
+        let highlights = hl.highlight_diff(&file_diff);
+        assert_eq!(highlights.len(), 2);
+        // Should not crash -- just produce whatever HTML highlights exist
     }
 
     #[test]
