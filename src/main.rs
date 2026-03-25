@@ -4,6 +4,7 @@ mod input;
 mod key_encode;
 mod menu;
 mod panes;
+mod syntax;
 mod tabs;
 mod terminal;
 mod terminal_element;
