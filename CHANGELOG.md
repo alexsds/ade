@@ -3,6 +3,48 @@
 All notable changes to ADE (Advanced Developer Environment) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v1.7] — 2026-03-25 — Multiple Commit Selection
+
+### Added
+- Shift+Click contiguous commit range selection with fixed anchor model
+- Shift+Up/Down arrow to extend selection one commit at a time
+- Combined diff view across selected commit range via `diff_tree_to_tree(oldest_parent, newest)`
+- "Showing changes from X commits" header bar replacing commit detail when range selected
+- Aggregated file list showing union of changed files across range with combined +/- stats
+- OID-based commit selection persistence across Cmd+G mode toggles
+- Path-based file selection persistence across diff refreshes
+- Range collapse fallback when anchor commit missing after refresh
+- `prepare_highlights()` sort+clip+snap for safe multi-source highlight combining
+- `collect_diff_data()` shared helper eliminating ~100 lines of diff collection duplication
+- `snap_char_boundary()` helper preventing GPUI panics on multi-byte UTF-8 chars
+- 37 new unit tests (339 total)
+
+### Changed
+- Modifier guard in `on_code_review_key_down` split to allow Shift+Up/Down through while blocking other Shift+keys
+- `set_commits()` now preserves selection by OID lookup instead of resetting to index 0
+- `set_diff()` now preserves file selection by path lookup instead of resetting to index 0
+- File list header format changed from "Changed Files (N)" to "N changed files"
+
+### Fixed
+- GPUI panic on `str::split_at` with multi-byte UTF-8 characters (em dash) in diff content caused by unsorted/overlapping highlight ranges from combining syntax and intra-line highlights
+
+## [v1.6] — 2026-03-25 — Syntax Highlighting
+
+### Added
+- Per-token syntax highlighting in diff lines via tree-sitter reconstruct-then-parse pipeline
+- 16 language grammars: Rust, JavaScript, TypeScript, Python, Go, C, C++, Java, Ruby, Shell, HTML, CSS, JSON, YAML, Markdown
+- GitHub Dark color theme for syntax tokens (17 highlight groups)
+- Language detection from file extension
+- Intra-line word-diff highlighting with LCS algorithm and darker background spans on changed tokens
+- Language injection support for JS inside `<script>` and CSS inside `<style>` in HTML files
+- `SyntaxHighlighter` with lazy grammar initialization and per-language `HighlightConfiguration` caching
+- Size guard: files over 500KB skip highlighting to prevent performance issues
+- 62 new unit tests (302 total)
+
+### Changed
+- Diff view lines rendered via GPUI `StyledText` with highlight spans instead of plain text
+- `DiffRow::Line` extended with `highlights` and `intra_line_highlights` fields
+
 ## [v1.5] — 2026-03-25 — Changes/History Tabs
 
 ### Added
