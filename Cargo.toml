@@ -14,5 +14,25 @@ alacritty_terminal = "0.25.1"
 futures = "0.3"
 unicode-width = "0.2"
 
+# Tree-sitter core (pin to 0.25.x)
+tree-sitter = "0.25"
+tree-sitter-highlight = "0.25"
+
+# Language grammars (~10 languages, 14 crates)
+tree-sitter-rust = "0.24"
+tree-sitter-javascript = "0.25"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.25"
+tree-sitter-go = "0.25"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-ruby = "0.23"
+tree-sitter-bash = "0.25"
+tree-sitter-html = "0.23"
+tree-sitter-css = "0.25"
+tree-sitter-json = "0.24"
+tree-sitter-yaml = "0.7"
+
 [dev-dependencies]
 tempfile = "3"
