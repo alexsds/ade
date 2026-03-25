@@ -691,19 +691,24 @@ impl Render for CodeReviewPanel {
 
         if self.active_tab == ReviewTab::History {
             // === History tab: 3-column layout ===
-            let selected_commit_index = self.selected_commit_index;
             let selected_file_index = self.selected_file_index;
             let file_count = self.files.len();
 
-            let commit_on_select: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
+            let commit_on_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static> = {
                 let weak = weak.clone();
-                Arc::new(move |ix: usize, _window: &mut Window, cx: &mut gpui::App| {
-                    weak.update(cx, |this, cx| {
-                        this.select_commit(ix);
-                        cx.notify();
-                    })
-                    .ok();
-                })
+                Arc::new(
+                    move |ix: usize, shift: bool, _window: &mut Window, cx: &mut gpui::App| {
+                        weak.update(cx, |this, cx| {
+                            if shift {
+                                this.select_commit_with_shift(ix);
+                            } else {
+                                this.select_commit(ix);
+                            }
+                            cx.notify();
+                        })
+                        .ok();
+                    },
+                )
             };
 
             let file_on_select: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
@@ -769,7 +774,7 @@ impl Render for CodeReviewPanel {
             } else {
                 commit_list::render_commit_list(
                     &self.commits,
-                    selected_commit_index,
+                    self.selected_range(),
                     commit_on_select,
                     self.loading_more,
                     self.all_commits_loaded,

@@ -14,15 +14,15 @@ use gpui::{
 
 /// Render a scrollable commit list using GPUI's uniform_list.
 ///
-/// Each commit row is clickable. `selected_index` highlights the selected row.
-/// `on_select` is called with (index, &mut Window, &mut App) when a row is clicked.
+/// Each commit row is clickable. `selected_range` is (anchor, cursor) for range highlight.
+/// `on_select` is called with (index, shift_held, &mut Window, &mut App) when a row is clicked.
 /// When `loading_more` is true and `all_loaded` is false, an extra spinner row is
 /// appended at the bottom (per D-03). The `on_range_visible` callback reports the
 /// visible range end for near-bottom detection (per D-01).
 pub fn render_commit_list(
     commits: &[CommitInfo],
-    selected_index: Option<usize>,
-    on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
+    selected_range: (Option<usize>, Option<usize>),
+    on_select: Arc<dyn Fn(usize, bool, &mut Window, &mut App) + 'static>,
     loading_more: bool,
     all_loaded: bool,
     on_range_visible: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
@@ -47,7 +47,14 @@ pub fn render_commit_list(
             .map(|ix| {
                 if ix < commits_len {
                     let commit = commits[ix].clone();
-                    let is_selected = Some(ix) == selected_index;
+                    let is_selected = match selected_range {
+                        (Some(a), Some(c)) => {
+                            let lo = a.min(c);
+                            let hi = a.max(c);
+                            ix >= lo && ix <= hi
+                        }
+                        _ => false,
+                    };
                     let on_select = on_select.clone();
                     render_commit_row(commit, is_selected, ix, on_select, is_active)
                         .into_any_element()
@@ -67,7 +74,7 @@ fn render_commit_row(
     commit: CommitInfo,
     is_selected: bool,
     index: usize,
-    on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
+    on_select: Arc<dyn Fn(usize, bool, &mut Window, &mut App) + 'static>,
     is_active: bool,
 ) -> impl IntoElement {
     let author_time = format!(
@@ -90,8 +97,9 @@ fn render_commit_row(
         .gap(px(1.0))
         .border_b_1()
         .border_color(rgba(0x2a2a2aff))
-        .on_click(move |_event, window, cx| {
-            on_select(index, window, cx);
+        .on_click(move |event, window, cx| {
+            let shift = event.modifiers().shift;
+            on_select(index, shift, window, cx);
         });
 
     if is_selected {

@@ -502,11 +502,36 @@ impl AdeWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Only handle bare arrow keys -- skip if any modifier is held (Pitfall 5)
+        // Block Alt/Ctrl/Cmd modified keys (unchanged)
         let mods = &event.keystroke.modifiers;
-        if mods.shift || mods.alt || mods.control || mods.platform {
+        if mods.alt || mods.control || mods.platform {
             return;
         }
+        // Shift+Up/Down: range extension (only in CommitList panel, per D-13)
+        if mods.shift {
+            match event.keystroke.key.as_str() {
+                "up" => {
+                    self.code_review_panel.update(cx, |panel, _| {
+                        if panel.active_panel == ActivePanel::CommitList {
+                            panel.extend_commit_up();
+                        }
+                    });
+                    cx.notify();
+                    return;
+                }
+                "down" => {
+                    self.code_review_panel.update(cx, |panel, _| {
+                        if panel.active_panel == ActivePanel::CommitList {
+                            panel.extend_commit_down();
+                        }
+                    });
+                    cx.notify();
+                    return;
+                }
+                _ => return, // Shift+Left/Right and all other Shift+key still blocked (D-13)
+            }
+        }
+        // Bare arrow handling (existing, unchanged)
         match event.keystroke.key.as_str() {
             "right" => {
                 self.code_review_panel.update(cx, |panel, _| {
@@ -838,8 +863,8 @@ fn main() {
                                                 cx.notify();
                                             }
                                             git::GitResponse::RangeDiff(diff) => {
-                                                // Range diff response: treat as regular diff
-                                                // (Plan 02 will wire full range diff handling)
+                                                // Range diff: same DiffData type, routes through set_diff
+                                                // which populates file list and auto-selects first file (D-09)
                                                 this.code_review_panel.update(cx, |panel, _cx| {
                                                     panel.set_diff(diff);
                                                 });
@@ -861,6 +886,20 @@ fn main() {
                                         this.git_provider.request_diff(&oid);
                                         this.code_review_panel.update(cx, |panel, _cx| {
                                             panel.pending_diff_request = None;
+                                        });
+                                    }
+
+                                    // Check if CodeReviewPanel wants a range diff fetched
+                                    let pending_range = this
+                                        .code_review_panel
+                                        .read(cx)
+                                        .pending_range_diff_request
+                                        .clone();
+                                    if let Some((oldest_oid, newest_oid)) = pending_range {
+                                        this.git_provider
+                                            .request_range_diff(&oldest_oid, &newest_oid);
+                                        this.code_review_panel.update(cx, |panel, _cx| {
+                                            panel.pending_range_diff_request = None;
                                         });
                                     }
 
