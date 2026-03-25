@@ -11,7 +11,7 @@ use gpui::HighlightStyle;
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
 use super::languages::Language;
-use super::theme::{HIGHLIGHT_NAMES, style_for_highlight};
+use super::theme::style_for_highlight;
 use crate::git::types::{DiffLineType, FileDiff};
 
 /// Maximum content size for highlighting (500KB). Content exceeding this
@@ -61,10 +61,9 @@ impl SyntaxHighlighter {
     }
 
     /// Highlight a source string, returning per-line highlight spans.
-    ///
-    /// Takes source code and a language, returns a Vec where each entry
-    /// corresponds to one line and contains the highlight spans for that line.
-    pub fn highlight_file(
+    /// Used by tests to verify per-language highlighting without constructing FileDiffs.
+    #[cfg(test)]
+    fn highlight_file(
         &mut self,
         source: &str,
         lang: Option<Language>,
@@ -72,16 +71,13 @@ impl SyntaxHighlighter {
         if source.is_empty() {
             return Vec::new();
         }
-
         let lang = match lang {
             Some(l) => l,
             None => {
-                // Unknown language: return empty highlights for each line
                 let line_count = source.lines().count();
                 return vec![Vec::new(); line_count];
             }
         };
-
         let config = match self.get_or_create_config(lang) {
             Some(c) => c,
             None => {
@@ -89,52 +85,53 @@ impl SyntaxHighlighter {
                 return vec![Vec::new(); line_count];
             }
         };
-
-        // Build line offset table
         let mut line_offsets: Vec<(usize, usize)> = Vec::new();
         let mut pos = 0;
         for line in source.split('\n') {
             let start = pos;
             let end = pos + line.len();
             line_offsets.push((start, end));
-            pos = end + 1; // skip the \n
+            pos = end + 1;
         }
-
-        // Run highlighting
         let events = match self
             .highlighter
             .highlight(&config, source.as_bytes(), None, |_| None)
         {
             Ok(events) => events,
-            Err(_) => {
-                return vec![Vec::new(); line_offsets.len()];
-            }
+            Err(_) => return vec![Vec::new(); line_offsets.len()],
         };
-
         let mut result: Vec<Vec<(Range<usize>, HighlightStyle)>> =
             vec![Vec::new(); line_offsets.len()];
         let mut style_stack: Vec<usize> = Vec::new();
-
         for event in events {
             match event {
                 Ok(HighlightEvent::Source { start, end }) => {
                     if let Some(&idx) = style_stack.last() {
                         let style = style_for_highlight(idx);
                         if style.color.is_some() {
-                            map_range_to_lines(start, end, &line_offsets, style, &mut result);
+                            let first =
+                                line_offsets.partition_point(|&(_, line_end)| line_end <= start);
+                            for (i, &(ls, le)) in line_offsets[first..].iter().enumerate() {
+                                if end <= ls {
+                                    break;
+                                }
+                                let local_start = start.saturating_sub(ls);
+                                let local_end = if end < le { end - ls } else { le - ls };
+                                if local_start < local_end && (first + i) < result.len() {
+                                    result[first + i]
+                                        .push((local_start..local_end, style));
+                                }
+                            }
                         }
                     }
                 }
-                Ok(HighlightEvent::HighlightStart(h)) => {
-                    style_stack.push(h.0);
-                }
+                Ok(HighlightEvent::HighlightStart(h)) => style_stack.push(h.0),
                 Ok(HighlightEvent::HighlightEnd) => {
                     style_stack.pop();
                 }
                 Err(_) => break,
             }
         }
-
         result
     }
 
@@ -336,33 +333,6 @@ fn highlight_source(
     }
 
     result
-}
-
-/// Map a highlight range to per-line spans using binary search on the line offset table.
-fn map_range_to_lines(
-    start: usize,
-    end: usize,
-    line_offsets: &[(usize, usize)],
-    style: HighlightStyle,
-    result: &mut [Vec<(Range<usize>, HighlightStyle)>],
-) {
-    // Binary search: find first line whose end > start
-    let first = line_offsets.partition_point(|&(_, line_end)| line_end <= start);
-    for (line_idx, &(line_start, line_end)) in line_offsets[first..].iter().enumerate() {
-        let actual_idx = first + line_idx;
-        if end <= line_start {
-            break; // past the highlight range
-        }
-        let local_start = start.saturating_sub(line_start);
-        let local_end = if end < line_end {
-            end - line_start
-        } else {
-            line_end - line_start
-        };
-        if local_start < local_end && actual_idx < result.len() {
-            result[actual_idx].push((local_start..local_end, style));
-        }
-    }
 }
 
 #[cfg(test)]

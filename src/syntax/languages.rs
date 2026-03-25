@@ -19,6 +19,7 @@ pub enum Language {
     Css,
     Json,
     Yaml,
+    Markdown,
 }
 
 impl Language {
@@ -39,6 +40,7 @@ impl Language {
             "css" | "scss" => Some(Language::Css),
             "json" => Some(Language::Json),
             "yaml" | "yml" => Some(Language::Yaml),
+            "md" | "markdown" | "mdx" => Some(Language::Markdown),
             _ => None,
         }
     }
@@ -110,6 +112,10 @@ impl Language {
             Language::Yaml => (
                 tree_sitter_yaml::LANGUAGE.into(),
                 tree_sitter_yaml::HIGHLIGHTS_QUERY.to_string(),
+            ),
+            Language::Markdown => (
+                tree_sitter_md::LANGUAGE.into(),
+                tree_sitter_md::HIGHLIGHT_QUERY_BLOCK.to_string(),
             ),
         };
 
@@ -250,6 +256,7 @@ mod tests {
             Language::Css,
             Language::Json,
             Language::Yaml,
+            Language::Markdown,
         ];
 
         for lang in &all_languages {
@@ -280,7 +287,8 @@ mod tests {
             Language::Css,
             Language::Json,
             Language::Yaml,
+            Language::Markdown,
         ];
-        assert_eq!(variants.len(), 15);
+        assert_eq!(variants.len(), 16);
     }
 }
