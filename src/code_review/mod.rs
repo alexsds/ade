@@ -399,9 +399,10 @@ impl CodeReviewPanel {
 
     /// Return the diff for the selected Changes file, if any.
     fn selected_changes_file_diff(&self) -> Option<&FileDiff> {
-        let file_index = self.selected_changes_file_index?;
+        let _file_index = self.selected_changes_file_index?;
         let diff_data = self.changes_diff_data.as_ref()?;
-        diff_data.file_diffs.get(file_index)
+        // Working tree diff is fetched per-file via pathspec, so file_diffs always has exactly 1 entry
+        diff_data.file_diffs.first()
     }
 
     /// Set the Changes tab file list. Auto-selects first file and triggers diff request (CHG-05).
