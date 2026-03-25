@@ -158,9 +158,21 @@ impl CodeReviewPanel {
         }
     }
 
-    /// Set the commit list (from GitResponse::Log). Clears selection and loading flag.
+    /// Set the commit list (from GitResponse::Log). Clears file/diff state and loading flag.
     /// Resets all incremental loading state for a fresh load.
+    /// Preserves selection by OID: if the previously-selected commit(s) exist in the new list,
+    /// the selection is restored at their new position(s). Falls back to index 0 if not found.
     pub fn set_commits(&mut self, commits: Vec<CommitInfo>) {
+        // Snapshot current selection OIDs before replacing commits
+        let prev_cursor_oid = self
+            .selected_commit_index
+            .and_then(|i| self.commits.get(i))
+            .map(|c| c.oid.clone());
+        let prev_anchor_oid = self
+            .range_anchor
+            .and_then(|i| self.commits.get(i))
+            .map(|c| c.oid.clone());
+
         self.commits = commits;
         self.files.clear();
         self.selected_file_index = None;
@@ -170,16 +182,55 @@ impl CodeReviewPanel {
         self.loading_more = false;
         self.all_commits_loaded = false;
         self.visible_range_end = 0;
-        // D-07 / Pitfall 4: auto-select first commit when commits arrive
+        self.pending_range_diff_request = None;
+        self.pending_diff_request = None;
+
         if self.commits.is_empty() {
             self.selected_commit_index = None;
             self.range_anchor = None;
+        } else if let Some(ref cursor_oid) = prev_cursor_oid {
+            // Attempt to restore selection by OID
+            let cursor_pos = self.commits.iter().position(|c| c.oid == *cursor_oid);
+            let anchor_pos = prev_anchor_oid
+                .as_ref()
+                .and_then(|oid| self.commits.iter().position(|c| c.oid == *oid));
+
+            match (cursor_pos, anchor_pos) {
+                (Some(cp), Some(ap)) => {
+                    // D-03: both found, restore both positions
+                    self.selected_commit_index = Some(cp);
+                    self.range_anchor = Some(ap);
+                    if ap != cp {
+                        // Range selection: set pending_range_diff_request
+                        let lo = ap.min(cp);
+                        let hi = ap.max(cp);
+                        let newest_oid = self.commits[lo].oid.clone();
+                        let oldest_oid = self.commits[hi].oid.clone();
+                        self.pending_range_diff_request = Some((oldest_oid, newest_oid));
+                    } else {
+                        // Single selection (anchor == cursor)
+                        self.pending_diff_request = Some(self.commits[cp].oid.clone());
+                    }
+                }
+                (Some(cp), None) => {
+                    // D-04: anchor missing, cursor found — collapse to single selection
+                    self.selected_commit_index = Some(cp);
+                    self.range_anchor = Some(cp);
+                    self.pending_diff_request = Some(self.commits[cp].oid.clone());
+                }
+                _ => {
+                    // D-05: cursor not found — fall back to index 0
+                    self.selected_commit_index = Some(0);
+                    self.range_anchor = Some(0);
+                    self.pending_diff_request = Some(self.commits[0].oid.clone());
+                }
+            }
         } else {
+            // No prior selection — auto-select first (D-07 / Pitfall 4)
             self.selected_commit_index = Some(0);
             self.range_anchor = Some(0);
             self.pending_diff_request = Some(self.commits[0].oid.clone());
         }
-        self.pending_range_diff_request = None;
         // D-06: reset active panel to commit list on fresh load
         self.active_panel = ActivePanel::CommitList;
     }
