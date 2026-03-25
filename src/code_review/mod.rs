@@ -1682,4 +1682,244 @@ mod tests {
         assert_eq!(panel.active_tab, ReviewTab::Changes);
         assert_eq!(panel.active_panel, ActivePanel::ChangesFileList);
     }
+
+    #[test]
+    fn test_set_changes_files_preserves_selection_by_path() {
+        let mut panel = CodeReviewPanel::new();
+        // Initial load: select "b.rs" at index 1
+        let files1 = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 5,
+                deletions: 2,
+                staging_state: None,
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'A',
+                additions: 10,
+                deletions: 0,
+                staging_state: None,
+            },
+        ];
+        panel.set_changes_files(files1);
+        panel.select_changes_file(1); // select "b.rs"
+        panel.pending_changes_diff_request = None; // clear
+
+        // Refresh with different order: "b.rs" now at index 0
+        let files2 = vec![
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'A',
+                additions: 12,
+                deletions: 0,
+                staging_state: None,
+            },
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 5,
+                deletions: 2,
+                staging_state: None,
+            },
+        ];
+        panel.set_changes_files(files2);
+        // "b.rs" preserved at its new index 0
+        assert_eq!(panel.selected_changes_file_index, Some(0));
+        // Stats changed so diff should be re-requested
+        assert_eq!(
+            panel.pending_changes_diff_request,
+            Some("b.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn test_set_changes_files_falls_back_when_file_removed() {
+        let mut panel = CodeReviewPanel::new();
+        let files1 = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            },
+            FileChange {
+                path: "removed.rs".into(),
+                status_char: 'D',
+                additions: 0,
+                deletions: 5,
+                staging_state: None,
+            },
+        ];
+        panel.set_changes_files(files1);
+        panel.select_changes_file(1); // select "removed.rs"
+        panel.pending_changes_diff_request = None;
+
+        // Refresh: "removed.rs" no longer present
+        let files2 = vec![FileChange {
+            path: "a.rs".into(),
+            status_char: 'M',
+            additions: 1,
+            deletions: 0,
+            staging_state: None,
+        }];
+        panel.set_changes_files(files2);
+        // Falls back to index 0
+        assert_eq!(panel.selected_changes_file_index, Some(0));
+        assert_eq!(
+            panel.pending_changes_diff_request,
+            Some("a.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn test_set_changes_files_skips_diff_when_unchanged() {
+        let mut panel = CodeReviewPanel::new();
+        let files = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 5,
+                deletions: 2,
+                staging_state: None,
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'A',
+                additions: 10,
+                deletions: 0,
+                staging_state: None,
+            },
+        ];
+        panel.set_changes_files(files.clone());
+        panel.select_changes_file(1); // select "b.rs"
+        panel.pending_changes_diff_request = None;
+
+        // Refresh with identical files
+        let files2 = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 5,
+                deletions: 2,
+                staging_state: None,
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'A',
+                additions: 10,
+                deletions: 0,
+                staging_state: None,
+            },
+        ];
+        panel.set_changes_files(files2);
+        // No change => no diff re-request
+        assert_eq!(panel.selected_changes_file_index, Some(1));
+        assert_eq!(panel.pending_changes_diff_request, None);
+    }
+
+    #[test]
+    fn test_set_changes_files_requests_diff_when_stats_changed() {
+        let mut panel = CodeReviewPanel::new();
+        let files1 = vec![FileChange {
+            path: "a.rs".into(),
+            status_char: 'M',
+            additions: 5,
+            deletions: 2,
+            staging_state: None,
+        }];
+        panel.set_changes_files(files1);
+        panel.pending_changes_diff_request = None;
+
+        // Same path but different additions
+        let files2 = vec![FileChange {
+            path: "a.rs".into(),
+            status_char: 'M',
+            additions: 8,
+            deletions: 2,
+            staging_state: None,
+        }];
+        panel.set_changes_files(files2);
+        assert_eq!(panel.selected_changes_file_index, Some(0));
+        assert_eq!(
+            panel.pending_changes_diff_request,
+            Some("a.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn test_changes_file_count() {
+        let mut panel = CodeReviewPanel::new();
+        assert_eq!(panel.changes_file_count(), 0);
+        panel.changes_files = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'A',
+                additions: 2,
+                deletions: 0,
+                staging_state: None,
+            },
+        ];
+        assert_eq!(panel.changes_file_count(), 2);
+    }
+
+    #[test]
+    fn test_files_changed_different_lengths() {
+        let old = vec![FileChange {
+            path: "a.rs".into(),
+            status_char: 'M',
+            additions: 1,
+            deletions: 0,
+            staging_state: None,
+        }];
+        let new = vec![];
+        assert!(CodeReviewPanel::files_changed(&old, &new));
+    }
+
+    #[test]
+    fn test_files_changed_same_content() {
+        let files = vec![FileChange {
+            path: "a.rs".into(),
+            status_char: 'M',
+            additions: 1,
+            deletions: 0,
+            staging_state: None,
+        }];
+        let files2 = vec![FileChange {
+            path: "a.rs".into(),
+            status_char: 'M',
+            additions: 1,
+            deletions: 0,
+            staging_state: None,
+        }];
+        assert!(!CodeReviewPanel::files_changed(&files, &files2));
+    }
+
+    #[test]
+    fn test_files_changed_different_stats() {
+        let old = vec![FileChange {
+            path: "a.rs".into(),
+            status_char: 'M',
+            additions: 1,
+            deletions: 0,
+            staging_state: None,
+        }];
+        let new = vec![FileChange {
+            path: "a.rs".into(),
+            status_char: 'M',
+            additions: 5,
+            deletions: 0,
+            staging_state: None,
+        }];
+        assert!(CodeReviewPanel::files_changed(&old, &new));
+    }
 }
