@@ -793,12 +793,40 @@ impl Render for CodeReviewPanel {
                 &self.file_scroll_handle,
             );
 
-            let commit_detail: Option<gpui::AnyElement> = self
-                .selected_commit()
-                .map(|commit| commit_list::render_commit_detail(commit).into_any_element());
+            // Determine if a range of commits is selected (more than 1)
+            let (range_anchor, range_cursor) = self.selected_range();
+            let range_count = match (range_anchor, range_cursor) {
+                (Some(a), Some(c)) if a != c => {
+                    let lo = a.min(c);
+                    let hi = a.max(c);
+                    hi - lo + 1
+                }
+                _ => 0,
+            };
+
+            // When range selected: show "Showing changes from X commits" header
+            // When single commit: show commit detail (hash, author, body)
+            let commit_detail: Option<gpui::AnyElement> = if range_count > 1 {
+                Some(
+                    div()
+                        .w_full()
+                        .px(px(16.0))
+                        .py(px(10.0))
+                        .border_b_1()
+                        .border_color(rgba(0x333333ff))
+                        .text_xs()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(rgba(0xccccccff))
+                        .child(format!("Showing changes from {} commits", range_count))
+                        .into_any_element(),
+                )
+            } else {
+                self.selected_commit()
+                    .map(|commit| commit_list::render_commit_detail(commit).into_any_element())
+            };
 
             let files_header_text = if file_count > 0 {
-                format!("Changed Files ({})", file_count)
+                format!("{} changed files", file_count)
             } else {
                 "Changed Files".to_string()
             };
@@ -821,17 +849,23 @@ impl Render for CodeReviewPanel {
                 // Scrollable commit list
                 .child(div().flex_1().overflow_hidden().child(commit_list_content));
 
-            // Commit detail with max height and scroll (like GitHub Desktop)
+            // Commit detail or range header section
             let commit_detail_section: Option<gpui::AnyElement> = commit_detail.map(|detail| {
-                div()
-                    .id("commit-detail-scroll")
-                    .w_full()
-                    .max_h(px(150.0))
-                    .overflow_y_scroll()
-                    .border_b_1()
-                    .border_color(rgba(0x333333ff))
-                    .child(detail)
-                    .into_any_element()
+                if range_count > 1 {
+                    // Range header is a simple bar — no scroll wrapper needed
+                    detail
+                } else {
+                    // Single commit detail with max height and scroll (like GitHub Desktop)
+                    div()
+                        .id("commit-detail-scroll")
+                        .w_full()
+                        .max_h(px(150.0))
+                        .overflow_y_scroll()
+                        .border_b_1()
+                        .border_color(rgba(0x333333ff))
+                        .child(detail)
+                        .into_any_element()
+                }
             });
 
             div()
