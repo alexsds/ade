@@ -3,6 +3,29 @@
 All notable changes to ADE (Advanced Developer Environment) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v1.5] — 2026-03-25 — Changes/History Tabs
+
+### Added
+- Changes/History tab switcher in Code Review panel with blue underline indicator
+- Cmd+1 (Changes) / Cmd+2 (History) keyboard shortcuts (Code Review mode only)
+- Working tree diffs: uncommitted file list with status badges (M/A/D/?) and +N/-N stats
+- StagingState enum: staged/unstaged dot indicators on changed files
+- Auto-refresh: 2s timer polls working tree changes while in Code Review mode
+- Refresh on mode entry: Cmd+G triggers immediate working tree file list update
+- Path-based selection preservation: selected file stays selected across auto-refresh
+- Tab memory: last active tab preserved across Cmd+G toggle cycles
+- "Changes (N)" file count badge on tab header
+- Colored diff stats in toolbar: green +N, yellow ~N, red -N next to branch name
+- `compute_diff_stats()` for toolbar stat computation
+- `changes_file_count()` and `changes_files_ref()` accessors on CodeReviewPanel
+- `files_changed()` optimization to skip unnecessary diff re-fetches
+- 27 new unit tests (240 total)
+
+### Changed
+- Tab bar replaces "Commits" header in Code Review panel
+- Left panel width varies by tab: 280px (History), 240px (Changes)
+- Mode-dependent Cmd+1-9 dispatch: Code Review intercepts 1/2, Terminal passes through
+
 ## [v1.4] — 2026-03-24 — Code Review Navigation
 
 ### Added
