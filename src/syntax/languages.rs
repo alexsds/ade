@@ -23,6 +23,26 @@ pub enum Language {
 }
 
 impl Language {
+    /// Resolve a tree-sitter injection language name to a Language variant.
+    /// Used by the injection callback when tree-sitter requests highlighting
+    /// for an embedded language (e.g., "javascript" inside HTML `<script>`).
+    pub fn from_injection_name(name: &str) -> Option<Self> {
+        match name {
+            "javascript" => Some(Language::JavaScript),
+            "css" => Some(Language::Css),
+            _ => None,
+        }
+    }
+
+    /// Return the tree-sitter injection query for this language.
+    /// Only HTML has injections (JS in `<script>`, CSS in `<style>`).
+    pub fn injection_query(&self) -> &'static str {
+        match self {
+            Language::Html => tree_sitter_html::INJECTIONS_QUERY,
+            _ => "",
+        }
+    }
+
     pub fn from_extension(ext: &str) -> Option<Self> {
         match ext {
             "rs" => Some(Language::Rust),
@@ -123,7 +143,7 @@ impl Language {
             language,
             &format!("{:?}", self).to_lowercase(),
             &highlights_query,
-            "", // injection query (Phase 26)
+            self.injection_query(),
             "", // locals query
         )
         .map_err(|e| format!("Failed to create highlight config for {:?}: {}", self, e))?;
@@ -266,6 +286,46 @@ mod tests {
                 Err(e) => panic!("Failed to create highlight config for {:?}: {}", lang, e),
             }
         }
+    }
+
+    #[test]
+    fn test_from_injection_name_javascript() {
+        assert_eq!(
+            Language::from_injection_name("javascript"),
+            Some(Language::JavaScript)
+        );
+    }
+
+    #[test]
+    fn test_from_injection_name_css() {
+        assert_eq!(Language::from_injection_name("css"), Some(Language::Css));
+    }
+
+    #[test]
+    fn test_from_injection_name_unknown() {
+        assert_eq!(Language::from_injection_name("rust"), None);
+        assert_eq!(Language::from_injection_name("unknown"), None);
+        assert_eq!(Language::from_injection_name(""), None);
+    }
+
+    #[test]
+    fn test_injection_query_html_non_empty() {
+        assert!(
+            !Language::Html.injection_query().is_empty(),
+            "Html injection query should be non-empty"
+        );
+    }
+
+    #[test]
+    fn test_injection_query_non_html_empty() {
+        assert!(
+            Language::Rust.injection_query().is_empty(),
+            "Non-Html languages should have empty injection query"
+        );
+        assert!(
+            Language::JavaScript.injection_query().is_empty(),
+            "Non-Html languages should have empty injection query"
+        );
     }
 
     #[test]
