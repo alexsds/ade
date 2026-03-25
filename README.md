@@ -14,9 +14,15 @@ Built in Rust with [GPUI](https://github.com/zed-industries/zed) (Zed's UI frame
 - iTerm2-style keybindings
 
 **Code Review (Cmd+G)**
-- 3-panel layout: commit list | file list | unified diff
+- **History tab**: commit list | file list | unified diff (3-panel layout)
+- **Changes tab**: uncommitted working tree diffs with status badges (M/A/D/?) and +/-  stats
+- Auto-refresh: working tree changes update every ~2s and on mode entry
+- "Changes (N)" file count badge on tab header
+- Colored diff stats in toolbar: green +N, yellow ~N, red -N
 - Keyboard navigation: Left/Right to switch panels, Up/Down to navigate items
-- Auto-cascade: selecting a commit loads first file's diff automatically
+- Cmd+1 (Changes) / Cmd+2 (History) tab switching
+- Auto-cascade: selecting a commit or file loads its diff automatically
+- Selection preserved across auto-refresh cycles
 - Active/inactive panel highlighting
 - Virtual scrolling for 100K+ commit repos
 - Line-type diff coloring (additions, removals, hunk headers)
@@ -60,10 +66,12 @@ cargo build --release
 | Shortcut | Action |
 |----------|--------|
 | Cmd+G | Toggle Code Review panel on/off |
-| Left / Right | Switch active panel (commits / files / diff) — wraps around |
+| Cmd+1 | Switch to Changes tab |
+| Cmd+2 | Switch to History tab |
+| Left / Right | Switch active panel (file list / diff) — wraps around |
 | Up / Down | Move selection in commit or file list; scroll diff line-by-line |
 
-Selecting a commit auto-selects the first changed file and loads its diff. Active panel shows bright blue highlight, inactive panels show dimmed highlight. Diff panel shows a top accent bar when focused.
+Selecting a commit or file auto-loads its diff. Active panel shows bright blue highlight, inactive panels show dimmed highlight. Last active tab is remembered across Cmd+G toggles.
 
 ### Panes
 
@@ -83,7 +91,7 @@ Selecting a commit auto-selects the first changed file and loads its diff. Activ
 | Cmd+Shift+W | Close tab |
 | Cmd+} | Next tab |
 | Cmd+{ | Previous tab |
-| Cmd+1 through Cmd+9 | Switch to tab N |
+| Cmd+1 through Cmd+9 | Switch to tab N (in Terminal mode) |
 
 ## Tech Stack
 
