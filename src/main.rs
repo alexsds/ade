@@ -837,6 +837,14 @@ fn main() {
                                                 });
                                                 cx.notify();
                                             }
+                                            git::GitResponse::RangeDiff(diff) => {
+                                                // Range diff response: treat as regular diff
+                                                // (Plan 02 will wire full range diff handling)
+                                                this.code_review_panel.update(cx, |panel, _cx| {
+                                                    panel.set_diff(diff);
+                                                });
+                                                cx.notify();
+                                            }
                                             git::GitResponse::Error(msg) => {
                                                 eprintln!("Git error: {}", msg);
                                             }

@@ -26,12 +26,24 @@ const MAX_LINE_LENGTH: usize = 10_000;
 
 /// Requests that can be sent to the git background thread.
 pub enum GitRequest {
-    FetchLog { count: usize },
-    FetchMoreLog { batch_size: usize },
-    FetchDiff { commit_oid: String },
+    FetchLog {
+        count: usize,
+    },
+    FetchMoreLog {
+        batch_size: usize,
+    },
+    FetchDiff {
+        commit_oid: String,
+    },
+    FetchRangeDiff {
+        oldest_oid: String,
+        newest_oid: String,
+    },
     FetchStatus,
     FetchWorkingTreeFiles,
-    FetchWorkingTreeDiff { path: String },
+    FetchWorkingTreeDiff {
+        path: String,
+    },
 }
 
 /// Responses from the git background thread.
@@ -42,6 +54,7 @@ pub enum GitResponse {
         exhausted: bool,
     },
     Diff(DiffData),
+    RangeDiff(DiffData),
     Status(BranchStatus),
     Error(String),
     WorkingTreeFiles(Vec<FileChange>),
@@ -156,6 +169,20 @@ impl GitProvider {
                             GitResponse::Error(format!("Invalid OID '{}': {}", commit_oid, e))
                         }
                     },
+                    GitRequest::FetchRangeDiff {
+                        oldest_oid,
+                        newest_oid,
+                    } => match (Oid::from_str(&oldest_oid), Oid::from_str(&newest_oid)) {
+                        (Ok(oldest), Ok(newest)) => {
+                            match compute_range_diff(&repo, oldest, newest) {
+                                Ok(diff) => GitResponse::RangeDiff(diff),
+                                Err(e) => GitResponse::Error(e.to_string()),
+                            }
+                        }
+                        (Err(e), _) | (_, Err(e)) => {
+                            GitResponse::Error(format!("Invalid range OID: {}", e))
+                        }
+                    },
                     GitRequest::FetchStatus => match get_branch_status(&repo) {
                         Ok(status) => GitResponse::Status(status),
                         Err(e) => GitResponse::Error(e.to_string()),
@@ -246,6 +273,20 @@ impl GitProvider {
             .is_err()
         {
             tracing::warn!("Git background thread disconnected (FetchWorkingTreeDiff)");
+        }
+    }
+
+    /// Request a combined diff for a range of commits (oldest_parent..newest).
+    pub fn request_range_diff(&self, oldest_oid: &str, newest_oid: &str) {
+        if self
+            .request_tx
+            .send(GitRequest::FetchRangeDiff {
+                oldest_oid: oldest_oid.to_string(),
+                newest_oid: newest_oid.to_string(),
+            })
+            .is_err()
+        {
+            tracing::warn!("Git background thread disconnected (FetchRangeDiff)");
         }
     }
 
@@ -341,20 +382,10 @@ fn build_decoration_map(repo: &Repository) -> HashMap<Oid, Vec<Decoration>> {
     map
 }
 
-/// Compute the diff for a single commit (against its first parent, or empty tree for root).
-/// Enforces size limits to prevent OOM from malicious/huge diffs.
-fn compute_diff(repo: &Repository, oid: Oid) -> Result<DiffData, git2::Error> {
-    let commit = repo.find_commit(oid)?;
-    let commit_tree = commit.tree()?;
-
-    let parent_tree = if commit.parent_count() > 0 {
-        Some(commit.parent(0)?.tree()?)
-    } else {
-        None // diff against empty tree for initial commit
-    };
-
-    let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
-
+/// Shared helper: collect FileChange, FileDiff, DiffHunk, and DiffLine data from a git2::Diff.
+/// Enforces size limits (MAX_DIFF_FILES, MAX_DIFF_LINES, MAX_LINE_LENGTH) to prevent OOM.
+/// Used by both compute_diff (single commit) and compute_range_diff (commit range).
+fn collect_diff_data(diff: git2::Diff<'_>) -> Result<DiffData, git2::Error> {
     // Collect file changes from deltas (capped to MAX_DIFF_FILES)
     let mut files: Vec<FileChange> = Vec::new();
     let num_deltas = diff.deltas().len().min(MAX_DIFF_FILES);
@@ -514,6 +545,44 @@ fn compute_diff(repo: &Repository, oid: Oid) -> Result<DiffData, git2::Error> {
     }
 
     Ok(DiffData { files, file_diffs })
+}
+
+/// Compute the diff for a single commit (against its first parent, or empty tree for root).
+fn compute_diff(repo: &Repository, oid: Oid) -> Result<DiffData, git2::Error> {
+    let commit = repo.find_commit(oid)?;
+    let commit_tree = commit.tree()?;
+
+    let parent_tree = if commit.parent_count() > 0 {
+        Some(commit.parent(0)?.tree()?)
+    } else {
+        None // diff against empty tree for initial commit
+    };
+
+    let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
+    collect_diff_data(diff)
+}
+
+/// Compute a combined diff for a range of commits (oldest_parent..newest).
+/// Diffs from the oldest commit's parent tree to the newest commit's tree (D-08).
+/// For initial commits in the range, diffs against an empty tree.
+fn compute_range_diff(
+    repo: &Repository,
+    oldest_oid: Oid,
+    newest_oid: Oid,
+) -> Result<DiffData, git2::Error> {
+    let oldest_commit = repo.find_commit(oldest_oid)?;
+    let newest_commit = repo.find_commit(newest_oid)?;
+    let newest_tree = newest_commit.tree()?;
+
+    // Diff from oldest commit's PARENT to newest commit (D-08)
+    let oldest_parent_tree = if oldest_commit.parent_count() > 0 {
+        Some(oldest_commit.parent(0)?.tree()?)
+    } else {
+        None // initial commit: diff against empty tree
+    };
+
+    let diff = repo.diff_tree_to_tree(oldest_parent_tree.as_ref(), Some(&newest_tree), None)?;
+    collect_diff_data(diff)
 }
 
 /// Get the current branch name and dirty/clean status.
@@ -1462,5 +1531,97 @@ mod tests {
             .find(|f| f.path == "first.txt")
             .expect("first.txt should be present");
         assert_eq!(first.status_char, '?');
+    }
+
+    // --- Range diff tests (Phase 27, Plan 01) ---
+
+    #[test]
+    fn test_compute_range_diff_produces_diff_data() {
+        // Create a repo with 3 commits, compute range diff from commit 1 to commit 3
+        let (_dir, repo) = create_test_repo_with_n_commits(3);
+        let decorations = build_decoration_map(&repo);
+        let mut revwalk = repo.revwalk().expect("revwalk");
+        revwalk.push_head().unwrap();
+        revwalk.set_sorting(Sort::TIME).unwrap();
+        let commits = collect_batch(&repo, &mut revwalk, 10, &decorations);
+        // commits[0] = newest (Commit 2), commits[2] = oldest (Commit 0)
+        let oldest_oid = Oid::from_str(&commits[2].oid).unwrap();
+        let newest_oid = Oid::from_str(&commits[0].oid).unwrap();
+
+        let diff = compute_range_diff(&repo, oldest_oid, newest_oid).expect("compute range diff");
+        // Should produce a DiffData with files
+        assert!(!diff.files.is_empty(), "Range diff should have files");
+        assert!(
+            !diff.file_diffs.is_empty(),
+            "Range diff should have file_diffs"
+        );
+    }
+
+    #[test]
+    fn test_collect_diff_data_produces_file_changes() {
+        let (_dir, repo) = create_test_repo();
+        let head = repo.head().unwrap();
+        let head_commit = head.peel_to_commit().unwrap();
+        let parent = head_commit.parent(0).unwrap();
+        let diff = repo
+            .diff_tree_to_tree(
+                Some(&parent.tree().unwrap()),
+                Some(&head_commit.tree().unwrap()),
+                None,
+            )
+            .unwrap();
+
+        let data = collect_diff_data(diff).expect("collect_diff_data");
+        assert!(!data.files.is_empty(), "Should have file changes");
+        assert_eq!(data.files[0].path, "hello.txt");
+    }
+
+    #[test]
+    fn test_fetch_range_diff_via_provider() {
+        let (_dir, repo) = create_test_repo_with_n_commits(3);
+        let repo_path = repo.workdir().expect("workdir").to_path_buf();
+
+        // Get OIDs via collect_batch
+        let decorations = build_decoration_map(&repo);
+        let mut revwalk = repo.revwalk().expect("revwalk");
+        revwalk.push_head().unwrap();
+        revwalk.set_sorting(Sort::TIME).unwrap();
+        let commits = collect_batch(&repo, &mut revwalk, 10, &decorations);
+        let oldest_oid = commits[2].oid.clone();
+        let newest_oid = commits[0].oid.clone();
+
+        let provider = GitProvider::new(repo_path);
+        provider.request_range_diff(&oldest_oid, &newest_oid);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+
+        let mut got_range_diff = false;
+        while let Some(response) = provider.try_recv() {
+            match response {
+                GitResponse::RangeDiff(diff) => {
+                    got_range_diff = true;
+                    assert!(!diff.files.is_empty(), "Range diff should have files");
+                }
+                _ => {}
+            }
+        }
+        assert!(got_range_diff, "Should receive a RangeDiff response");
+    }
+
+    #[test]
+    fn test_compute_range_diff_initial_commit() {
+        // Range diff including the initial commit (no parent)
+        let (_dir, repo) = create_test_repo();
+        let decorations = build_decoration_map(&repo);
+        let mut revwalk = repo.revwalk().expect("revwalk");
+        revwalk.push_head().unwrap();
+        revwalk.set_sorting(Sort::TIME).unwrap();
+        let commits = collect_batch(&repo, &mut revwalk, 10, &decorations);
+        // oldest = initial commit (commits[1]), newest = second commit (commits[0])
+        let oldest_oid = Oid::from_str(&commits[1].oid).unwrap();
+        let newest_oid = Oid::from_str(&commits[0].oid).unwrap();
+
+        let diff = compute_range_diff(&repo, oldest_oid, newest_oid)
+            .expect("compute range diff with initial commit");
+        assert!(!diff.files.is_empty(), "Range diff should have files");
     }
 }
