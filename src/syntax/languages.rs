@@ -24,9 +24,8 @@ pub enum Language {
 
 impl Language {
     /// Resolve a tree-sitter injection language name to a Language variant.
-    /// Used by the injection callback when tree-sitter requests highlighting
-    /// for an embedded language (e.g., "javascript" inside HTML `<script>`).
-    pub fn from_injection_name(name: &str) -> Option<Self> {
+    #[cfg(test)]
+    fn from_injection_name(name: &str) -> Option<Self> {
         match name {
             "javascript" => Some(Language::JavaScript),
             "css" => Some(Language::Css),
