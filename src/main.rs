@@ -292,14 +292,19 @@ impl AdeWindow {
                 self.git_provider.request_status();
                 // Focus own handle for Cmd+G toggle back
                 self.focus_handle.focus(window, cx);
-                // D-06: reset active panel to commit list on mode entry
+                // D-06: reset active panel to match current tab on mode entry
                 // D-07: auto-select first commit if none selected
+                // D-11: preserve last active tab across Cmd+G toggles
                 self.code_review_panel.update(cx, |panel, _| {
-                    panel.active_tab = ReviewTab::History; // D-03: default to History on mode entry
-                    panel.active_panel = ActivePanel::CommitList;
+                    panel.active_panel = match panel.active_tab {
+                        ReviewTab::Changes => ActivePanel::ChangesFileList,
+                        ReviewTab::History => ActivePanel::CommitList,
+                    };
                     if panel.needs_initial_selection() {
                         panel.select_commit(0);
                     }
+                    // REF-01 / D-04: refresh working tree files on Code Review entry
+                    panel.pending_working_tree_request = true;
                 });
             }
         }
@@ -917,6 +922,38 @@ fn main() {
                                         }
                                     }
                                     cx.notify();
+                                });
+                            })
+                            .ok();
+                        if should_continue.is_none() {
+                            break;
+                        }
+                    }
+                })
+                .detach();
+
+            // Working tree auto-refresh (2s interval, D-09/D-10)
+            let window_entity_for_refresh = window_entity.clone();
+            window
+                .spawn(cx, async move |cx| {
+                    loop {
+                        cx.background_executor().timer(Duration::from_secs(2)).await;
+                        let should_continue = cx
+                            .update(|_, cx| {
+                                window_entity_for_refresh.update(cx, |this: &mut AdeWindow, cx| {
+                                    if this.mode != Mode::CodeReview {
+                                        return; // Only poll in Code Review mode (D-09)
+                                    }
+                                    let pending = this
+                                        .code_review_panel
+                                        .read(cx)
+                                        .pending_working_tree_request;
+                                    if pending {
+                                        return; // D-10: skip if previous request still pending
+                                    }
+                                    this.code_review_panel.update(cx, |panel, _| {
+                                        panel.pending_working_tree_request = true;
+                                    });
                                 });
                             })
                             .ok();

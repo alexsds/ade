@@ -449,8 +449,7 @@ impl CodeReviewPanel {
             } else {
                 // Previously selected file gone -- fall back to first
                 self.selected_changes_file_index = Some(0);
-                self.pending_changes_diff_request =
-                    Some(self.changes_files[0].path.clone());
+                self.pending_changes_diff_request = Some(self.changes_files[0].path.clone());
                 self.changes_diff_scroll_top = 0;
             }
         } else {
@@ -1770,10 +1769,7 @@ mod tests {
         // "b.rs" preserved at its new index 0
         assert_eq!(panel.selected_changes_file_index, Some(0));
         // Stats changed so diff should be re-requested
-        assert_eq!(
-            panel.pending_changes_diff_request,
-            Some("b.rs".to_string())
-        );
+        assert_eq!(panel.pending_changes_diff_request, Some("b.rs".to_string()));
     }
 
     #[test]
@@ -1810,10 +1806,7 @@ mod tests {
         panel.set_changes_files(files2);
         // Falls back to index 0
         assert_eq!(panel.selected_changes_file_index, Some(0));
-        assert_eq!(
-            panel.pending_changes_diff_request,
-            Some("a.rs".to_string())
-        );
+        assert_eq!(panel.pending_changes_diff_request, Some("a.rs".to_string()));
     }
 
     #[test]
@@ -1885,10 +1878,7 @@ mod tests {
         }];
         panel.set_changes_files(files2);
         assert_eq!(panel.selected_changes_file_index, Some(0));
-        assert_eq!(
-            panel.pending_changes_diff_request,
-            Some("a.rs".to_string())
-        );
+        assert_eq!(panel.pending_changes_diff_request, Some("a.rs".to_string()));
     }
 
     #[test]
