@@ -2490,4 +2490,241 @@ mod tests {
         assert!(panel.pending_range_diff_request.is_some());
         assert_eq!(panel.pending_diff_request, None);
     }
+
+    // --- Path-based file selection persistence tests (Phase 29, Plan 01, Task 2) ---
+
+    #[test]
+    fn test_set_diff_preserves_file_selection_by_path() {
+        let mut panel = CodeReviewPanel::new();
+        // Initial diff with three files, select "a.rs" at index 0
+        let diff1 = DiffData {
+            files: vec![
+                FileChange {
+                    path: "a.rs".into(),
+                    status_char: 'M',
+                    additions: 1,
+                    deletions: 0,
+                    staging_state: None,
+                },
+                FileChange {
+                    path: "b.rs".into(),
+                    status_char: 'A',
+                    additions: 5,
+                    deletions: 0,
+                    staging_state: None,
+                },
+            ],
+            file_diffs: vec![
+                FileDiff { path: "a.rs".into(), additions: 1, deletions: 0, hunks: vec![] },
+                FileDiff { path: "b.rs".into(), additions: 5, deletions: 0, hunks: vec![] },
+            ],
+        };
+        panel.set_diff(diff1);
+        panel.select_file(1); // select "b.rs" at index 1
+
+        // New diff: "b.rs" is now at index 2 (not 0)
+        let diff2 = DiffData {
+            files: vec![
+                FileChange {
+                    path: "c.rs".into(),
+                    status_char: 'A',
+                    additions: 3,
+                    deletions: 0,
+                    staging_state: None,
+                },
+                FileChange {
+                    path: "a.rs".into(),
+                    status_char: 'M',
+                    additions: 2,
+                    deletions: 0,
+                    staging_state: None,
+                },
+                FileChange {
+                    path: "b.rs".into(),
+                    status_char: 'A',
+                    additions: 7,
+                    deletions: 0,
+                    staging_state: None,
+                },
+            ],
+            file_diffs: vec![
+                FileDiff { path: "c.rs".into(), additions: 3, deletions: 0, hunks: vec![] },
+                FileDiff { path: "a.rs".into(), additions: 2, deletions: 0, hunks: vec![] },
+                FileDiff { path: "b.rs".into(), additions: 7, deletions: 0, hunks: vec![] },
+            ],
+        };
+        panel.set_diff(diff2);
+        // "b.rs" should be preserved at its new index 2 (not fallback to 0)
+        assert_eq!(panel.selected_file_index, Some(2));
+    }
+
+    #[test]
+    fn test_set_diff_missing_path_falls_back_to_zero() {
+        let mut panel = CodeReviewPanel::new();
+        let diff1 = DiffData {
+            files: vec![
+                FileChange {
+                    path: "a.rs".into(),
+                    status_char: 'M',
+                    additions: 1,
+                    deletions: 0,
+                    staging_state: None,
+                },
+                FileChange {
+                    path: "gone.rs".into(),
+                    status_char: 'D',
+                    additions: 0,
+                    deletions: 5,
+                    staging_state: None,
+                },
+            ],
+            file_diffs: vec![
+                FileDiff { path: "a.rs".into(), additions: 1, deletions: 0, hunks: vec![] },
+                FileDiff { path: "gone.rs".into(), additions: 0, deletions: 5, hunks: vec![] },
+            ],
+        };
+        panel.set_diff(diff1);
+        panel.select_file(1); // select "gone.rs"
+
+        // New diff: "gone.rs" is missing
+        let diff2 = DiffData {
+            files: vec![FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 2,
+                deletions: 0,
+                staging_state: None,
+            }],
+            file_diffs: vec![FileDiff {
+                path: "a.rs".into(),
+                additions: 2,
+                deletions: 0,
+                hunks: vec![],
+            }],
+        };
+        panel.set_diff(diff2);
+        // Falls back to index 0
+        assert_eq!(panel.selected_file_index, Some(0));
+    }
+
+    #[test]
+    fn test_set_diff_no_prior_selection_auto_selects_first() {
+        let mut panel = CodeReviewPanel::new();
+        // No prior file selection
+        let diff = DiffData {
+            files: vec![FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            }],
+            file_diffs: vec![FileDiff {
+                path: "a.rs".into(),
+                additions: 1,
+                deletions: 0,
+                hunks: vec![],
+            }],
+        };
+        panel.set_diff(diff);
+        assert_eq!(panel.selected_file_index, Some(0));
+    }
+
+    #[test]
+    fn test_set_diff_empty_files_no_file_selection() {
+        let mut panel = CodeReviewPanel::new();
+        // Set some prior selection
+        panel.files = vec![FileChange {
+            path: "a.rs".into(),
+            status_char: 'M',
+            additions: 1,
+            deletions: 0,
+            staging_state: None,
+        }];
+        panel.selected_file_index = Some(0);
+
+        let diff = DiffData {
+            files: vec![],
+            file_diffs: vec![],
+        };
+        panel.set_diff(diff);
+        assert_eq!(panel.selected_file_index, None);
+    }
+
+    // --- PERS-02 tab switch verification tests ---
+
+    #[test]
+    fn test_tab_switch_preserves_commit_selection_pers02() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2);
+        panel.range_anchor = Some(1); // set a range anchor
+        let diff_data = DiffData {
+            files: vec![FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            }],
+            file_diffs: vec![FileDiff {
+                path: "a.rs".into(),
+                additions: 1,
+                deletions: 0,
+                hunks: vec![],
+            }],
+        };
+        panel.set_diff(diff_data);
+
+        // Switch to Changes
+        panel.switch_to_review_tab(ReviewTab::Changes);
+        // Switch back to History
+        panel.switch_to_review_tab(ReviewTab::History);
+
+        // PERS-02: all History state preserved
+        assert_eq!(panel.selected_commit_index, Some(2));
+        assert_eq!(panel.range_anchor, Some(1));
+        assert!(!panel.files.is_empty(), "files preserved");
+        assert!(panel.diff_data.is_some(), "diff_data preserved");
+    }
+
+    #[test]
+    fn test_tab_switch_preserves_file_selection_pers02() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(0);
+        let diff_data = DiffData {
+            files: vec![
+                FileChange {
+                    path: "a.rs".into(),
+                    status_char: 'M',
+                    additions: 1,
+                    deletions: 0,
+                    staging_state: None,
+                },
+                FileChange {
+                    path: "b.rs".into(),
+                    status_char: 'A',
+                    additions: 3,
+                    deletions: 0,
+                    staging_state: None,
+                },
+            ],
+            file_diffs: vec![
+                FileDiff { path: "a.rs".into(), additions: 1, deletions: 0, hunks: vec![] },
+                FileDiff { path: "b.rs".into(), additions: 3, deletions: 0, hunks: vec![] },
+            ],
+        };
+        panel.set_diff(diff_data);
+        panel.select_file(1); // select "b.rs"
+
+        // Switch to Changes and back
+        panel.switch_to_review_tab(ReviewTab::Changes);
+        panel.switch_to_review_tab(ReviewTab::History);
+
+        // PERS-02: file selection preserved
+        assert_eq!(panel.selected_file_index, Some(1));
+    }
 }
