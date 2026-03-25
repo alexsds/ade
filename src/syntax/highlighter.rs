@@ -617,8 +617,7 @@ mod tests {
     #[test]
     fn test_size_guard() {
         let mut hl = SyntaxHighlighter::new();
-        // Create content over 500KB
-        let big_line = "fn func() { let x = 42; }\n".repeat(25_000); // ~650KB
+        // Create diff with content over 500KB
         let file_diff = FileDiff {
             path: "big.rs".to_string(),
             additions: 25_000,
