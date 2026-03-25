@@ -2288,4 +2288,155 @@ mod tests {
         assert_eq!(anchor, Some(2));
         assert_eq!(cursor, Some(3));
     }
+
+    // --- OID-based commit selection persistence tests (Phase 29, Plan 01) ---
+
+    #[test]
+    fn test_set_commits_preserves_selection_by_oid() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2); // select "oid2"
+
+        // Re-set with same OIDs in same order
+        let new_commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(new_commits);
+        assert_eq!(panel.selected_commit_index, Some(2));
+    }
+
+    #[test]
+    fn test_set_commits_finds_oid_at_new_position() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2); // select "oid2"
+
+        // Re-set with reversed order: oid4, oid3, oid2, oid1, oid0
+        let new_commits: Vec<CommitInfo> = (0..5).rev().map(make_commit).collect();
+        panel.set_commits(new_commits);
+        // "oid2" is now at index 2 in the reversed list (4,3,2,1,0)
+        assert_eq!(panel.selected_commit_index, Some(2));
+        assert_eq!(panel.pending_diff_request, Some("oid2".to_string()));
+    }
+
+    #[test]
+    fn test_set_commits_missing_oid_falls_back_to_zero() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2); // select "oid2"
+
+        // Re-set with different OIDs (oid2 is missing)
+        let new_commits: Vec<CommitInfo> = (10..15).map(make_commit).collect();
+        panel.set_commits(new_commits);
+        assert_eq!(panel.selected_commit_index, Some(0));
+        assert_eq!(panel.pending_diff_request, Some("oid10".to_string()));
+    }
+
+    #[test]
+    fn test_set_commits_empty_remains_none() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(1);
+
+        panel.set_commits(vec![]);
+        assert_eq!(panel.selected_commit_index, None);
+        assert_eq!(panel.range_anchor, None);
+    }
+
+    #[test]
+    fn test_set_commits_no_prior_selection_auto_selects_first() {
+        let mut panel = CodeReviewPanel::new();
+        // No prior selection (fresh panel)
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        assert_eq!(panel.selected_commit_index, Some(0));
+        assert_eq!(panel.pending_diff_request, Some("oid0".to_string()));
+    }
+
+    #[test]
+    fn test_set_commits_range_persistence_both_found() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(1); // anchor=1, cursor=1
+        panel.extend_commit_down(); // anchor=1, cursor=2
+        panel.extend_commit_down(); // anchor=1, cursor=3
+
+        // Re-set with same OIDs
+        let new_commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(new_commits);
+        assert_eq!(panel.range_anchor, Some(1));
+        assert_eq!(panel.selected_commit_index, Some(3));
+        // Range diff: oldest = commits[max(1,3)] = oid3, newest = commits[min(1,3)] = oid1
+        assert_eq!(
+            panel.pending_range_diff_request,
+            Some(("oid3".to_string(), "oid1".to_string()))
+        );
+        assert_eq!(panel.pending_diff_request, None);
+    }
+
+    #[test]
+    fn test_set_commits_anchor_missing_collapses_to_single() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(1); // anchor=1, cursor=1
+        panel.extend_commit_down(); // anchor=1, cursor=2
+
+        // Re-set: oid1 (anchor) is missing, oid2 (cursor) still present
+        let new_commits: Vec<CommitInfo> = (2..7).map(make_commit).collect();
+        panel.set_commits(new_commits);
+        // oid2 is at index 0 in new list
+        assert_eq!(panel.selected_commit_index, Some(0));
+        assert_eq!(panel.range_anchor, Some(0)); // collapsed to single
+        assert_eq!(panel.pending_diff_request, Some("oid2".to_string()));
+        assert_eq!(panel.pending_range_diff_request, None);
+    }
+
+    #[test]
+    fn test_set_commits_both_missing_falls_back_to_zero() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(1);
+        panel.extend_commit_down(); // anchor=1, cursor=2
+
+        // Re-set: both oid1 and oid2 are missing
+        let new_commits: Vec<CommitInfo> = (10..15).map(make_commit).collect();
+        panel.set_commits(new_commits);
+        assert_eq!(panel.selected_commit_index, Some(0));
+        assert_eq!(panel.range_anchor, Some(0));
+        assert_eq!(panel.pending_diff_request, Some("oid10".to_string()));
+        assert_eq!(panel.pending_range_diff_request, None);
+    }
+
+    #[test]
+    fn test_set_commits_triggers_diff_for_restored_oid() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(3); // select "oid3"
+
+        let new_commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(new_commits);
+        // Should trigger diff request for oid3, not oid0
+        assert_eq!(panel.pending_diff_request, Some("oid3".to_string()));
+    }
+
+    #[test]
+    fn test_set_commits_range_restored_triggers_range_diff() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(1);
+        panel.extend_commit_down(); // anchor=1, cursor=2
+
+        let new_commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(new_commits);
+        // Should trigger range diff, not single diff
+        assert!(panel.pending_range_diff_request.is_some());
+        assert_eq!(panel.pending_diff_request, None);
+    }
 }
