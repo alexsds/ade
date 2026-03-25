@@ -7,6 +7,35 @@
 
 use gpui::{Context, IntoElement, Styled, div, prelude::*, px, rgba};
 
+use crate::git::types::FileChange;
+
+/// Compute (added, modified, deleted) counts from file changes.
+/// Added: status 'A' or '?' (untracked). Modified: 'M', 'R', 'C', or unknown.
+/// Deleted: 'D'.
+pub fn compute_diff_stats(files: &[FileChange]) -> (usize, usize, usize) {
+    let mut added = 0;
+    let mut modified = 0;
+    let mut deleted = 0;
+    for f in files {
+        match f.status_char {
+            'A' | '?' => added += 1,
+            'M' => modified += 1,
+            'D' => deleted += 1,
+            _ => modified += 1,
+        }
+    }
+    (added, modified, deleted)
+}
+
+/// Format the Changes tab label with an optional file count badge.
+pub fn format_changes_label(count: usize) -> String {
+    if count > 0 {
+        format!("Changes ({})", count)
+    } else {
+        "Changes".to_string()
+    }
+}
+
 /// Render the toolbar bar showing branch status and Code Review toggle.
 ///
 /// Takes branch_name, is_dirty flag, GPUI context, and a click callback
@@ -14,6 +43,7 @@ use gpui::{Context, IntoElement, Styled, div, prelude::*, px, rgba};
 pub fn render_toolbar<V: 'static>(
     branch_name: &str,
     is_dirty: bool,
+    diff_stats: Option<(usize, usize, usize)>,
     cx: &mut Context<V>,
     on_toggle: impl Fn(&mut V, &mut gpui::Window, &mut Context<V>) + 'static,
 ) -> impl IntoElement {
@@ -42,7 +72,7 @@ pub fn render_toolbar<V: 'static>(
         .bg(rgba(0x1e1e1eff))
         .border_b_1()
         .border_color(rgba(0x333333ff))
-        // Left side: colored dot + branch name
+        // Left side: colored dot + branch name + diff stats
         .child(
             div()
                 .flex()
@@ -57,7 +87,40 @@ pub fn render_toolbar<V: 'static>(
                         .text_xs()
                         .text_color(rgba(0xccccccff))
                         .child(branch_display),
-                ),
+                )
+                // Colored diff stats (D-07, D-08): only when non-zero
+                .when(diff_stats.map_or(false, |(a, m, d)| a + m + d > 0), |el| {
+                    let (added, modified, deleted) = diff_stats.unwrap();
+                    el.child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap(px(6.0))
+                            .ml(px(8.0))
+                            .text_xs()
+                            .when(added > 0, |d| {
+                                d.child(
+                                    div()
+                                        .text_color(rgba(0x4ec94eff))
+                                        .child(format!("+{}", added)),
+                                )
+                            })
+                            .when(modified > 0, |d| {
+                                d.child(
+                                    div()
+                                        .text_color(rgba(0xe8a838ff))
+                                        .child(format!("~{}", modified)),
+                                )
+                            })
+                            .when(deleted > 0, |d| {
+                                d.child(
+                                    div()
+                                        .text_color(rgba(0xf85149ff))
+                                        .child(format!("-{}", deleted)),
+                                )
+                            }),
+                    )
+                }),
         )
         // Right side: "Code Review" button
         .child(
@@ -76,4 +139,57 @@ pub fn render_toolbar<V: 'static>(
                 }))
                 .child("Code Review"),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_file(status: char) -> FileChange {
+        FileChange {
+            path: "test.rs".into(),
+            status_char: status,
+            additions: 0,
+            deletions: 0,
+            staging_state: None,
+        }
+    }
+
+    #[test]
+    fn test_compute_diff_stats_mixed() {
+        let files = vec![
+            make_file('M'),
+            make_file('A'),
+            make_file('D'),
+            make_file('?'),
+            make_file('M'),
+        ];
+        assert_eq!(compute_diff_stats(&files), (2, 2, 1));
+    }
+
+    #[test]
+    fn test_compute_diff_stats_empty() {
+        assert_eq!(compute_diff_stats(&[]), (0, 0, 0));
+    }
+
+    #[test]
+    fn test_compute_diff_stats_rename_copy() {
+        let files = vec![make_file('R'), make_file('C')];
+        assert_eq!(compute_diff_stats(&files), (0, 2, 0));
+    }
+
+    #[test]
+    fn test_format_changes_label_zero() {
+        assert_eq!(format_changes_label(0), "Changes");
+    }
+
+    #[test]
+    fn test_format_changes_label_nonzero() {
+        assert_eq!(format_changes_label(3), "Changes (3)");
+    }
+
+    #[test]
+    fn test_format_changes_label_large() {
+        assert_eq!(format_changes_label(99), "Changes (99)");
+    }
 }

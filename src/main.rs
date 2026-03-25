@@ -590,18 +590,33 @@ impl Render for AdeWindow {
                 d.on_key_down(cx.listener(Self::on_code_review_key_down))
             })
             // Toolbar (always visible)
-            .child(toolbar::render_toolbar(
-                &self.branch_status.branch_name,
-                self.branch_status.is_dirty,
-                cx,
-                |this: &mut Self, _window, cx| {
-                    this.mode = match this.mode {
-                        Mode::Terminal => Mode::CodeReview,
-                        Mode::CodeReview => Mode::Terminal,
-                    };
-                    cx.notify();
-                },
-            ))
+            .child({
+                // Compute diff stats only in Code Review mode (D-07, D-08)
+                let diff_stats = if self.mode == Mode::CodeReview {
+                    let panel = self.code_review_panel.read(cx);
+                    let stats = toolbar::compute_diff_stats(panel.changes_files_ref());
+                    if stats.0 + stats.1 + stats.2 > 0 {
+                        Some(stats)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                toolbar::render_toolbar(
+                    &self.branch_status.branch_name,
+                    self.branch_status.is_dirty,
+                    diff_stats,
+                    cx,
+                    |this: &mut Self, _window, cx| {
+                        this.mode = match this.mode {
+                            Mode::Terminal => Mode::CodeReview,
+                            Mode::CodeReview => Mode::Terminal,
+                        };
+                        cx.notify();
+                    },
+                )
+            })
             // Tab bar: only when 2+ tabs and in Terminal mode (D-04)
             .when(show_tab_bar && self.mode == Mode::Terminal, |d| {
                 d.child(tabs::tab_bar::render_tab_bar(

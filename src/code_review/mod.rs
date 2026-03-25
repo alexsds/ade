@@ -11,6 +11,7 @@ pub mod file_list;
 use std::sync::Arc;
 
 use crate::git::types::{CommitInfo, DiffData, FileChange, FileDiff};
+use crate::toolbar::format_changes_label;
 use gpui::{
     Context, FontWeight, IntoElement, ScrollStrategy, SharedString, Styled,
     UniformListScrollHandle, Window, div, prelude::*, px, rgba,
@@ -410,6 +411,11 @@ impl CodeReviewPanel {
         self.changes_files.len()
     }
 
+    /// Return a reference to the Changes tab file list (for computing diff stats).
+    pub fn changes_files_ref(&self) -> &[FileChange] {
+        &self.changes_files
+    }
+
     /// Check if the file list has changed (paths, status, or stats differ).
     fn files_changed(old: &[FileChange], new: &[FileChange]) -> bool {
         if old.len() != new.len() {
@@ -480,8 +486,10 @@ impl CodeReviewPanel {
 /// Active tab has a blue bottom border (D-02). Replaces "Commits" header (D-01).
 fn render_review_tab_bar(
     active_tab: ReviewTab,
+    changes_file_count: usize,
     on_switch: Arc<dyn Fn(ReviewTab, &mut Window, &mut gpui::App) + 'static>,
 ) -> impl IntoElement {
+    let changes_label = format_changes_label(changes_file_count);
     div()
         .w_full()
         .flex()
@@ -490,7 +498,7 @@ fn render_review_tab_bar(
         .border_b_1()
         .border_color(rgba(0x333333ff))
         .child(render_tab_label(
-            "Changes",
+            &changes_label,
             active_tab == ReviewTab::Changes,
             {
                 let on_switch = on_switch.clone();
@@ -681,7 +689,11 @@ impl Render for CodeReviewPanel {
                 .border_r_1()
                 .border_color(rgba(0x333333ff))
                 // Tab bar replaces "Commits" header (D-01)
-                .child(render_review_tab_bar(self.active_tab, tab_on_switch))
+                .child(render_review_tab_bar(
+                    self.active_tab,
+                    self.changes_file_count(),
+                    tab_on_switch,
+                ))
                 // Scrollable commit list
                 .child(div().flex_1().overflow_hidden().child(commit_list_content));
 
@@ -825,7 +837,11 @@ impl Render for CodeReviewPanel {
                 .border_r_1()
                 .border_color(rgba(0x333333ff))
                 // Tab bar (D-01)
-                .child(render_review_tab_bar(self.active_tab, tab_on_switch))
+                .child(render_review_tab_bar(
+                    self.active_tab,
+                    self.changes_file_count(),
+                    tab_on_switch,
+                ))
                 // File list (directly below tabs, no separate header)
                 .child(
                     div()
