@@ -236,13 +236,31 @@ impl CodeReviewPanel {
     }
 
     /// Set the diff data (from GitResponse::Diff). Populates the file list.
+    /// Preserves file selection by path: if the previously-selected file path exists in the
+    /// new file list, selection is restored at its new index. Falls back to index 0 if not found.
     pub fn set_diff(&mut self, diff: DiffData) {
+        // Snapshot selected file path before replacing
+        let prev_file_path = self
+            .selected_file_index
+            .and_then(|i| self.files.get(i))
+            .map(|f| f.path.clone());
+
         self.files = diff.files.clone();
-        // D-07: auto-select first file when diff arrives
-        self.selected_file_index = if self.files.is_empty() { None } else { Some(0) };
         self.diff_data = Some(diff);
         // Reset diff scroll position when new diff loads
         self.diff_scroll_top = 0;
+
+        // Restore file selection by path (D-08), fall back to first if not found
+        if let Some(ref path) = prev_file_path {
+            if let Some(idx) = self.files.iter().position(|f| f.path == *path) {
+                self.selected_file_index = Some(idx);
+            } else {
+                self.selected_file_index = if self.files.is_empty() { None } else { Some(0) };
+            }
+        } else {
+            // D-07: auto-select first file when diff arrives (no prior selection)
+            self.selected_file_index = if self.files.is_empty() { None } else { Some(0) };
+        }
     }
 
     /// Maximum commits the panel will hold (defense-in-depth, independent of provider cap).
@@ -2515,8 +2533,18 @@ mod tests {
                 },
             ],
             file_diffs: vec![
-                FileDiff { path: "a.rs".into(), additions: 1, deletions: 0, hunks: vec![] },
-                FileDiff { path: "b.rs".into(), additions: 5, deletions: 0, hunks: vec![] },
+                FileDiff {
+                    path: "a.rs".into(),
+                    additions: 1,
+                    deletions: 0,
+                    hunks: vec![],
+                },
+                FileDiff {
+                    path: "b.rs".into(),
+                    additions: 5,
+                    deletions: 0,
+                    hunks: vec![],
+                },
             ],
         };
         panel.set_diff(diff1);
@@ -2548,9 +2576,24 @@ mod tests {
                 },
             ],
             file_diffs: vec![
-                FileDiff { path: "c.rs".into(), additions: 3, deletions: 0, hunks: vec![] },
-                FileDiff { path: "a.rs".into(), additions: 2, deletions: 0, hunks: vec![] },
-                FileDiff { path: "b.rs".into(), additions: 7, deletions: 0, hunks: vec![] },
+                FileDiff {
+                    path: "c.rs".into(),
+                    additions: 3,
+                    deletions: 0,
+                    hunks: vec![],
+                },
+                FileDiff {
+                    path: "a.rs".into(),
+                    additions: 2,
+                    deletions: 0,
+                    hunks: vec![],
+                },
+                FileDiff {
+                    path: "b.rs".into(),
+                    additions: 7,
+                    deletions: 0,
+                    hunks: vec![],
+                },
             ],
         };
         panel.set_diff(diff2);
@@ -2579,8 +2622,18 @@ mod tests {
                 },
             ],
             file_diffs: vec![
-                FileDiff { path: "a.rs".into(), additions: 1, deletions: 0, hunks: vec![] },
-                FileDiff { path: "gone.rs".into(), additions: 0, deletions: 5, hunks: vec![] },
+                FileDiff {
+                    path: "a.rs".into(),
+                    additions: 1,
+                    deletions: 0,
+                    hunks: vec![],
+                },
+                FileDiff {
+                    path: "gone.rs".into(),
+                    additions: 0,
+                    deletions: 5,
+                    hunks: vec![],
+                },
             ],
         };
         panel.set_diff(diff1);
@@ -2713,8 +2766,18 @@ mod tests {
                 },
             ],
             file_diffs: vec![
-                FileDiff { path: "a.rs".into(), additions: 1, deletions: 0, hunks: vec![] },
-                FileDiff { path: "b.rs".into(), additions: 3, deletions: 0, hunks: vec![] },
+                FileDiff {
+                    path: "a.rs".into(),
+                    additions: 1,
+                    deletions: 0,
+                    hunks: vec![],
+                },
+                FileDiff {
+                    path: "b.rs".into(),
+                    additions: 3,
+                    deletions: 0,
+                    hunks: vec![],
+                },
             ],
         };
         panel.set_diff(diff_data);
