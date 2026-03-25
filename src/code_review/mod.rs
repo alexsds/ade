@@ -405,18 +405,60 @@ impl CodeReviewPanel {
         diff_data.file_diffs.first()
     }
 
-    /// Set the Changes tab file list. Auto-selects first file and triggers diff request (CHG-05).
+    /// Return the number of files in the Changes tab file list.
+    pub fn changes_file_count(&self) -> usize {
+        self.changes_files.len()
+    }
+
+    /// Check if the file list has changed (paths, status, or stats differ).
+    fn files_changed(old: &[FileChange], new: &[FileChange]) -> bool {
+        if old.len() != new.len() {
+            return true;
+        }
+        old.iter().zip(new.iter()).any(|(a, b)| {
+            a.path != b.path
+                || a.status_char != b.status_char
+                || a.additions != b.additions
+                || a.deletions != b.deletions
+        })
+    }
+
+    /// Set the Changes tab file list with path-based selection preservation (D-01).
+    /// Preserves the previously selected file by path across refreshes.
+    /// Skips diff re-fetch when file list is unchanged (D-03 optimization).
     pub fn set_changes_files(&mut self, files: Vec<FileChange>) {
+        let prev_path = self
+            .selected_changes_file_index
+            .and_then(|i| self.changes_files.get(i))
+            .map(|f| f.path.clone());
+        let changed = Self::files_changed(&self.changes_files, &files);
+
         self.changes_files = files;
+
         if self.changes_files.is_empty() {
             self.selected_changes_file_index = None;
+            self.changes_diff_data = None;
+            self.pending_changes_diff_request = None;
+        } else if let Some(ref path) = prev_path {
+            if let Some(new_idx) = self.changes_files.iter().position(|f| f.path == *path) {
+                self.selected_changes_file_index = Some(new_idx);
+                if changed {
+                    self.pending_changes_diff_request = Some(path.clone());
+                    self.changes_diff_scroll_top = 0;
+                }
+            } else {
+                // Previously selected file gone -- fall back to first
+                self.selected_changes_file_index = Some(0);
+                self.pending_changes_diff_request =
+                    Some(self.changes_files[0].path.clone());
+                self.changes_diff_scroll_top = 0;
+            }
         } else {
+            // No prior selection -- auto-cascade to first (CHG-05)
             self.selected_changes_file_index = Some(0);
-            // Auto-cascade: load diff for first file (per D-08)
             self.pending_changes_diff_request = Some(self.changes_files[0].path.clone());
+            self.changes_diff_scroll_top = 0;
         }
-        self.changes_diff_data = None;
-        self.changes_diff_scroll_top = 0;
     }
 
     /// Set the Changes tab diff data (from GitResponse::WorkingTreeDiff).
