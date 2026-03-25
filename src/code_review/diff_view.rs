@@ -13,6 +13,66 @@ use gpui::{
     UniformListScrollHandle, Window, div, prelude::*, px, rgba, uniform_list,
 };
 
+/// Prepare highlight ranges for GPUI's StyledText.
+///
+/// GPUI's `compute_runs` (elements/text.rs) iterates highlights in order,
+/// tracking a byte position `ix`. It expects highlights sorted by start and
+/// non-overlapping. When syntax highlights and intra-line highlights are
+/// combined, they may be unsorted and overlap, causing TextRun lengths that
+/// don't sum to the text length. This produces FontRun boundaries at invalid
+/// byte positions, and MacTextSystemState::layout_line panics on str::split_at.
+///
+/// This function:
+/// 1. Snaps all range endpoints to valid UTF-8 char boundaries
+/// 2. Sorts highlights by range start
+/// 3. Clips overlapping ranges so each highlight starts after the previous ends
+fn prepare_highlights(text: &str, highlights: &mut Vec<(std::ops::Range<usize>, HighlightStyle)>) {
+    if highlights.is_empty() {
+        return;
+    }
+
+    let len = text.len();
+
+    // Snap to char boundaries and clamp to text length
+    for (range, _) in highlights.iter_mut() {
+        range.start = range.start.min(len);
+        range.end = range.end.min(len);
+        // Snap start forward to nearest char boundary
+        while range.start < len && !text.is_char_boundary(range.start) {
+            range.start += 1;
+        }
+        // Snap end backward to nearest char boundary
+        while range.end > 0 && !text.is_char_boundary(range.end) {
+            range.end -= 1;
+        }
+    }
+
+    // Remove empty ranges
+    highlights.retain(|(range, _)| range.start < range.end);
+
+    // Sort by range start
+    highlights.sort_by_key(|(range, _)| range.start);
+
+    // Clip overlapping ranges: each range must start at or after the previous end
+    let mut max_end = 0usize;
+    for (range, _) in highlights.iter_mut() {
+        if range.start < max_end {
+            range.start = max_end;
+            // Re-snap start forward after clipping
+            while range.start < len && !text.is_char_boundary(range.start) {
+                range.start += 1;
+            }
+        }
+        if range.end < range.start {
+            range.end = range.start;
+        }
+        max_end = max_end.max(range.end);
+    }
+
+    // Remove ranges that became empty after clipping
+    highlights.retain(|(range, _)| range.start < range.end);
+}
+
 /// A flattened diff row — either a hunk header or a diff line.
 /// This allows uniform_list to render all rows in a single flat list.
 #[derive(Clone)]
@@ -196,6 +256,7 @@ fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
                     if has_highlights {
                         let mut combined = highlights.clone();
                         combined.extend(intra_line_highlights.iter().cloned());
+                        prepare_highlights(content, &mut combined);
                         div().flex_1().pl(px(8.0)).text_color(text_color).child(
                             StyledText::new(SharedString::from(content.clone()))
                                 .with_highlights(combined),
@@ -376,6 +437,130 @@ mod tests {
         let rows = flatten_diff(&file_diff);
         // 1 hunk header + 4 lines = 5 rows
         assert_eq!(rows.len(), 5);
+    }
+
+    #[test]
+    fn test_prepare_highlights_sorts_and_deduplicates() {
+        let text = "hello world test";
+        let style = HighlightStyle {
+            color: Some(rgba(0xff0000ff).into()),
+            ..Default::default()
+        };
+        let mut highlights = vec![
+            (10..14, style), // "test" (later in text)
+            (0..5, style),   // "hello" (earlier in text)
+        ];
+        prepare_highlights(text, &mut highlights);
+        // Should be sorted by start
+        assert_eq!(highlights[0].0, 0..5);
+        assert_eq!(highlights[1].0, 10..14);
+    }
+
+    #[test]
+    fn test_prepare_highlights_clips_overlap() {
+        let text = "hello world test";
+        let style = HighlightStyle {
+            color: Some(rgba(0xff0000ff).into()),
+            ..Default::default()
+        };
+        let mut highlights = vec![
+            (0..10, style), // "hello worl"
+            (5..14, style), // "world test" — overlaps with first
+        ];
+        prepare_highlights(text, &mut highlights);
+        assert_eq!(highlights[0].0, 0..10);
+        // Second range should be clipped to start at 10
+        assert_eq!(highlights[1].0, 10..14);
+    }
+
+    #[test]
+    fn test_prepare_highlights_snaps_multibyte_boundaries() {
+        // Em dash is 3 bytes (E2 80 94) at bytes 5..8 in "hello\u{2014}world"
+        let text = "hello\u{2014}world";
+        let style = HighlightStyle {
+            color: Some(rgba(0xff0000ff).into()),
+            ..Default::default()
+        };
+        // Range ending inside em dash (byte 6 is not a char boundary)
+        let mut highlights = vec![(0..6, style)];
+        prepare_highlights(text, &mut highlights);
+        // Should snap end backward to byte 5 (start of em dash)
+        assert_eq!(highlights[0].0, 0..5);
+
+        // Range starting inside em dash (byte 6 is not a char boundary)
+        let mut highlights = vec![(6..13, style)];
+        prepare_highlights(text, &mut highlights);
+        // Should snap start forward to byte 8 (end of em dash)
+        assert_eq!(highlights[0].0, 8..13);
+    }
+
+    #[test]
+    fn test_prepare_highlights_empty_after_clip() {
+        let text = "hello world";
+        let style = HighlightStyle {
+            color: Some(rgba(0xff0000ff).into()),
+            ..Default::default()
+        };
+        // Second range is entirely within the first — gets clipped to empty
+        let mut highlights = vec![(0..10, style), (3..7, style)];
+        prepare_highlights(text, &mut highlights);
+        assert_eq!(highlights.len(), 1);
+        assert_eq!(highlights[0].0, 0..10);
+    }
+
+    #[test]
+    fn test_prepare_highlights_empty_input() {
+        let text = "hello";
+        let mut highlights: Vec<(std::ops::Range<usize>, HighlightStyle)> = vec![];
+        prepare_highlights(text, &mut highlights);
+        assert!(highlights.is_empty());
+    }
+
+    #[test]
+    fn test_prepare_highlights_exact_emdash_crash_scenario() {
+        // Reproduces the exact scenario from the bug report:
+        // Syntax highlights and intra-line highlights combined unsorted
+        let text = "- \u{2713} Build script to produce Ade.app from cargo build output \u{2014} v1.1 Phase 6";
+        let syntax_style = HighlightStyle {
+            color: Some(rgba(0x79c0ffff).into()),
+            ..Default::default()
+        };
+        let intra_style = HighlightStyle {
+            background_color: Some(rgba(0x2ea04370).into()),
+            ..Default::default()
+        };
+
+        // Simulate: syntax highlight covers a range, intra-line highlight overlaps
+        // The key is that combined list is unsorted and overlapping
+        let mut combined = vec![
+            (0..62, syntax_style),  // syntax: before em dash
+            (65..78, syntax_style), // syntax: after em dash
+            (30..50, intra_style),  // intra: overlaps with syntax
+        ];
+        prepare_highlights(text, &mut combined);
+
+        // Verify all ranges are on char boundaries and non-overlapping
+        let mut max_end = 0usize;
+        for (range, _) in &combined {
+            assert!(
+                text.is_char_boundary(range.start),
+                "start {} not a char boundary",
+                range.start
+            );
+            assert!(
+                text.is_char_boundary(range.end),
+                "end {} not a char boundary",
+                range.end
+            );
+            assert!(
+                range.start >= max_end,
+                "overlap: range {:?} starts before prev end {}",
+                range,
+                max_end
+            );
+            assert!(range.start < range.end, "empty range: {:?}", range);
+            max_end = range.end;
+        }
     }
 
     #[test]

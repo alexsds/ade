@@ -14,6 +14,27 @@ use super::languages::Language;
 use super::theme::style_for_highlight;
 use crate::git::types::{DiffLineType, FileDiff};
 
+/// Snap a byte offset to the nearest valid UTF-8 char boundary.
+/// Forward for range starts, backward for range ends. Prevents GPUI
+/// `layout_line` panics when tree-sitter ranges land inside multi-byte chars.
+fn snap_char_boundary(text: &str, offset: usize, forward: bool) -> usize {
+    let len = text.len();
+    let offset = offset.min(len);
+    if text.is_char_boundary(offset) {
+        return offset;
+    }
+    if forward {
+        (offset..=len)
+            .find(|&i| text.is_char_boundary(i))
+            .unwrap_or(len)
+    } else {
+        (0..offset)
+            .rev()
+            .find(|&i| text.is_char_boundary(i))
+            .unwrap_or(0)
+    }
+}
+
 /// Maximum content size for highlighting (500KB). Content exceeding this
 /// threshold is skipped to maintain frame budget. Tree-sitter can parse
 /// ~1MB in ~10ms, but we leave headroom for the mapping pass.
@@ -138,6 +159,10 @@ impl SyntaxHighlighter {
                                 }
                                 let local_start = start.saturating_sub(ls);
                                 let local_end = if end < le { end - ls } else { le - ls };
+                                // Snap to char boundaries to prevent GPUI split_at panic
+                                let line_text = &source[ls..le];
+                                let local_start = snap_char_boundary(line_text, local_start, true);
+                                let local_end = snap_char_boundary(line_text, local_end, false);
                                 if local_start < local_end && (first + i) < result.len() {
                                     result[first + i].push((local_start..local_end, style));
                                 }
@@ -357,6 +382,10 @@ fn highlight_source<'a>(
                         } else {
                             line_end - line_start
                         };
+                        // Snap to char boundaries to prevent GPUI split_at panic
+                        let line_text = &source[line_start..line_end];
+                        let local_start = snap_char_boundary(line_text, local_start, true);
+                        let local_end = snap_char_boundary(line_text, local_end, false);
                         if local_start < local_end {
                             result
                                 .entry(flat_idx)
