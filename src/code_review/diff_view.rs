@@ -145,7 +145,7 @@ fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
             content,
             line_type,
             highlights,
-            intra_line_highlights: _,
+            intra_line_highlights,
         } => {
             let (line_bg, text_color) = match line_type {
                 DiffLineType::Add => (Some(rgba(0x23863620)), rgba(0x7ee787ff)),
@@ -189,18 +189,24 @@ fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
                         .text_align(TextAlign::Right)
                         .child(new_text),
                 )
-                // Line content — use StyledText for syntax-highlighted lines
-                .child(if !highlights.is_empty() {
-                    div().flex_1().pl(px(8.0)).text_color(text_color).child(
-                        StyledText::new(SharedString::from(content.clone()))
-                            .with_highlights(highlights.clone()),
-                    )
-                } else {
-                    div()
-                        .flex_1()
-                        .pl(px(8.0))
-                        .text_color(text_color)
-                        .child(content.clone())
+                // Line content — use StyledText for syntax + intra-line highlights
+                .child({
+                    let has_highlights =
+                        !highlights.is_empty() || !intra_line_highlights.is_empty();
+                    if has_highlights {
+                        let mut combined = highlights.clone();
+                        combined.extend(intra_line_highlights.iter().cloned());
+                        div().flex_1().pl(px(8.0)).text_color(text_color).child(
+                            StyledText::new(SharedString::from(content.clone()))
+                                .with_highlights(combined),
+                        )
+                    } else {
+                        div()
+                            .flex_1()
+                            .pl(px(8.0))
+                            .text_color(text_color)
+                            .child(content.clone())
+                    }
                 });
 
             if let Some(bg) = line_bg {
