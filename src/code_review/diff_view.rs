@@ -150,22 +150,24 @@ fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
             let old_text = old_lineno.map(|n| format!("{}", n)).unwrap_or_default();
             let new_text = new_lineno.map(|n| format!("{}", n)).unwrap_or_default();
 
+            let line_height = px(DIFF_LINE_HEIGHT);
+
             let mut row = div()
                 .id(("diff-row", index))
-                .h(px(DIFF_LINE_HEIGHT))
+                .h(line_height)
                 .w_full()
                 .flex()
                 .flex_row()
-                .items_center()
+                .text_size(px(12.0))
+                .line_height(line_height)
                 // Old line number gutter
                 .child(
                     div()
                         .w(px(40.0))
                         .flex_shrink_0()
-                        .text_align(TextAlign::Right)
-                        .text_xs()
                         .text_color(rgba(0x555555ff))
                         .pr(px(4.0))
+                        .text_align(TextAlign::Right)
                         .child(old_text),
                 )
                 // New line number gutter
@@ -173,18 +175,16 @@ fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
                     div()
                         .w(px(40.0))
                         .flex_shrink_0()
-                        .text_align(TextAlign::Right)
-                        .text_xs()
                         .text_color(rgba(0x555555ff))
                         .pr(px(4.0))
+                        .text_align(TextAlign::Right)
                         .child(new_text),
                 )
-                // Line content — single element for smooth scroll performance
+                // Line content
                 .child(
                     div()
                         .flex_1()
                         .pl(px(8.0))
-                        .text_xs()
                         .text_color(text_color)
                         .child(content.clone()),
                 );
