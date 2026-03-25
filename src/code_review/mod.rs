@@ -112,6 +112,14 @@ pub struct CodeReviewPanel {
     /// Flag to request a fresh working tree file list from GitProvider.
     /// Polled by main.rs to dispatch FetchWorkingTreeFiles.
     pub pending_working_tree_request: bool,
+
+    /// Anchor index for range selection (fixed end). When anchor == selected_commit_index,
+    /// it is a single selection. Set on every select_commit call (D-02, Pitfall 1).
+    pub range_anchor: Option<usize>,
+    /// Set when anchor != cursor. Tuple is (oldest_oid, newest_oid) where
+    /// oldest = commits[max(anchor,cursor)].oid, newest = commits[min(anchor,cursor)].oid.
+    /// Polled by AdeWindow to request combined diff from GitProvider.
+    pub pending_range_diff_request: Option<(String, String)>,
 }
 
 impl CodeReviewPanel {
@@ -145,6 +153,8 @@ impl CodeReviewPanel {
             changes_diff_visible_rows: 0,
             pending_changes_diff_request: None,
             pending_working_tree_request: false,
+            range_anchor: None,
+            pending_range_diff_request: None,
         }
     }
 
@@ -163,10 +173,13 @@ impl CodeReviewPanel {
         // D-07 / Pitfall 4: auto-select first commit when commits arrive
         if self.commits.is_empty() {
             self.selected_commit_index = None;
+            self.range_anchor = None;
         } else {
             self.selected_commit_index = Some(0);
+            self.range_anchor = Some(0);
             self.pending_diff_request = Some(self.commits[0].oid.clone());
         }
+        self.pending_range_diff_request = None;
         // D-06: reset active panel to commit list on fresh load
         self.active_panel = ActivePanel::CommitList;
     }
@@ -205,13 +218,16 @@ impl CodeReviewPanel {
     }
 
     /// Select a commit by index. Sets pending_diff_request for the parent to pick up.
+    /// Resets range_anchor to the selected index (single selection, D-02, Pitfall 1).
     pub fn select_commit(&mut self, index: usize) {
         if index < self.commits.len() {
             self.selected_commit_index = Some(index);
+            self.range_anchor = Some(index);
             self.files.clear();
             self.selected_file_index = None;
             self.diff_data = None;
             self.pending_diff_request = Some(self.commits[index].oid.clone());
+            self.pending_range_diff_request = None;
         }
     }
 
@@ -485,6 +501,102 @@ impl CodeReviewPanel {
             self.selected_changes_file_index = Some(index);
             self.pending_changes_diff_request = Some(self.changes_files[index].path.clone());
             self.changes_diff_scroll_top = 0;
+        }
+    }
+
+    // --- Range selection methods (Phase 27) ---
+
+    /// Extend commit selection upward (Shift+Up). Anchor stays fixed, cursor moves up.
+    /// Boundary stop at index 0 (D-11). Lazily initializes anchor if None (Pitfall 2).
+    pub fn extend_commit_up(&mut self) {
+        let Some(index) = self.selected_commit_index else {
+            return;
+        };
+        if index == 0 {
+            return;
+        }
+        // Lazy anchor init (Pitfall 2)
+        if self.range_anchor.is_none() {
+            self.range_anchor = Some(index);
+        }
+        let new_cursor = index - 1;
+        self.selected_commit_index = Some(new_cursor);
+        self.files.clear();
+        self.selected_file_index = None;
+        self.diff_data = None;
+        self.set_pending_diff_for_selection();
+        self.commit_scroll_handle
+            .scroll_to_item(new_cursor, ScrollStrategy::Nearest);
+    }
+
+    /// Extend commit selection downward (Shift+Down). Anchor stays fixed, cursor moves down.
+    /// Boundary stop at last index (D-11). Lazily initializes anchor if None (Pitfall 2).
+    pub fn extend_commit_down(&mut self) {
+        let Some(index) = self.selected_commit_index else {
+            return;
+        };
+        if index >= self.commits.len().saturating_sub(1) {
+            return;
+        }
+        // Lazy anchor init (Pitfall 2)
+        if self.range_anchor.is_none() {
+            self.range_anchor = Some(index);
+        }
+        let new_cursor = index + 1;
+        self.selected_commit_index = Some(new_cursor);
+        self.files.clear();
+        self.selected_file_index = None;
+        self.diff_data = None;
+        self.set_pending_diff_for_selection();
+        self.commit_scroll_handle
+            .scroll_to_item(new_cursor, ScrollStrategy::Nearest);
+    }
+
+    /// Select a commit with Shift held (Shift+Click). Anchor stays fixed, cursor moves to target.
+    /// No-op if target == anchor (D-03) or if anchor is None (treated as plain click).
+    pub fn select_commit_with_shift(&mut self, target: usize) {
+        if target >= self.commits.len() {
+            return;
+        }
+        let Some(anchor) = self.range_anchor else {
+            // No anchor: treat as plain click
+            self.select_commit(target);
+            return;
+        };
+        if target == anchor {
+            return; // No-op (D-03)
+        }
+        self.selected_commit_index = Some(target);
+        self.files.clear();
+        self.selected_file_index = None;
+        self.diff_data = None;
+        self.set_pending_diff_for_selection();
+    }
+
+    /// Return (anchor, cursor) for render_commit_list range highlighting.
+    pub fn selected_range(&self) -> (Option<usize>, Option<usize>) {
+        (self.range_anchor, self.selected_commit_index)
+    }
+
+    /// Set the pending diff request based on current anchor/cursor state.
+    /// If anchor == cursor: single diff. If anchor != cursor: range diff.
+    fn set_pending_diff_for_selection(&mut self) {
+        let anchor = self.range_anchor;
+        let cursor = self.selected_commit_index;
+        match (anchor, cursor) {
+            (Some(a), Some(c)) if a != c => {
+                let lo = a.min(c);
+                let hi = a.max(c);
+                let newest_oid = self.commits[lo].oid.clone();
+                let oldest_oid = self.commits[hi].oid.clone();
+                self.pending_range_diff_request = Some((oldest_oid, newest_oid));
+                self.pending_diff_request = None;
+            }
+            (_, Some(c)) => {
+                self.pending_diff_request = Some(self.commits[c].oid.clone());
+                self.pending_range_diff_request = None;
+            }
+            _ => {}
         }
     }
 }
@@ -1978,5 +2090,163 @@ mod tests {
             staging_state: None,
         }];
         assert!(CodeReviewPanel::files_changed(&old, &new));
+    }
+
+    // --- Range selection tests (Phase 27, Plan 01) ---
+
+    #[test]
+    fn test_select_commit_sets_anchor() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(3);
+        assert_eq!(panel.range_anchor, Some(3));
+        assert_eq!(panel.selected_commit_index, Some(3));
+        assert_eq!(panel.pending_diff_request, Some("oid3".to_string()));
+    }
+
+    #[test]
+    fn test_extend_commit_down() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2);
+        panel.pending_diff_request = None;
+        panel.extend_commit_down();
+        assert_eq!(panel.selected_commit_index, Some(3));
+        assert_eq!(panel.range_anchor, Some(2));
+        // oldest_oid = commits[max(2,3)] = commits[3].oid = "oid3"
+        // newest_oid = commits[min(2,3)] = commits[2].oid = "oid2"
+        assert_eq!(
+            panel.pending_range_diff_request,
+            Some(("oid3".to_string(), "oid2".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_extend_commit_up() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2);
+        panel.pending_diff_request = None;
+        panel.extend_commit_up();
+        assert_eq!(panel.selected_commit_index, Some(1));
+        assert_eq!(panel.range_anchor, Some(2));
+        // oldest_oid = commits[max(2,1)] = commits[2].oid = "oid2"
+        // newest_oid = commits[min(2,1)] = commits[1].oid = "oid1"
+        assert_eq!(
+            panel.pending_range_diff_request,
+            Some(("oid2".to_string(), "oid1".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_extend_boundary_up_at_zero() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        // set_commits auto-selects index 0
+        panel.extend_commit_up();
+        assert_eq!(panel.selected_commit_index, Some(0));
+    }
+
+    #[test]
+    fn test_extend_boundary_down_at_last() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2);
+        panel.extend_commit_down();
+        assert_eq!(panel.selected_commit_index, Some(2));
+    }
+
+    #[test]
+    fn test_plain_click_resets_range() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2);
+        // Extend to create a range
+        panel.extend_commit_down();
+        panel.extend_commit_down();
+        assert_eq!(panel.range_anchor, Some(2));
+        assert_eq!(panel.selected_commit_index, Some(4));
+        // Plain click should reset
+        panel.select_commit(1);
+        assert_eq!(panel.range_anchor, Some(1));
+        assert_eq!(panel.selected_commit_index, Some(1));
+        assert_eq!(panel.pending_diff_request, Some("oid1".to_string()));
+        assert_eq!(panel.pending_range_diff_request, None);
+    }
+
+    #[test]
+    fn test_shift_click() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2);
+        panel.select_commit_with_shift(4);
+        assert_eq!(panel.range_anchor, Some(2));
+        assert_eq!(panel.selected_commit_index, Some(4));
+        // oldest_oid = commits[max(2,4)] = commits[4].oid = "oid4"
+        // newest_oid = commits[min(2,4)] = commits[2].oid = "oid2"
+        assert_eq!(
+            panel.pending_range_diff_request,
+            Some(("oid4".to_string(), "oid2".to_string()))
+        );
+        assert_eq!(panel.pending_diff_request, None);
+    }
+
+    #[test]
+    fn test_shift_click_on_anchor_noop() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2);
+        panel.pending_diff_request = None;
+        panel.select_commit_with_shift(2);
+        // Should be a no-op: anchor == target (D-03)
+        assert_eq!(panel.range_anchor, Some(2));
+        assert_eq!(panel.selected_commit_index, Some(2));
+        assert_eq!(panel.pending_diff_request, None);
+    }
+
+    #[test]
+    fn test_extend_initializes_anchor_lazily() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2);
+        // Force anchor to None to test lazy init
+        panel.range_anchor = None;
+        panel.extend_commit_down();
+        // Should have lazily set anchor to 2 (current cursor) then moved cursor to 3
+        assert_eq!(panel.range_anchor, Some(2));
+        assert_eq!(panel.selected_commit_index, Some(3));
+    }
+
+    #[test]
+    fn test_set_commits_resets_anchor() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        // set_commits auto-selects index 0, so anchor should be Some(0)
+        assert_eq!(panel.range_anchor, Some(0));
+        // Empty commits: anchor should be None
+        panel.set_commits(vec![]);
+        assert_eq!(panel.range_anchor, None);
+    }
+
+    #[test]
+    fn test_selected_range() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(2);
+        panel.extend_commit_down();
+        let (anchor, cursor) = panel.selected_range();
+        assert_eq!(anchor, Some(2));
+        assert_eq!(cursor, Some(3));
     }
 }
