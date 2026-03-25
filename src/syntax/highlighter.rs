@@ -118,8 +118,7 @@ impl SyntaxHighlighter {
                                 let local_start = start.saturating_sub(ls);
                                 let local_end = if end < le { end - ls } else { le - ls };
                                 if local_start < local_end && (first + i) < result.len() {
-                                    result[first + i]
-                                        .push((local_start..local_end, style));
+                                    result[first + i].push((local_start..local_end, style));
                                 }
                             }
                         }

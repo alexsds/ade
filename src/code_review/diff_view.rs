@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use crate::code_review::intra_line;
 use crate::git::types::{DiffLineType, FileDiff};
 use crate::syntax::SyntaxHighlighter;
 use gpui::{
@@ -23,6 +24,7 @@ pub enum DiffRow {
         content: String,
         line_type: DiffLineType,
         highlights: Vec<(std::ops::Range<usize>, HighlightStyle)>,
+        intra_line_highlights: Vec<(std::ops::Range<usize>, HighlightStyle)>,
     },
 }
 
@@ -40,6 +42,7 @@ pub fn flatten_diff(file_diff: &FileDiff) -> Vec<DiffRow> {
                 content: line.content.clone(),
                 line_type: line.line_type.clone(),
                 highlights: vec![],
+                intra_line_highlights: vec![],
             });
         }
     }
@@ -69,10 +72,12 @@ pub fn flatten_and_highlight_diff(
                 content: line.content.clone(),
                 line_type: line.line_type.clone(),
                 highlights,
+                intra_line_highlights: vec![],
             });
             flat_idx += 1;
         }
     }
+    intra_line::compute_intra_line_highlights(&mut rows);
     rows
 }
 
@@ -140,6 +145,7 @@ fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
             content,
             line_type,
             highlights,
+            intra_line_highlights: _,
         } => {
             let (line_bg, text_color) = match line_type {
                 DiffLineType::Add => (Some(rgba(0x23863620)), rgba(0x7ee787ff)),
