@@ -304,8 +304,7 @@ fn highlight_source(
                         continue;
                     }
                     // Find overlapping lines via binary search (offsets are sorted by start)
-                    let first = line_offsets
-                        .partition_point(|&(_, line_end, _)| line_end <= start);
+                    let first = line_offsets.partition_point(|&(_, line_end, _)| line_end <= start);
                     for &(line_start, line_end, flat_idx) in &line_offsets[first..] {
                         if end <= line_start {
                             break; // past the highlight range

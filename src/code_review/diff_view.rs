@@ -8,8 +8,8 @@ use std::sync::Arc;
 use crate::git::types::{DiffLineType, FileDiff};
 use crate::syntax::SyntaxHighlighter;
 use gpui::{
-    FontWeight, HighlightStyle, IntoElement, Styled, TextAlign, UniformListScrollHandle, Window,
-    div, prelude::*, px, rgba, uniform_list,
+    FontWeight, HighlightStyle, IntoElement, SharedString, Styled, StyledText, TextAlign,
+    UniformListScrollHandle, Window, div, prelude::*, px, rgba, uniform_list,
 };
 
 /// A flattened diff row — either a hunk header or a diff line.
@@ -139,7 +139,7 @@ fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
             new_lineno,
             content,
             line_type,
-            ..
+            highlights,
         } => {
             let (line_bg, text_color) = match line_type {
                 DiffLineType::Add => (Some(rgba(0x23863620)), rgba(0x7ee787ff)),
@@ -183,14 +183,19 @@ fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
                         .text_align(TextAlign::Right)
                         .child(new_text),
                 )
-                // Line content
-                .child(
+                // Line content — use StyledText for syntax-highlighted lines
+                .child(if !highlights.is_empty() {
+                    div().flex_1().pl(px(8.0)).text_color(text_color).child(
+                        StyledText::new(SharedString::from(content.clone()))
+                            .with_highlights(highlights.clone()),
+                    )
+                } else {
                     div()
                         .flex_1()
                         .pl(px(8.0))
                         .text_color(text_color)
-                        .child(content.clone()),
-                );
+                        .child(content.clone())
+                });
 
             if let Some(bg) = line_bg {
                 row = row.bg(bg);
