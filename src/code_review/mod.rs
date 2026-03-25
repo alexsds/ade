@@ -71,7 +71,7 @@ pub struct CodeReviewPanel {
     /// Set by select_commit; polled by AdeWindow to request diff from GitProvider
     pub pending_diff_request: Option<String>,
     /// Shared syntax highlighting resources (created once, reused for all diffs)
-    syntax_highlighter: diff_view::SyntaxHighlighter,
+    syntax_highlighter: crate::syntax::SyntaxHighlighter,
     /// True while a FetchMoreLog request is in flight (prevents duplicate requests)
     pub loading_more: bool,
     /// True when the revwalk has reached the end of history (no more batches)
@@ -124,7 +124,7 @@ impl CodeReviewPanel {
             diff_data: None,
             loading: true,
             pending_diff_request: None,
-            syntax_highlighter: diff_view::SyntaxHighlighter::new(),
+            syntax_highlighter: crate::syntax::SyntaxHighlighter::new(),
             loading_more: false,
             all_commits_loaded: false,
             visible_range_end: 0,
@@ -312,9 +312,12 @@ impl CodeReviewPanel {
     }
 
     /// Return the total number of diff rows for the currently selected file (for scroll boundary).
-    pub fn diff_row_count(&self) -> usize {
+    pub fn diff_row_count(&mut self) -> usize {
         self.selected_file_diff()
-            .map(|fd| diff_view::flatten_and_highlight_diff(fd, &self.syntax_highlighter).len())
+            .cloned()
+            .map(|fd| {
+                diff_view::flatten_and_highlight_diff(&fd, &mut self.syntax_highlighter).len()
+            })
             .unwrap_or(0)
     }
 
@@ -392,9 +395,12 @@ impl CodeReviewPanel {
     }
 
     /// Return the total number of diff rows for the Changes tab selected file.
-    pub fn changes_diff_row_count(&self) -> usize {
+    pub fn changes_diff_row_count(&mut self) -> usize {
         self.selected_changes_file_diff()
-            .map(|fd| diff_view::flatten_and_highlight_diff(fd, &self.syntax_highlighter).len())
+            .cloned()
+            .map(|fd| {
+                diff_view::flatten_and_highlight_diff(&fd, &mut self.syntax_highlighter).len()
+            })
             .unwrap_or(0)
     }
 
@@ -761,18 +767,19 @@ impl Render for CodeReviewPanel {
                                         ),
                                 )
                                 .child({
-                                    let diff_content =
-                                        if let Some(file_diff) = self.selected_file_diff() {
-                                            diff_view::render_diff_view(
-                                                file_diff,
-                                                &self.syntax_highlighter,
-                                                &self.diff_scroll_handle,
-                                                on_diff_visible_count.clone(),
-                                            )
-                                            .into_any_element()
-                                        } else {
-                                            diff_view::render_diff_empty().into_any_element()
-                                        };
+                                    let diff_content = if let Some(file_diff) =
+                                        self.selected_file_diff().cloned()
+                                    {
+                                        diff_view::render_diff_view(
+                                            &file_diff,
+                                            &mut self.syntax_highlighter,
+                                            &self.diff_scroll_handle,
+                                            on_diff_visible_count.clone(),
+                                        )
+                                        .into_any_element()
+                                    } else {
+                                        diff_view::render_diff_empty().into_any_element()
+                                    };
                                     div()
                                         .flex_1()
                                         .size_full()
@@ -851,17 +858,18 @@ impl Render for CodeReviewPanel {
                 );
 
             // Diff panel (D-09: full remaining width)
-            let changes_diff_content = if let Some(file_diff) = self.selected_changes_file_diff() {
-                diff_view::render_diff_view(
-                    file_diff,
-                    &self.syntax_highlighter,
-                    &self.changes_diff_scroll_handle,
-                    on_changes_diff_visible_count.clone(),
-                )
-                .into_any_element()
-            } else {
-                diff_view::render_diff_empty().into_any_element()
-            };
+            let changes_diff_content =
+                if let Some(file_diff) = self.selected_changes_file_diff().cloned() {
+                    diff_view::render_diff_view(
+                        &file_diff,
+                        &mut self.syntax_highlighter,
+                        &self.changes_diff_scroll_handle,
+                        on_changes_diff_visible_count.clone(),
+                    )
+                    .into_any_element()
+                } else {
+                    diff_view::render_diff_empty().into_any_element()
+                };
 
             div()
                 .size_full()

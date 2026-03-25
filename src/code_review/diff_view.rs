@@ -6,22 +6,11 @@
 use std::sync::Arc;
 
 use crate::git::types::{DiffLineType, FileDiff};
+use crate::syntax::SyntaxHighlighter;
 use gpui::{
-    FontWeight, IntoElement, Styled, TextAlign, UniformListScrollHandle, Window, div, prelude::*,
-    px, rgba, uniform_list,
+    FontWeight, HighlightStyle, IntoElement, Styled, TextAlign, UniformListScrollHandle, Window,
+    div, prelude::*, px, rgba, uniform_list,
 };
-
-/// Placeholder for future syntax highlighting.
-/// Line-type coloring used for now (smooth scroll performance).
-/// Per-token syntect highlighting will be re-enabled when GPUI's StyledText
-/// supports multi-color single-element rendering.
-pub struct SyntaxHighlighter;
-
-impl SyntaxHighlighter {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 /// A flattened diff row — either a hunk header or a diff line.
 /// This allows uniform_list to render all rows in a single flat list.
@@ -33,6 +22,7 @@ pub enum DiffRow {
         new_lineno: Option<u32>,
         content: String,
         line_type: DiffLineType,
+        highlights: Vec<(std::ops::Range<usize>, HighlightStyle)>,
     },
 }
 
@@ -49,6 +39,7 @@ pub fn flatten_diff(file_diff: &FileDiff) -> Vec<DiffRow> {
                 new_lineno: line.new_lineno,
                 content: line.content.clone(),
                 line_type: line.line_type.clone(),
+                highlights: vec![],
             });
         }
     }
@@ -56,20 +47,30 @@ pub fn flatten_diff(file_diff: &FileDiff) -> Vec<DiffRow> {
 }
 
 /// Flatten a FileDiff into DiffRows for uniform_list rendering.
+/// Uses SyntaxHighlighter to populate per-line highlight spans.
 pub fn flatten_and_highlight_diff(
     file_diff: &FileDiff,
-    _highlighter: &SyntaxHighlighter,
+    highlighter: &mut SyntaxHighlighter,
 ) -> Vec<DiffRow> {
+    let per_row_highlights = highlighter.highlight_diff(file_diff);
     let mut rows = Vec::new();
+    let mut flat_idx = 0;
     for hunk in &file_diff.hunks {
         rows.push(DiffRow::HunkHeader(hunk.header.clone()));
+        flat_idx += 1;
         for line in &hunk.lines {
+            let highlights = per_row_highlights
+                .get(flat_idx)
+                .cloned()
+                .unwrap_or_default();
             rows.push(DiffRow::Line {
                 old_lineno: line.old_lineno,
                 new_lineno: line.new_lineno,
                 content: line.content.clone(),
                 line_type: line.line_type.clone(),
+                highlights,
             });
+            flat_idx += 1;
         }
     }
     rows
@@ -82,7 +83,7 @@ const DIFF_LINE_HEIGHT: f32 = 20.0;
 /// Only visible lines are rendered — smooth scrolling for any diff size.
 pub fn render_diff_view(
     file_diff: &FileDiff,
-    highlighter: &SyntaxHighlighter,
+    highlighter: &mut SyntaxHighlighter,
     scroll_handle: &UniformListScrollHandle,
     on_visible_count: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>,
 ) -> impl IntoElement {
@@ -302,11 +303,11 @@ mod tests {
     #[test]
     fn test_render_diff_view_does_not_panic() {
         let file_diff = sample_file_diff();
-        let hl = SyntaxHighlighter::new();
+        let mut hl = SyntaxHighlighter::new();
         let sh = UniformListScrollHandle::new();
         let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _| {});
-        let _element = render_diff_view(&file_diff, &hl, &sh, noop);
+        let _element = render_diff_view(&file_diff, &mut hl, &sh, noop);
     }
 
     #[test]
@@ -322,11 +323,11 @@ mod tests {
             deletions: 0,
             hunks: vec![],
         };
-        let hl = SyntaxHighlighter::new();
+        let mut hl = SyntaxHighlighter::new();
         let sh = UniformListScrollHandle::new();
         let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _| {});
-        let _element = render_diff_view(&file_diff, &hl, &sh, noop);
+        let _element = render_diff_view(&file_diff, &mut hl, &sh, noop);
     }
 
     #[test]
@@ -345,11 +346,11 @@ mod tests {
                 }],
             }],
         };
-        let hl = SyntaxHighlighter::new();
+        let mut hl = SyntaxHighlighter::new();
         let sh = UniformListScrollHandle::new();
         let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _| {});
-        let _element = render_diff_view(&file_diff, &hl, &sh, noop);
+        let _element = render_diff_view(&file_diff, &mut hl, &sh, noop);
     }
 
     #[test]
@@ -362,7 +363,7 @@ mod tests {
 
     #[test]
     fn test_flatten_and_highlight_preserves_content() {
-        let hl = SyntaxHighlighter::new();
+        let mut hl = SyntaxHighlighter::new();
         let file_diff = FileDiff {
             path: "test.rs".to_string(),
             additions: 1,
@@ -377,7 +378,7 @@ mod tests {
                 }],
             }],
         };
-        let rows = flatten_and_highlight_diff(&file_diff, &hl);
+        let rows = flatten_and_highlight_diff(&file_diff, &mut hl);
         assert_eq!(rows.len(), 2);
         if let DiffRow::Line {
             content, line_type, ..
