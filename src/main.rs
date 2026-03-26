@@ -992,7 +992,39 @@ fn main() {
                                                     if let Some(cwd) =
                                                         tabs::process_info::process_cwd(pgid)
                                                     {
-                                                        this.active_cwd = cwd;
+                                                        let cwd_changed = this.active_cwd != cwd;
+                                                        this.active_cwd = cwd.clone();
+
+                                                        // Detect repo change on CWD change
+                                                        if cwd_changed {
+                                                            let new_repo = git2::Repository::discover(&cwd)
+                                                                .ok()
+                                                                .and_then(|r| r.workdir().map(|p| p.to_path_buf()));
+                                                            let old_repo = git2::Repository::discover(&this.current_git_cwd)
+                                                                .ok()
+                                                                .and_then(|r| r.workdir().map(|p| p.to_path_buf()));
+
+                                                            if new_repo != old_repo {
+                                                                if new_repo.is_some() {
+                                                                    // Switched to a different repo
+                                                                    this.current_git_cwd = cwd;
+                                                                    this.git_provider = git::GitProvider::new(this.current_git_cwd.clone());
+                                                                    this.git_provider.request_status();
+                                                                    this.git_provider.request_log(200);
+                                                                    this.git_provider.request_working_tree_files();
+                                                                    this.code_review_panel.update(cx, |panel, _| {
+                                                                        *panel = code_review::CodeReviewPanel::new();
+                                                                    });
+                                                                } else {
+                                                                    // Left a git repo — clear git state
+                                                                    this.branch_status = None;
+                                                                    this.working_tree_files.clear();
+                                                                    this.code_review_panel.update(cx, |panel, _| {
+                                                                        *panel = code_review::CodeReviewPanel::new();
+                                                                    });
+                                                                }
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
