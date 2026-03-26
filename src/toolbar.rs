@@ -7,7 +7,7 @@
 
 use gpui::{Context, IntoElement, Styled, div, prelude::*, px, rgba};
 
-use crate::git::types::FileChange;
+use crate::git::types::{BranchStatus, FileChange};
 
 /// Compute (added, modified, deleted) counts from file changes.
 /// Added: status 'A' or '?' (untracked). Modified: 'M', 'R', 'C', or unknown.
@@ -36,30 +36,78 @@ pub fn format_changes_label(count: usize) -> String {
     }
 }
 
-/// Render the toolbar bar showing branch status and Code Review toggle.
+/// Shorten a path for toolbar display, fish-shell style.
+/// All segments except the last are abbreviated to their first character.
+/// Home directory is replaced with ~.
+/// Examples: /Users/alex/projects/ade -> ~/p/ade
+pub fn shorten_path(path: &std::path::Path) -> String {
+    let home = std::env::var("HOME").ok().map(std::path::PathBuf::from);
+    let display_path = if let Some(ref home) = home {
+        if path == home {
+            return "~".to_string();
+        }
+        if let Ok(relative) = path.strip_prefix(home) {
+            format!("~/{}", relative.display())
+        } else {
+            path.display().to_string()
+        }
+    } else {
+        path.display().to_string()
+    };
+    let parts: Vec<&str> = display_path.split('/').collect();
+    if parts.len() <= 2 {
+        return display_path;
+    }
+    let abbreviated: Vec<String> = parts
+        .iter()
+        .enumerate()
+        .map(|(i, part)| {
+            if i == parts.len() - 1 || part.is_empty() || *part == "~" {
+                part.to_string()
+            } else {
+                part.chars().next().map(|c| c.to_string()).unwrap_or_default()
+            }
+        })
+        .collect();
+    abbreviated.join("/")
+}
+
+/// Render the toolbar bar showing CWD, optional branch status, and Code Review toggle.
 ///
-/// Takes branch_name, is_dirty flag, GPUI context, and a click callback
-/// for the Code Review button. Returns a div element.
-pub fn render_toolbar<V: 'static>(
-    branch_name: &str,
-    is_dirty: bool,
+/// Takes CWD display string, optional BranchStatus (None = not in a git repo),
+/// optional diff stats, GPUI context, and a click callback for the Code Review button.
+/// When branch_status is None, only the CWD is shown (no dot, branch, stats, or button).
+pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<V>) + 'static>(
+    cwd_display: &str,
+    branch_status: Option<&BranchStatus>,
     diff_stats: Option<(usize, usize, usize)>,
     cx: &mut Context<V>,
-    on_toggle: impl Fn(&mut V, &mut gpui::Window, &mut Context<V>) + 'static,
-) -> impl IntoElement {
-    // Build the branch display string
-    let branch_display = if is_dirty {
-        format!("{} *", branch_name)
-    } else {
-        branch_name.to_string()
-    };
+    on_toggle: T,
+) -> impl IntoElement + use<V, T> {
+    let has_git = branch_status.is_some();
 
-    // Dirty/clean dot color
-    let dot_color = if is_dirty {
-        rgba(0xe8a838ff) // orange for dirty
-    } else {
-        rgba(0x4ec94eff) // green for clean
-    };
+    // Build branch display and dot color only when in a git repo
+    let branch_display = branch_status
+        .map(|s| {
+            if s.is_dirty {
+                format!("{} *", s.branch_name)
+            } else {
+                s.branch_name.clone()
+            }
+        })
+        .unwrap_or_default();
+
+    let dot_color = branch_status
+        .map(|s| {
+            if s.is_dirty {
+                rgba(0xe8a838ff) // orange for dirty
+            } else {
+                rgba(0x4ec94eff) // green for clean
+            }
+        })
+        .unwrap_or(rgba(0x00000000)); // transparent fallback (not rendered)
+
+    let cwd_owned = cwd_display.to_string();
 
     div()
         .w_full()
@@ -72,73 +120,89 @@ pub fn render_toolbar<V: 'static>(
         .bg(rgba(0x1e1e1eff))
         .border_b_1()
         .border_color(rgba(0x333333ff))
-        // Left side: colored dot + branch name + diff stats
+        // Left side: CWD + optional git elements (dot + branch + diff stats)
         .child(
             div()
                 .flex()
                 .flex_row()
                 .items_center()
                 .gap(px(6.0))
-                // Status dot
-                .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(dot_color))
-                // Branch name
+                // CWD (always shown)
                 .child(
                     div()
                         .text_xs()
                         .text_color(rgba(0xccccccff))
-                        .child(branch_display),
+                        .child(cwd_owned),
                 )
-                // Colored diff stats (D-07, D-08): only when non-zero
-                .when(diff_stats.map_or(false, |(a, m, d)| a + m + d > 0), |el| {
-                    let (added, modified, deleted) = diff_stats.unwrap();
+                // Status dot (only when in a git repo)
+                .when(has_git, |el| {
+                    el.child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(dot_color))
+                })
+                // Branch name (only when in a git repo)
+                .when(has_git, |el| {
                     el.child(
                         div()
-                            .flex()
-                            .flex_row()
-                            .gap(px(6.0))
-                            .ml(px(8.0))
                             .text_xs()
-                            .when(added > 0, |d| {
-                                d.child(
-                                    div()
-                                        .text_color(rgba(0x4ec94eff))
-                                        .child(format!("+{}", added)),
-                                )
-                            })
-                            .when(modified > 0, |d| {
-                                d.child(
-                                    div()
-                                        .text_color(rgba(0xe8a838ff))
-                                        .child(format!("~{}", modified)),
-                                )
-                            })
-                            .when(deleted > 0, |d| {
-                                d.child(
-                                    div()
-                                        .text_color(rgba(0xf85149ff))
-                                        .child(format!("-{}", deleted)),
-                                )
-                            }),
+                            .text_color(rgba(0xccccccff))
+                            .child(branch_display),
                     )
-                }),
+                })
+                // Colored diff stats: only when in a git repo and non-zero
+                .when(
+                    has_git && diff_stats.map_or(false, |(a, m, d)| a + m + d > 0),
+                    |el| {
+                        let (added, modified, deleted) = diff_stats.unwrap();
+                        el.child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap(px(6.0))
+                                .ml(px(8.0))
+                                .text_xs()
+                                .when(added > 0, |d| {
+                                    d.child(
+                                        div()
+                                            .text_color(rgba(0x4ec94eff))
+                                            .child(format!("+{}", added)),
+                                    )
+                                })
+                                .when(modified > 0, |d| {
+                                    d.child(
+                                        div()
+                                            .text_color(rgba(0xe8a838ff))
+                                            .child(format!("~{}", modified)),
+                                    )
+                                })
+                                .when(deleted > 0, |d| {
+                                    d.child(
+                                        div()
+                                            .text_color(rgba(0xf85149ff))
+                                            .child(format!("-{}", deleted)),
+                                    )
+                                }),
+                        )
+                    },
+                ),
         )
-        // Right side: "Code Review" button
-        .child(
-            div()
-                .id("code-review-btn")
-                .px(px(8.0))
-                .py(px(3.0))
-                .rounded(px(4.0))
-                .bg(rgba(0x333333ff))
-                .text_xs()
-                .text_color(rgba(0xddddddff))
-                .cursor_pointer()
-                .hover(|style| style.bg(rgba(0x444444ff)))
-                .on_click(cx.listener(move |this, _event, window, cx| {
-                    on_toggle(this, window, cx);
-                }))
-                .child("Code Review"),
-        )
+        // Right side: "Code Review" button (only when in a git repo)
+        .when(has_git, |el| {
+            el.child(
+                div()
+                    .id("code-review-btn")
+                    .px(px(8.0))
+                    .py(px(3.0))
+                    .rounded(px(4.0))
+                    .bg(rgba(0x333333ff))
+                    .text_xs()
+                    .text_color(rgba(0xddddddff))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(rgba(0x444444ff)))
+                    .on_click(cx.listener(move |this, _event, window, cx| {
+                        on_toggle(this, window, cx);
+                    }))
+                    .child("Code Review"),
+            )
+        })
 }
 
 #[cfg(test)]

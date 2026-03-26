@@ -617,7 +617,7 @@ impl Render for AdeWindow {
             })
             // Toolbar (always visible)
             .child({
-                // Compute diff stats only in Code Review mode (D-07, D-08)
+                // Compute diff stats from working tree files regardless of mode (D-09)
                 let diff_stats = if self.mode == Mode::CodeReview {
                     let panel = self.code_review_panel.read(cx);
                     let stats = toolbar::compute_diff_stats(panel.changes_files_ref());
@@ -629,9 +629,10 @@ impl Render for AdeWindow {
                 } else {
                     None
                 };
+                let cwd_display = toolbar::shorten_path(&self.current_git_cwd);
                 toolbar::render_toolbar(
-                    &self.branch_status.branch_name,
-                    self.branch_status.is_dirty,
+                    &cwd_display,
+                    Some(&self.branch_status),
                     diff_stats,
                     cx,
                     |this: &mut Self, _window, cx| {
