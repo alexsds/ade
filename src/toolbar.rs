@@ -192,4 +192,37 @@ mod tests {
     fn test_format_changes_label_large() {
         assert_eq!(format_changes_label(99), "Changes (99)");
     }
+
+    #[test]
+    fn test_shorten_path_with_home() {
+        let home = std::env::var("HOME").unwrap();
+        let path = std::path::PathBuf::from(&home).join("projects/ade");
+        assert_eq!(shorten_path(&path), "~/p/ade");
+    }
+
+    #[test]
+    fn test_shorten_path_home_only() {
+        let home = std::env::var("HOME").unwrap();
+        let path = std::path::PathBuf::from(&home);
+        assert_eq!(shorten_path(&path), "~");
+    }
+
+    #[test]
+    fn test_shorten_path_no_home_prefix() {
+        let path = std::path::Path::new("/tmp");
+        assert_eq!(shorten_path(path), "/tmp");
+    }
+
+    #[test]
+    fn test_shorten_path_root() {
+        let path = std::path::Path::new("/");
+        assert_eq!(shorten_path(path), "/");
+    }
+
+    #[test]
+    fn test_shorten_path_deep() {
+        let home = std::env::var("HOME").unwrap();
+        let path = std::path::PathBuf::from(&home).join("projects/very-long/docs");
+        assert_eq!(shorten_path(&path), "~/p/v/docs");
+    }
 }
