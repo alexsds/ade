@@ -507,11 +507,6 @@ impl CodeReviewPanel {
         self.changes_files.len()
     }
 
-    /// Return a reference to the Changes tab file list (for computing diff stats).
-    pub fn changes_files_ref(&self) -> &[FileChange] {
-        &self.changes_files
-    }
-
     /// Check if the file list has changed (paths, status, or stats differ).
     fn files_changed(old: &[FileChange], new: &[FileChange]) -> bool {
         if old.len() != new.len() {

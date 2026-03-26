@@ -881,6 +881,8 @@ fn main() {
                                         }
                                     }
 
+                                    // Skip git request dispatching when not in a git repo
+                                    if this.branch_status.is_some() {
                                     // Check if CodeReviewPanel wants a diff fetched
                                     let pending = this
                                         .code_review_panel
@@ -947,6 +949,7 @@ fn main() {
                                             panel.pending_working_tree_request = false;
                                         });
                                     }
+                                    } // end branch_status.is_some() guard
                                 });
                             })
                             .ok();
