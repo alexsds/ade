@@ -140,40 +140,13 @@ fn render_commit_row(
             ),
     );
 
-    // Author + relative time line with short hash and copy button
-    let full_oid = commit.oid.clone();
-    let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
-
+    // Author + relative time line
     row = row.child(
         div()
             .flex()
             .flex_row()
             .items_center()
-            .gap(px(4.0))
             .overflow_hidden()
-            // Short hash (dimmed)
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(rgba(0x888888ff))
-                    .child(short_hash),
-            )
-            // Copy button — always visible, dimmed but brightens on hover
-            .child(
-                div()
-                    .id(("copy-hash", index))
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(rgba(0x555555ff))
-                    .cursor_pointer()
-                    .hover(|s| s.text_color(rgba(0xccccccff)))
-                    .on_click(move |_event, _window, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(full_oid.clone()));
-                    })
-                    .child("\u{2398}"),
-            )
-            // Author + relative time
             .child(
                 div()
                     .flex_shrink()
@@ -234,7 +207,8 @@ fn render_spinner_row() -> impl IntoElement {
 /// Render the commit detail section shown below the commit list when a
 /// commit is selected. Shows short hash, author, and full body.
 pub fn render_commit_detail(commit: &CommitInfo) -> impl IntoElement {
-    let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid);
+    let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
+    let full_oid = commit.oid.clone();
 
     let author_line = format!("{} <{}>", commit.author_name, commit.author_email);
 
@@ -244,19 +218,41 @@ pub fn render_commit_detail(commit: &CommitInfo) -> impl IntoElement {
         .flex()
         .flex_col()
         .gap(px(4.0))
-        // Short hash
+        // Author line with hash and copy button (GitHub Desktop style)
         .child(
             div()
-                .text_xs()
-                .text_color(rgba(0x888888ff))
-                .child(short_hash.to_string()),
-        )
-        // Author
-        .child(
-            div()
-                .text_xs()
-                .text_color(rgba(0xaaaaaaff))
-                .child(author_line),
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(6.0))
+                // Author
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgba(0xaaaaaaff))
+                        .child(author_line),
+                )
+                // Short hash
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgba(0x888888ff))
+                        .child(short_hash),
+                )
+                // Copy hash button — always visible, brightens on hover
+                .child(
+                    div()
+                        .id("copy-hash-detail")
+                        .flex_shrink_0()
+                        .text_xs()
+                        .text_color(rgba(0x666666ff))
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(rgba(0xccccccff)))
+                        .on_click(move |_event, _window, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(full_oid.clone()));
+                        })
+                        .child("\u{29C9}"),
+                ),
         );
 
     // Body (if present)
