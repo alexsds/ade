@@ -65,7 +65,10 @@ pub fn shorten_path(path: &std::path::Path) -> String {
             if i == parts.len() - 1 || part.is_empty() || *part == "~" {
                 part.to_string()
             } else {
-                part.chars().next().map(|c| c.to_string()).unwrap_or_default()
+                part.chars()
+                    .next()
+                    .map(|c| c.to_string())
+                    .unwrap_or_default()
             }
         })
         .collect();

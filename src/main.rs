@@ -70,7 +70,12 @@ pub struct AdeWindow {
     tabs: Vec<TabState>,
     active_tab_index: usize,
     mode: Mode,
-    branch_status: git::BranchStatus,
+    /// None when the active terminal is not inside a git repository.
+    branch_status: Option<git::BranchStatus>,
+    /// Working tree file changes for toolbar diff stats (available in all modes).
+    working_tree_files: Vec<git::types::FileChange>,
+    /// CWD of the active terminal, updated by 2s polling loop.
+    active_cwd: std::path::PathBuf,
     git_provider: git::GitProvider,
     code_review_panel: gpui::Entity<code_review::CodeReviewPanel>,
     /// Focus handle for the AdeWindow (used in Code Review mode for Cmd+G)
@@ -618,21 +623,18 @@ impl Render for AdeWindow {
             // Toolbar (always visible)
             .child({
                 // Compute diff stats from working tree files regardless of mode (D-09)
-                let diff_stats = if self.mode == Mode::CodeReview {
-                    let panel = self.code_review_panel.read(cx);
-                    let stats = toolbar::compute_diff_stats(panel.changes_files_ref());
+                let diff_stats = {
+                    let stats = toolbar::compute_diff_stats(&self.working_tree_files);
                     if stats.0 + stats.1 + stats.2 > 0 {
                         Some(stats)
                     } else {
                         None
                     }
-                } else {
-                    None
                 };
-                let cwd_display = toolbar::shorten_path(&self.current_git_cwd);
+                let cwd_display = toolbar::shorten_path(&self.active_cwd);
                 toolbar::render_toolbar(
                     &cwd_display,
-                    Some(&self.branch_status),
+                    self.branch_status.as_ref(),
                     diff_stats,
                     cx,
                     |this: &mut Self, _window, cx| {
@@ -722,11 +724,13 @@ fn main() {
                 }
             };
             let initial_git_cwd = cwd.clone();
+            let initial_cwd = cwd.clone();
             let git_provider = git::GitProvider::new(cwd.clone());
 
-            // Request initial branch status and commit log
+            // Request initial branch status, commit log, and working tree files
             git_provider.request_status();
             git_provider.request_log(200);
+            git_provider.request_working_tree_files();
 
             // Spawn initial terminal using new alacritty backend
             let size = TerminalSize::new(80, 24);
@@ -770,10 +774,9 @@ fn main() {
                 tabs: vec![initial_tab],
                 active_tab_index: 0,
                 mode: Mode::Terminal,
-                branch_status: git::BranchStatus {
-                    branch_name: "loading...".to_string(),
-                    is_dirty: false,
-                },
+                branch_status: None,
+                working_tree_files: Vec::new(),
+                active_cwd: initial_cwd,
                 git_provider,
                 code_review_panel,
                 focus_handle: cx.focus_handle(),
@@ -830,7 +833,7 @@ fn main() {
                                     while let Some(response) = this.git_provider.try_recv() {
                                         match response {
                                             git::GitResponse::Status(status) => {
-                                                this.branch_status = status;
+                                                this.branch_status = Some(status);
                                                 cx.notify();
                                             }
                                             git::GitResponse::Log(commits) => {
@@ -852,6 +855,7 @@ fn main() {
                                                 cx.notify();
                                             }
                                             git::GitResponse::WorkingTreeFiles(files) => {
+                                                this.working_tree_files = files.clone();
                                                 this.code_review_panel.update(cx, |panel, _cx| {
                                                     panel.set_changes_files(files);
                                                 });
@@ -962,7 +966,8 @@ fn main() {
                         let should_continue = cx
                             .update(|_, cx| {
                                 window_entity_for_process.update(cx, |this: &mut AdeWindow, cx| {
-                                    for tab in &mut this.tabs {
+                                    let active_tab = this.active_tab_index;
+                                    for (tab_index, tab) in this.tabs.iter_mut().enumerate() {
                                         let (child_exited, fd) = {
                                             let container = tab.pane_container.read(cx);
                                             (
@@ -981,6 +986,14 @@ fn main() {
                                                     tabs::process_info::process_name(pgid)
                                                 {
                                                     tab.title = name;
+                                                }
+                                                // Track CWD for the active tab (D-05)
+                                                if tab_index == active_tab {
+                                                    if let Some(cwd) =
+                                                        tabs::process_info::process_cwd(pgid)
+                                                    {
+                                                        this.active_cwd = cwd;
+                                                    }
                                                 }
                                             }
                                         }
@@ -1005,9 +1018,6 @@ fn main() {
                         let should_continue = cx
                             .update(|_, cx| {
                                 window_entity_for_refresh.update(cx, |this: &mut AdeWindow, cx| {
-                                    if this.mode != Mode::CodeReview {
-                                        return; // Only poll in Code Review mode (D-09)
-                                    }
                                     let pending = this
                                         .code_review_panel
                                         .read(cx)
