@@ -1046,20 +1046,30 @@ impl Render for CodeReviewPanel {
                     .copy_hash_time
                     .is_some_and(|t| t.elapsed().as_secs_f32() < 2.0);
                 let copy_weak = weak.clone();
+                let detail_file_count = self.files.len();
+                let detail_total_additions: u64 = self.files.iter().map(|f| f.additions).sum();
+                let detail_total_deletions: u64 = self.files.iter().map(|f| f.deletions).sum();
                 self.selected_commit().map(|commit| {
-                    commit_list::render_commit_detail(commit, copy_feedback, {
-                        let weak = copy_weak;
-                        Arc::new(
-                            move |oid: String, _window: &mut Window, cx: &mut gpui::App| {
-                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(oid));
-                                weak.update(cx, |this, cx| {
-                                    this.copy_hash_time = Some(std::time::Instant::now());
-                                    cx.notify();
-                                })
-                                .ok();
-                            },
-                        )
-                    })
+                    commit_list::render_commit_detail(
+                        commit,
+                        copy_feedback,
+                        {
+                            let weak = copy_weak;
+                            Arc::new(
+                                move |oid: String, _window: &mut Window, cx: &mut gpui::App| {
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(oid));
+                                    weak.update(cx, |this, cx| {
+                                        this.copy_hash_time = Some(std::time::Instant::now());
+                                        cx.notify();
+                                    })
+                                    .ok();
+                                },
+                            )
+                        },
+                        detail_file_count,
+                        detail_total_additions,
+                        detail_total_deletions,
+                    )
                     .into_any_element()
                 })
             };

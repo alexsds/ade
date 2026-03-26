@@ -205,13 +205,26 @@ impl AdeWindow {
     // -- Existing action handlers (updated for tabs) --
 
     /// Handle the CopyOrInterrupt action:
-    /// Delegates to TerminalView which handles both copy (if selection) and SIGINT (if no selection).
+    /// In Code Review mode, copies selected diff lines to clipboard.
+    /// In Terminal mode, delegates to TerminalView (copy if selection, SIGINT if not).
     fn on_copy_or_interrupt(
         &mut self,
         _: &CopyOrInterrupt,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // In Code Review mode, copy selected diff lines instead of terminal text (D-09)
+        if self.mode == Mode::CodeReview {
+            let copied_text = self
+                .code_review_panel
+                .update(cx, |panel, _| panel.copy_selected_diff_lines());
+            if let Some(text) = copied_text {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+            }
+            // D-12: if no selection, do nothing (no empty clipboard write, no SIGINT)
+            return;
+        }
+        // Terminal mode: existing behavior
         if let Some(container) = self.active_pane_container() {
             if let Some(view) = container.read(cx).active_view() {
                 view.clone().update(cx, |view, cx| {

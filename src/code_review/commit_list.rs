@@ -205,70 +205,43 @@ fn render_spinner_row() -> impl IntoElement {
 }
 
 /// Render the commit detail section shown below the commit list when a
-/// commit is selected. Shows short hash, author, and full body.
+/// commit is selected. Shows bold title, body, author+hash+copy, and aggregate stats.
 pub fn render_commit_detail(
     commit: &CommitInfo,
     copy_feedback: bool,
     on_copy: Arc<dyn Fn(String, &mut Window, &mut gpui::App) + 'static>,
+    file_count: usize,
+    total_additions: u64,
+    total_deletions: u64,
 ) -> impl IntoElement {
     let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
     let full_oid = commit.oid.clone();
 
     let author_line = format!("{} <{}>", commit.author_name, commit.author_email);
 
-    // Copy button: show ✓ for 2s after copy, otherwise show ⧉
+    // Copy button: show checkmark for 2s after copy, otherwise show copy icon
     let (copy_icon, copy_color) = if copy_feedback {
         ("\u{2713}", rgba(0x4ec94eff)) // green checkmark
     } else {
         ("\u{29C9}", rgba(0x666666ff)) // dimmed copy icon
     };
 
+    // Title (bold, D-13)
     let mut detail = div()
         .w_full()
         .p(px(12.0))
         .flex()
         .flex_col()
         .gap(px(4.0))
-        // Author line with hash and copy button (GitHub Desktop style)
         .child(
             div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(px(6.0))
-                // Author
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgba(0xaaaaaaff))
-                        .child(author_line),
-                )
-                // Short hash
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgba(0x888888ff))
-                        .child(short_hash),
-                )
-                // Copy hash button with feedback
-                .child(
-                    div()
-                        .id("copy-hash-detail")
-                        .flex_shrink_0()
-                        .text_xs()
-                        .text_color(copy_color)
-                        .cursor_pointer()
-                        .when(!copy_feedback, |s| {
-                            s.hover(|s| s.text_color(rgba(0xccccccff)))
-                        })
-                        .on_click(move |_event, window, cx| {
-                            on_copy(full_oid.clone(), window, cx);
-                        })
-                        .child(copy_icon),
-                ),
+                .text_sm()
+                .font_weight(FontWeight::BOLD)
+                .text_color(rgba(0xddddddff))
+                .child(commit.summary.clone()),
         );
 
-    // Body (if present)
+    // Body (if present, D-14)
     if let Some(body) = &commit.body {
         if !body.trim().is_empty() {
             detail = detail.child(
@@ -278,6 +251,63 @@ pub fn render_commit_detail(
                     .child(body.clone()),
             );
         }
+    }
+
+    // Author + hash + copy button (D-14, moved below title/body)
+    detail = detail.child(
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(6.0))
+            // Author
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgba(0xaaaaaaff))
+                    .child(author_line),
+            )
+            // Short hash
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgba(0x888888ff))
+                    .child(short_hash),
+            )
+            // Copy hash button with feedback
+            .child(
+                div()
+                    .id("copy-hash-detail")
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(copy_color)
+                    .cursor_pointer()
+                    .when(!copy_feedback, |s| {
+                        s.hover(|s| s.text_color(rgba(0xccccccff)))
+                    })
+                    .on_click(move |_event, window, cx| {
+                        on_copy(full_oid.clone(), window, cx);
+                    })
+                    .child(copy_icon),
+            ),
+    );
+
+    // Aggregate stats (D-15, D-16, D-17)
+    if file_count > 0 {
+        let stats_text = format!(
+            "{} changed {}  +{}  -{}",
+            file_count,
+            if file_count == 1 { "file" } else { "files" },
+            total_additions,
+            total_deletions
+        );
+        detail = detail.child(
+            div()
+                .pt(px(4.0))
+                .text_xs()
+                .text_color(rgba(0x888888ff))
+                .child(stats_text),
+        );
     }
 
     detail
