@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use crate::git::types::{CommitInfo, Decoration, format_relative_time};
 use gpui::{
-    App, ClipboardItem, FontWeight, IntoElement, Styled, UniformListScrollHandle, Window, div,
-    prelude::*, px, rgba, uniform_list,
+    App, FontWeight, IntoElement, Styled, UniformListScrollHandle, Window, div, prelude::*, px,
+    rgba, uniform_list,
 };
 
 /// Render a scrollable commit list using GPUI's uniform_list.
@@ -206,11 +206,22 @@ fn render_spinner_row() -> impl IntoElement {
 
 /// Render the commit detail section shown below the commit list when a
 /// commit is selected. Shows short hash, author, and full body.
-pub fn render_commit_detail(commit: &CommitInfo) -> impl IntoElement {
+pub fn render_commit_detail(
+    commit: &CommitInfo,
+    copy_feedback: bool,
+    on_copy: Arc<dyn Fn(String, &mut Window, &mut gpui::App) + 'static>,
+) -> impl IntoElement {
     let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
     let full_oid = commit.oid.clone();
 
     let author_line = format!("{} <{}>", commit.author_name, commit.author_email);
+
+    // Copy button: show ✓ for 2s after copy, otherwise show ⧉
+    let (copy_icon, copy_color) = if copy_feedback {
+        ("\u{2713}", rgba(0x4ec94eff)) // green checkmark
+    } else {
+        ("\u{29C9}", rgba(0x666666ff)) // dimmed copy icon
+    };
 
     let mut detail = div()
         .w_full()
@@ -239,19 +250,21 @@ pub fn render_commit_detail(commit: &CommitInfo) -> impl IntoElement {
                         .text_color(rgba(0x888888ff))
                         .child(short_hash),
                 )
-                // Copy hash button — always visible, brightens on hover
+                // Copy hash button with feedback
                 .child(
                     div()
                         .id("copy-hash-detail")
                         .flex_shrink_0()
                         .text_xs()
-                        .text_color(rgba(0x666666ff))
+                        .text_color(copy_color)
                         .cursor_pointer()
-                        .hover(|s| s.text_color(rgba(0xccccccff)))
-                        .on_click(move |_event, _window, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(full_oid.clone()));
+                        .when(!copy_feedback, |s| {
+                            s.hover(|s| s.text_color(rgba(0xccccccff)))
                         })
-                        .child("\u{29C9}"),
+                        .on_click(move |_event, window, cx| {
+                            on_copy(full_oid.clone(), window, cx);
+                        })
+                        .child(copy_icon),
                 ),
         );
 

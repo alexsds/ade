@@ -113,6 +113,9 @@ pub struct CodeReviewPanel {
     /// Polled by main.rs to dispatch FetchWorkingTreeFiles.
     pub pending_working_tree_request: bool,
 
+    /// Timestamp of last copy-hash action (for showing ✓ feedback). Clears after 2s.
+    pub copy_hash_time: Option<std::time::Instant>,
+
     /// Anchor index for range selection (fixed end). When anchor == selected_commit_index,
     /// it is a single selection. Set on every select_commit call (D-02, Pitfall 1).
     pub range_anchor: Option<usize>,
@@ -155,6 +158,7 @@ impl CodeReviewPanel {
             pending_working_tree_request: false,
             range_anchor: None,
             pending_range_diff_request: None,
+            copy_hash_time: None,
         }
     }
 
@@ -890,8 +894,24 @@ impl Render for CodeReviewPanel {
                         .into_any_element(),
                 )
             } else {
-                self.selected_commit()
-                    .map(|commit| commit_list::render_commit_detail(commit).into_any_element())
+                let copy_feedback = self
+                    .copy_hash_time
+                    .is_some_and(|t| t.elapsed().as_secs_f32() < 2.0);
+                let copy_weak = weak.clone();
+                self.selected_commit().map(|commit| {
+                    commit_list::render_commit_detail(commit, copy_feedback, {
+                        let weak = copy_weak;
+                        Arc::new(move |oid: String, _window: &mut Window, cx: &mut gpui::App| {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(oid));
+                            weak.update(cx, |this, cx| {
+                                this.copy_hash_time = Some(std::time::Instant::now());
+                                cx.notify();
+                            })
+                            .ok();
+                        })
+                    })
+                    .into_any_element()
+                })
             };
 
             let files_header_text = if file_count > 0 {
