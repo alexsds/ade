@@ -243,6 +243,8 @@ pub struct TerminalView {
     dragged: bool,
     /// Cached selected text -- survives TUI app redraws that clear alacritty selection
     pending_copy: Option<String>,
+    /// Accumulates fractional trackpad scroll deltas so small gestures aren't lost
+    scroll_accumulator: f32,
 }
 
 impl TerminalView {
@@ -257,6 +259,7 @@ impl TerminalView {
             selecting: false,
             dragged: false,
             pending_copy: None,
+            scroll_accumulator: 0.0,
         }
     }
 
@@ -650,12 +653,17 @@ impl TerminalView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let dy_lines: f32 = match event.delta {
-            ScrollDelta::Lines(p) => p.y,
-            ScrollDelta::Pixels(p) => f32::from(p.y) / 16.0,
+        let delta_lines: i32 = match event.delta {
+            ScrollDelta::Lines(p) => p.y.round() as i32,
+            ScrollDelta::Pixels(p) => {
+                self.scroll_accumulator += f32::from(p.y) / 16.0;
+                let lines = self.scroll_accumulator.trunc() as i32;
+                if lines != 0 {
+                    self.scroll_accumulator -= lines as f32;
+                }
+                lines
+            }
         };
-
-        let delta_lines = dy_lines.round() as i32;
         if delta_lines == 0 {
             return;
         }

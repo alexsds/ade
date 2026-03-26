@@ -896,14 +896,16 @@ impl Render for CodeReviewPanel {
                 self.selected_commit().map(|commit| {
                     commit_list::render_commit_detail(commit, copy_feedback, {
                         let weak = copy_weak;
-                        Arc::new(move |oid: String, _window: &mut Window, cx: &mut gpui::App| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(oid));
-                            weak.update(cx, |this, cx| {
-                                this.copy_hash_time = Some(std::time::Instant::now());
-                                cx.notify();
-                            })
-                            .ok();
-                        })
+                        Arc::new(
+                            move |oid: String, _window: &mut Window, cx: &mut gpui::App| {
+                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(oid));
+                                weak.update(cx, |this, cx| {
+                                    this.copy_hash_time = Some(std::time::Instant::now());
+                                    cx.notify();
+                                })
+                                .ok();
+                            },
+                        )
                     })
                     .into_any_element()
                 })
