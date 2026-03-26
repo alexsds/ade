@@ -116,6 +116,15 @@ pub struct CodeReviewPanel {
     /// Timestamp of last copy-hash action (for showing ✓ feedback). Clears after 2s.
     pub copy_hash_time: Option<std::time::Instant>,
 
+    /// Diff line selection anchor (fixed end of selection range) for History tab.
+    pub diff_selection_anchor: Option<usize>,
+    /// Diff line selection cursor (moves with clicks) for History tab.
+    pub diff_selection_cursor: Option<usize>,
+    /// Diff line selection anchor for Changes tab (separate per D-07/Pitfall 6).
+    pub changes_diff_selection_anchor: Option<usize>,
+    /// Diff line selection cursor for Changes tab.
+    pub changes_diff_selection_cursor: Option<usize>,
+
     /// Anchor index for range selection (fixed end). When anchor == selected_commit_index,
     /// it is a single selection. Set on every select_commit call (D-02, Pitfall 1).
     pub range_anchor: Option<usize>,
@@ -159,6 +168,10 @@ impl CodeReviewPanel {
             range_anchor: None,
             pending_range_diff_request: None,
             copy_hash_time: None,
+            diff_selection_anchor: None,
+            diff_selection_cursor: None,
+            changes_diff_selection_anchor: None,
+            changes_diff_selection_cursor: None,
         }
     }
 
@@ -253,6 +266,9 @@ impl CodeReviewPanel {
         self.diff_data = Some(diff);
         // Reset diff scroll position when new diff loads
         self.diff_scroll_top = 0;
+        // Clear diff line selection on new diff load (D-07)
+        self.diff_selection_anchor = None;
+        self.diff_selection_cursor = None;
 
         // Restore file selection by path (D-08), fall back to first if not found
         if let Some(ref path) = prev_file_path {
@@ -292,6 +308,7 @@ impl CodeReviewPanel {
 
     /// Select a commit by index. Sets pending_diff_request for the parent to pick up.
     /// Resets range_anchor to the selected index (single selection, D-02, Pitfall 1).
+    /// Clears diff line selection (D-07).
     pub fn select_commit(&mut self, index: usize) {
         if index < self.commits.len() {
             self.selected_commit_index = Some(index);
@@ -301,12 +318,17 @@ impl CodeReviewPanel {
             self.diff_data = None;
             self.pending_diff_request = Some(self.commits[index].oid.clone());
             self.pending_range_diff_request = None;
+            // Clear diff line selection on commit switch
+            self.diff_selection_anchor = None;
+            self.diff_selection_cursor = None;
         }
     }
 
-    /// Select a file by index.
+    /// Select a file by index. Clears diff line selection (D-07).
     pub fn select_file(&mut self, index: usize) {
         if index < self.files.len() {
+            self.diff_selection_anchor = None;
+            self.diff_selection_cursor = None;
             self.selected_file_index = Some(index);
         }
     }
@@ -561,14 +583,126 @@ impl CodeReviewPanel {
     pub fn set_changes_diff(&mut self, diff: DiffData) {
         self.changes_diff_data = Some(diff);
         self.changes_diff_scroll_top = 0;
+        // Clear diff line selection on new diff load (D-07)
+        self.changes_diff_selection_anchor = None;
+        self.changes_diff_selection_cursor = None;
     }
 
     /// Select a Changes file by index. Triggers pending diff request for the selected file.
+    /// Clears diff line selection (D-07).
     pub fn select_changes_file(&mut self, index: usize) {
         if index < self.changes_files.len() {
+            self.changes_diff_selection_anchor = None;
+            self.changes_diff_selection_cursor = None;
             self.selected_changes_file_index = Some(index);
             self.pending_changes_diff_request = Some(self.changes_files[index].path.clone());
             self.changes_diff_scroll_top = 0;
+        }
+    }
+
+    // --- Diff line selection methods (Phase 32) ---
+
+    /// Select a single diff line (plain click). Sets both anchor and cursor. Per D-04.
+    pub fn select_diff_line(&mut self, index: usize) {
+        match self.active_tab {
+            ReviewTab::History => {
+                self.diff_selection_anchor = Some(index);
+                self.diff_selection_cursor = Some(index);
+            }
+            ReviewTab::Changes => {
+                self.changes_diff_selection_anchor = Some(index);
+                self.changes_diff_selection_cursor = Some(index);
+            }
+        }
+    }
+
+    /// Extend diff line selection with Shift+Click. Keeps anchor, moves cursor. Per D-05.
+    pub fn select_diff_line_with_shift(&mut self, target: usize) {
+        match self.active_tab {
+            ReviewTab::History => {
+                if self.diff_selection_anchor.is_none() {
+                    self.diff_selection_anchor = Some(target);
+                }
+                self.diff_selection_cursor = Some(target);
+            }
+            ReviewTab::Changes => {
+                if self.changes_diff_selection_anchor.is_none() {
+                    self.changes_diff_selection_anchor = Some(target);
+                }
+                self.changes_diff_selection_cursor = Some(target);
+            }
+        }
+    }
+
+    /// Return the current diff selection range (anchor, cursor) for the active tab.
+    pub fn diff_selection_range(&self) -> (Option<usize>, Option<usize>) {
+        match self.active_tab {
+            ReviewTab::History => (self.diff_selection_anchor, self.diff_selection_cursor),
+            ReviewTab::Changes => (
+                self.changes_diff_selection_anchor,
+                self.changes_diff_selection_cursor,
+            ),
+        }
+    }
+
+    /// Clear diff line selection for the active tab. Called on file switch per D-07.
+    pub fn clear_diff_selection(&mut self) {
+        match self.active_tab {
+            ReviewTab::History => {
+                self.diff_selection_anchor = None;
+                self.diff_selection_cursor = None;
+            }
+            ReviewTab::Changes => {
+                self.changes_diff_selection_anchor = None;
+                self.changes_diff_selection_cursor = None;
+            }
+        }
+    }
+
+    /// Extract text content of selected diff lines for clipboard copy. Per D-09, D-10, D-11.
+    /// Returns None if no selection exists (D-12). Skips hunk header rows (D-06).
+    /// IMPORTANT: DiffLine.content does NOT include +/- prefix (git2 separates origin char),
+    /// so content is copied as-is without stripping.
+    pub fn copy_selected_diff_lines(&self) -> Option<String> {
+        let (anchor, cursor) = self.diff_selection_range();
+        let anchor = anchor?;
+        let cursor = cursor?;
+        let lo = anchor.min(cursor);
+        let hi = anchor.max(cursor);
+
+        let file_diff = match self.active_tab {
+            ReviewTab::History => self.selected_file_diff()?,
+            ReviewTab::Changes => self.selected_changes_file_diff()?,
+        };
+
+        // Iterate hunks to map flat indices to line content.
+        // Flat index 0 = first hunk header, then lines, then next hunk header, etc.
+        let mut flat_index = 0usize;
+        let mut lines = Vec::new();
+        for hunk in &file_diff.hunks {
+            // Hunk header row -- skip for copy (D-06)
+            if flat_index > hi {
+                break;
+            }
+            flat_index += 1; // hunk header occupies one flat index
+
+            for line in &hunk.lines {
+                if flat_index >= lo && flat_index <= hi {
+                    // Content does not have +/- prefix -- copy as-is
+                    let content = line.content.trim_end_matches('\n');
+                    lines.push(content.to_string());
+                }
+                flat_index += 1;
+                if flat_index > hi {
+                    break;
+                }
+            }
+        }
+
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join("\n"))
         }
     }
 
@@ -2806,5 +2940,190 @@ mod tests {
 
         // PERS-02: file selection preserved
         assert_eq!(panel.selected_file_index, Some(1));
+    }
+
+    // --- Diff line selection tests (Phase 32, Plan 01) ---
+
+    #[test]
+    fn test_select_diff_line_sets_anchor_and_cursor() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.select_diff_line(3);
+        assert_eq!(panel.diff_selection_anchor, Some(3));
+        assert_eq!(panel.diff_selection_cursor, Some(3));
+    }
+
+    #[test]
+    fn test_select_diff_line_with_shift_extends_selection() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.select_diff_line(2);
+        panel.select_diff_line_with_shift(5);
+        assert_eq!(panel.diff_selection_anchor, Some(2));
+        assert_eq!(panel.diff_selection_cursor, Some(5));
+    }
+
+    #[test]
+    fn test_shift_click_without_anchor_sets_both() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.select_diff_line_with_shift(4);
+        assert_eq!(panel.diff_selection_anchor, Some(4));
+        assert_eq!(panel.diff_selection_cursor, Some(4));
+    }
+
+    #[test]
+    fn test_clear_diff_selection() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.select_diff_line(3);
+        panel.clear_diff_selection();
+        assert_eq!(panel.diff_selection_anchor, None);
+        assert_eq!(panel.diff_selection_cursor, None);
+    }
+
+    #[test]
+    fn test_select_file_clears_diff_selection() {
+        let mut panel = CodeReviewPanel::new();
+        panel.files = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            },
+        ];
+        panel.active_tab = ReviewTab::History;
+        panel.diff_selection_anchor = Some(2);
+        panel.diff_selection_cursor = Some(5);
+        panel.select_file(1);
+        assert_eq!(panel.diff_selection_anchor, None);
+        assert_eq!(panel.diff_selection_cursor, None);
+    }
+
+    #[test]
+    fn test_copy_no_selection_returns_none() {
+        let panel = CodeReviewPanel::new();
+        assert!(panel.copy_selected_diff_lines().is_none());
+    }
+
+    #[test]
+    fn test_copy_selected_diff_lines_single_line() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.selected_file_index = Some(0);
+        panel.diff_data = Some(DiffData {
+            files: vec![FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 2,
+                deletions: 1,
+                staging_state: None,
+            }],
+            file_diffs: vec![FileDiff {
+                path: "a.rs".to_string(),
+                additions: 2,
+                deletions: 1,
+                hunks: vec![DiffHunk {
+                    header: "@@ -1,3 +1,4 @@".to_string(),
+                    lines: vec![
+                        DiffLine {
+                            line_type: DiffLineType::Context,
+                            content: "use std::io;".to_string(),
+                            old_lineno: Some(1),
+                            new_lineno: Some(1),
+                        },
+                        DiffLine {
+                            line_type: DiffLineType::Remove,
+                            content: "fn old() {}".to_string(),
+                            old_lineno: Some(2),
+                            new_lineno: None,
+                        },
+                        DiffLine {
+                            line_type: DiffLineType::Add,
+                            content: "fn new() {}".to_string(),
+                            old_lineno: None,
+                            new_lineno: Some(2),
+                        },
+                    ],
+                }],
+            }],
+        });
+        // Select flat index 1 (first line after hunk header)
+        panel.diff_selection_anchor = Some(1);
+        panel.diff_selection_cursor = Some(1);
+        let copied = panel.copy_selected_diff_lines();
+        assert_eq!(copied, Some("use std::io;".to_string()));
+    }
+
+    #[test]
+    fn test_copy_selected_diff_lines_range_skips_hunk_header() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.selected_file_index = Some(0);
+        panel.diff_data = Some(DiffData {
+            files: vec![FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 1,
+                staging_state: None,
+            }],
+            file_diffs: vec![FileDiff {
+                path: "a.rs".to_string(),
+                additions: 1,
+                deletions: 1,
+                hunks: vec![
+                    DiffHunk {
+                        header: "@@ -1,2 +1,2 @@".to_string(),
+                        lines: vec![DiffLine {
+                            line_type: DiffLineType::Remove,
+                            content: "old line".to_string(),
+                            old_lineno: Some(1),
+                            new_lineno: None,
+                        }],
+                    },
+                    DiffHunk {
+                        header: "@@ -5,2 +5,2 @@".to_string(),
+                        lines: vec![DiffLine {
+                            line_type: DiffLineType::Add,
+                            content: "new line".to_string(),
+                            old_lineno: None,
+                            new_lineno: Some(5),
+                        }],
+                    },
+                ],
+            }],
+        });
+        // Select range 0..3 (hunk header 0, line 1, hunk header 2, line 3)
+        // Copy should only include lines, not hunk headers
+        panel.diff_selection_anchor = Some(0);
+        panel.diff_selection_cursor = Some(3);
+        let copied = panel.copy_selected_diff_lines();
+        assert_eq!(copied, Some("old line\nnew line".to_string()));
+    }
+
+    #[test]
+    fn test_changes_tab_selection_independent() {
+        let mut panel = CodeReviewPanel::new();
+        // Set History selection
+        panel.active_tab = ReviewTab::History;
+        panel.select_diff_line(3);
+        // Switch to Changes and set different selection
+        panel.active_tab = ReviewTab::Changes;
+        panel.select_diff_line(7);
+        // Verify independence
+        assert_eq!(panel.diff_selection_anchor, Some(3));
+        assert_eq!(panel.diff_selection_cursor, Some(3));
+        assert_eq!(panel.changes_diff_selection_anchor, Some(7));
+        assert_eq!(panel.changes_diff_selection_cursor, Some(7));
     }
 }
