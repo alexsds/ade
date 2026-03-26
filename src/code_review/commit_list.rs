@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use crate::git::types::{CommitInfo, Decoration, format_relative_time};
 use gpui::{
-    App, FontWeight, IntoElement, Styled, UniformListScrollHandle, Window, div, prelude::*, px,
-    rgba, uniform_list,
+    App, ClipboardItem, FontWeight, IntoElement, Styled, UniformListScrollHandle, Window, div,
+    prelude::*, px, rgba, uniform_list,
 };
 
 /// Render a scrollable commit list using GPUI's uniform_list.
@@ -140,14 +140,49 @@ fn render_commit_row(
             ),
     );
 
-    // Author + relative time (dimmed, single line)
+    // Author + relative time line with short hash and copy button
+    let full_oid = commit.oid.clone();
+    let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
+
     row = row.child(
         div()
-            .text_xs()
-            .text_color(rgba(0x777777ff))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(4.0))
             .overflow_hidden()
-            .whitespace_nowrap()
-            .child(author_time),
+            // Short hash (dimmed)
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(rgba(0x888888ff))
+                    .child(short_hash),
+            )
+            // Copy button — always visible, dimmed but brightens on hover
+            .child(
+                div()
+                    .id(("copy-hash", index))
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(rgba(0x555555ff))
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(rgba(0xccccccff)))
+                    .on_click(move |_event, _window, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(full_oid.clone()));
+                    })
+                    .child("\u{2398}"),
+            )
+            // Author + relative time
+            .child(
+                div()
+                    .flex_shrink()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_xs()
+                    .text_color(rgba(0x777777ff))
+                    .child(author_time),
+            ),
     );
 
     row
