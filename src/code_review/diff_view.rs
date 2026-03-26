@@ -146,11 +146,15 @@ const DIFF_LINE_HEIGHT: f32 = 20.0;
 
 /// Render a virtualized diff view using uniform_list.
 /// Only visible lines are rendered — smooth scrolling for any diff size.
+/// `selection` is (anchor, cursor) for diff line selection highlighting.
+/// `on_select` is called with (flat_index, shift_held) when a Line row is clicked.
 pub fn render_diff_view(
     file_diff: &FileDiff,
     highlighter: &mut SyntaxHighlighter,
     scroll_handle: &UniformListScrollHandle,
     on_visible_count: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>,
+    selection: (Option<usize>, Option<usize>),
+    on_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static>,
 ) -> impl IntoElement {
     let rows = flatten_and_highlight_diff(file_diff, highlighter);
     let row_count = rows.len();
@@ -174,7 +178,16 @@ pub fn render_diff_view(
                     range
                         .map(|ix| {
                             let row = rows[ix].clone();
-                            render_diff_row(&row, ix)
+                            let is_selected = match selection {
+                                (Some(a), Some(c)) => {
+                                    let lo = a.min(c);
+                                    let hi = a.max(c);
+                                    ix >= lo && ix <= hi && matches!(row, DiffRow::Line { .. })
+                                }
+                                _ => false,
+                            };
+                            let on_select = on_select.clone();
+                            render_diff_row(&row, ix, is_selected, on_select)
                         })
                         .collect()
                 }
@@ -185,7 +198,14 @@ pub fn render_diff_view(
 }
 
 /// Render a single diff row (hunk header or diff line).
-fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
+/// `is_selected` highlights the row with selection color.
+/// `on_select` is called with (flat_index, shift_held) for Line rows; hunk headers are not clickable (D-06).
+fn render_diff_row(
+    row: &DiffRow,
+    index: usize,
+    is_selected: bool,
+    on_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static>,
+) -> gpui::AnyElement {
     match row {
         DiffRow::HunkHeader(header) => div()
             .id(("diff-row", index))
@@ -270,7 +290,16 @@ fn render_diff_row(row: &DiffRow, index: usize) -> gpui::AnyElement {
                     }
                 });
 
-            if let Some(bg) = line_bg {
+            // Click handler for diff line selection per D-04, D-05
+            row = row.cursor_pointer().on_click(move |event, window, cx| {
+                let shift = event.modifiers().shift;
+                on_select(index, shift, window, cx);
+            });
+
+            // Selection highlight takes priority per D-01, D-02, D-03
+            if is_selected {
+                row = row.bg(rgba(0x264f7860)); // semi-transparent selection blue at ~37% opacity
+            } else if let Some(bg) = line_bg {
                 row = row.bg(bg);
             }
 
@@ -385,7 +414,9 @@ mod tests {
         let sh = UniformListScrollHandle::new();
         let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _| {});
-        let _element = render_diff_view(&file_diff, &mut hl, &sh, noop);
+        let noop_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _, _| {});
+        let _element = render_diff_view(&file_diff, &mut hl, &sh, noop, (None, None), noop_select);
     }
 
     #[test]
@@ -405,7 +436,9 @@ mod tests {
         let sh = UniformListScrollHandle::new();
         let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _| {});
-        let _element = render_diff_view(&file_diff, &mut hl, &sh, noop);
+        let noop_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _, _| {});
+        let _element = render_diff_view(&file_diff, &mut hl, &sh, noop, (None, None), noop_select);
     }
 
     #[test]
@@ -428,7 +461,9 @@ mod tests {
         let sh = UniformListScrollHandle::new();
         let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _| {});
-        let _element = render_diff_view(&file_diff, &mut hl, &sh, noop);
+        let noop_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _, _| {});
+        let _element = render_diff_view(&file_diff, &mut hl, &sh, noop, (None, None), noop_select);
     }
 
     #[test]
@@ -591,5 +626,25 @@ mod tests {
         } else {
             panic!("Expected DiffRow::Line");
         }
+    }
+
+    #[test]
+    fn test_render_diff_view_with_selection_does_not_panic() {
+        let file_diff = sample_file_diff();
+        let mut hl = SyntaxHighlighter::new();
+        let sh = UniformListScrollHandle::new();
+        let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _| {});
+        let noop_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _, _| {});
+        // Select rows 1-3 (first line through third line)
+        let _element = render_diff_view(
+            &file_diff,
+            &mut hl,
+            &sh,
+            noop,
+            (Some(1), Some(3)),
+            noop_select,
+        );
     }
 }

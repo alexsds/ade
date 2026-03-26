@@ -948,6 +948,25 @@ impl Render for CodeReviewPanel {
                 )
             };
 
+            let diff_on_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static> = {
+                let weak = weak.clone();
+                Arc::new(
+                    move |ix: usize, shift: bool, _window: &mut Window, cx: &mut gpui::App| {
+                        weak.update(cx, |this, cx| {
+                            if shift {
+                                this.select_diff_line_with_shift(ix);
+                            } else {
+                                this.select_diff_line(ix);
+                            }
+                            cx.notify();
+                        })
+                        .ok();
+                    },
+                )
+            };
+
+            let diff_selection = self.diff_selection_range();
+
             let is_commit_list_active = self.active_panel == ActivePanel::CommitList;
             let is_file_list_active = self.active_panel == ActivePanel::FileList;
             let is_diff_view_active = self.active_panel == ActivePanel::DiffView;
@@ -1147,6 +1166,8 @@ impl Render for CodeReviewPanel {
                                             &mut self.syntax_highlighter,
                                             &self.diff_scroll_handle,
                                             on_diff_visible_count.clone(),
+                                            diff_selection,
+                                            diff_on_select.clone(),
                                         )
                                         .into_any_element()
                                     } else {
@@ -1197,6 +1218,27 @@ impl Render for CodeReviewPanel {
                 )
             };
 
+            let changes_diff_on_select: Arc<
+                dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static,
+            > = {
+                let weak = weak.clone();
+                Arc::new(
+                    move |ix: usize, shift: bool, _window: &mut Window, cx: &mut gpui::App| {
+                        weak.update(cx, |this, cx| {
+                            if shift {
+                                this.select_diff_line_with_shift(ix);
+                            } else {
+                                this.select_diff_line(ix);
+                            }
+                            cx.notify();
+                        })
+                        .ok();
+                    },
+                )
+            };
+
+            let changes_diff_selection = self.diff_selection_range();
+
             let changes_file_list_content = file_list::render_file_list_with_empty_msg(
                 &self.changes_files,
                 self.selected_changes_file_index,
@@ -1237,6 +1279,8 @@ impl Render for CodeReviewPanel {
                         &mut self.syntax_highlighter,
                         &self.changes_diff_scroll_handle,
                         on_changes_diff_visible_count.clone(),
+                        changes_diff_selection,
+                        changes_diff_on_select.clone(),
                     )
                     .into_any_element()
                 } else {
