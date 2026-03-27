@@ -232,14 +232,6 @@ fn build_description_lines(commit: &CommitInfo) -> Vec<(String, f32)> {
         }
     }
 
-    // Single metadata line: "author <email> · hash" (per D-01, D-02, D-06, D-07)
-    let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
-    let metadata_text = format!(
-        "{} <{}> \u{00B7} {}",
-        commit.author_name, commit.author_email, short_hash
-    );
-    lines.push((metadata_text, BODY_ROW_HEIGHT));
-
     lines
 }
 
@@ -315,33 +307,17 @@ fn render_description_row(
     row_div.child(text.to_string()).into_any_element()
 }
 
-/// Render the commit detail section shown below the commit list when a
-/// commit is selected. Shows bold title, body, and a compact metadata bar
-/// with author · hash [copy] on the left and colored +N -N stats on the right.
+/// Render a commit detail section (title and body text only).
 /// Supports mouse drag text selection with selection overlay rendering.
+/// The metadata bar is rendered separately via `render_metadata_bar`.
 pub fn render_commit_detail(
     commit: &CommitInfo,
-    copy_feedback: bool,
-    on_copy: Arc<dyn Fn(String, &mut Window, &mut gpui::App) + 'static>,
-    file_count: usize,
-    total_additions: u64,
-    total_deletions: u64,
     text_selection: &TextSelection,
     on_desc_drag_start: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
     on_desc_drag_move: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
     on_desc_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
     char_width: f32,
 ) -> impl IntoElement {
-    let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
-    let full_oid = commit.oid.clone();
-
-    // Copy button: show checkmark for 2s after copy, otherwise show copy icon
-    let (copy_icon, copy_color) = if copy_feedback {
-        ("\u{2713}", rgba(0x4ec94eff)) // green checkmark
-    } else {
-        ("\u{29C9}", rgba(0x666666ff)) // dimmed copy icon
-    };
-
     // Build description lines for selection mapping
     let desc_lines = build_description_lines(commit);
     let desc_lines_for_mouse = desc_lines.clone();
@@ -388,137 +364,12 @@ pub fn render_commit_detail(
         }
     }
 
-    // Metadata bar: author · hash [copy]              [+N -N]
-    // This is the last child of the text area, matching the last row in build_description_lines
-    let metadata_row_index = row_idx;
-
-    // Build left side content: author, dot, hash, copy icon
-    let author_text = format!("{} <{}>", commit.author_name, commit.author_email);
-
-    let left_side = div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(px(8.0))
-        .overflow_hidden()
-        .flex_1()
-        .child(
-            div()
-                .text_xs()
-                .font_family(font("Menlo").family)
-                .text_color(rgba(0xaaaaaaff)) // D-10: dimmed gray for author
-                .child(author_text),
-        )
-        .child(
-            div()
-                .text_xs()
-                .font_family(font("Menlo").family)
-                .text_color(rgba(0x666666ff)) // D-07: dot separator color
-                .child("\u{00B7}"),
-        )
-        .child(
-            div()
-                .text_xs()
-                .font_family(font("Menlo").family)
-                .text_color(rgba(0x888888ff)) // D-10: dimmed gray for hash
-                .child(short_hash.clone()),
-        )
-        .child(
-            div()
-                .id("copy-hash-detail")
-                .flex_shrink_0()
-                .text_xs()
-                .font_family(font("Menlo").family)
-                .text_color(copy_color)
-                .cursor_pointer()
-                .when(!copy_feedback, |s| {
-                    s.hover(|s| s.text_color(rgba(0xccccccff))) // hover color
-                })
-                .on_click(move |_event, window, cx| {
-                    on_copy(full_oid.clone(), window, cx);
-                })
-                .child(copy_icon), // D-11: checkmark feedback preserved
-        );
-
-    // Build right side: colored stats (only when files loaded)
-    let right_side = if file_count > 0 {
-        div()
-            .flex()
-            .flex_row()
-            .gap(px(8.0))
-            .flex_shrink_0()
-            .text_xs()
-            .font_family(font("Menlo").family)
-            .child(
-                div()
-                    .text_color(rgba(0x3fb950ff)) // D-09: green additions
-                    .child(format!("+{}", total_additions)),
-            )
-            .child(
-                div()
-                    .text_color(rgba(0xf85149ff)) // D-09: red deletions
-                    .child(format!("-{}", total_deletions)),
-            )
-            .into_any_element()
-    } else {
-        div().into_any_element()
-    };
-
-    // Selection overlay for the metadata bar row
-    let metadata_text = format!(
-        "{} <{}> \u{00B7} {}",
-        commit.author_name,
-        commit.author_email,
-        commit.oid.get(..7).unwrap_or(&commit.oid)
-    );
-    let metadata_char_count = metadata_text.chars().count();
-    let sel_range = if text_selection.row_is_selected(metadata_row_index) {
-        text_selection.selection_for_row(metadata_row_index, metadata_char_count)
-    } else {
-        None
-    };
-    let is_fully_selected = sel_range
-        .map(|(s, e)| s == 0 && e >= metadata_char_count)
-        .unwrap_or(false);
-
-    let mut metadata_bar = div()
-        .w_full()
-        .mt(px(8.0)) // D-08: extra spacing between body and metadata bar
-        .h(px(BODY_ROW_HEIGHT))
-        .flex()
-        .flex_row()
-        .justify_between()
-        .items_center()
-        .relative()
-        .child(left_side)
-        .child(right_side);
-
-    // Apply selection overlay to metadata bar (same pattern as render_description_row)
-    if is_fully_selected {
-        metadata_bar = metadata_bar.bg(rgba(0x264f7860));
-    } else if let Some((start_col, end_col)) = sel_range {
-        let start_px = start_col as f32 * char_width;
-        let width_px = (end_col - start_col) as f32 * char_width;
-        metadata_bar = metadata_bar.child(
-            div()
-                .absolute()
-                .top_0()
-                .left(px(start_px))
-                .w(px(width_px))
-                .h_full()
-                .bg(rgba(0x264f7860)),
-        );
-    }
-
-    text_rows.push(metadata_bar.into_any_element());
-
     // Text area: selectable description content with mouse handlers
     let text_area = div()
         .id("commit-detail-text-area")
         .w_full()
         .cursor_text()
         .relative()
-        // Canvas to capture container bounds
         .child(
             canvas(
                 {
@@ -564,15 +415,116 @@ pub fn render_commit_detail(
         })
         .children(text_rows);
 
-    // Main container: only text_area as child (metadata bar is inside text_area)
-    let detail = div()
+    div()
         .w_full()
         .p(px(DETAIL_PADDING))
         .flex()
         .flex_col()
-        .child(text_area);
+        .child(text_area)
+}
 
-    detail
+/// Render the fixed metadata bar: author · hash [copy] on left, colored +N -N stats on right.
+/// This bar is rendered outside the scrollable commit detail, fixed above the file/diff panels.
+pub fn render_metadata_bar(
+    commit: &CommitInfo,
+    copy_feedback: bool,
+    on_copy: Arc<dyn Fn(String, &mut Window, &mut gpui::App) + 'static>,
+    file_count: usize,
+    total_additions: u64,
+    total_deletions: u64,
+) -> impl IntoElement {
+    let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
+    let full_oid = commit.oid.clone();
+
+    let (copy_icon, copy_color) = if copy_feedback {
+        ("\u{2713}", rgba(0x4ec94eff)) // green checkmark
+    } else {
+        ("\u{29C9}", rgba(0x666666ff)) // dimmed copy icon
+    };
+
+    let author_text = format!("{} <{}>", commit.author_name, commit.author_email);
+
+    let left_side = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(8.0))
+        .overflow_hidden()
+        .flex_1()
+        .child(
+            div()
+                .text_xs()
+                .font_family(font("Menlo").family)
+                .text_color(rgba(0xaaaaaaff))
+                .child(author_text),
+        )
+        .child(
+            div()
+                .text_xs()
+                .font_family(font("Menlo").family)
+                .text_color(rgba(0x666666ff))
+                .child("\u{00B7}"),
+        )
+        .child(
+            div()
+                .text_xs()
+                .font_family(font("Menlo").family)
+                .text_color(rgba(0x888888ff))
+                .child(short_hash),
+        )
+        .child(
+            div()
+                .id("copy-hash-detail")
+                .flex_shrink_0()
+                .text_xs()
+                .font_family(font("Menlo").family)
+                .text_color(copy_color)
+                .cursor_pointer()
+                .when(!copy_feedback, |s| {
+                    s.hover(|s| s.text_color(rgba(0xccccccff)))
+                })
+                .on_click(move |_event, window, cx| {
+                    on_copy(full_oid.clone(), window, cx);
+                })
+                .child(copy_icon),
+        );
+
+    let right_side = if file_count > 0 {
+        div()
+            .flex()
+            .flex_row()
+            .gap(px(8.0))
+            .flex_shrink_0()
+            .text_xs()
+            .font_family(font("Menlo").family)
+            .child(
+                div()
+                    .text_color(rgba(0x3fb950ff))
+                    .child(format!("+{}", total_additions)),
+            )
+            .child(
+                div()
+                    .text_color(rgba(0xf85149ff))
+                    .child(format!("-{}", total_deletions)),
+            )
+            .into_any_element()
+    } else {
+        div().into_any_element()
+    };
+
+    div()
+        .w_full()
+        .flex_shrink_0()
+        .px(px(12.0))
+        .py(px(6.0))
+        .border_y_1()
+        .border_color(rgba(0x333333ff))
+        .flex()
+        .flex_row()
+        .justify_between()
+        .items_center()
+        .child(left_side)
+        .child(right_side)
 }
 
 #[cfg(test)]
@@ -593,11 +545,8 @@ mod tests {
             decorations: vec![],
         };
         let lines = build_description_lines(&commit);
-        assert_eq!(lines.len(), 2);
+        assert_eq!(lines.len(), 1); // summary only (metadata bar is separate)
         assert_eq!(lines[0].0, "Test commit");
-        assert!(lines[1].0.contains("\u{00B7}"));
-        assert!(lines[1].0.contains("Alice <alice@example.com>"));
-        assert!(lines[1].0.contains("abc1234"));
     }
 
     #[test]
@@ -613,10 +562,9 @@ mod tests {
             decorations: vec![],
         };
         let lines = build_description_lines(&commit);
-        assert_eq!(lines.len(), 4); // summary + 2 body + metadata
+        assert_eq!(lines.len(), 3); // summary + 2 body (metadata bar is separate)
         assert_eq!(lines[0].0, "Test commit");
         assert_eq!(lines[1].0, "Line one");
         assert_eq!(lines[2].0, "Line two");
-        assert!(lines[3].0.contains("\u{00B7}"));
     }
 }

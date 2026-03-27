@@ -712,14 +712,6 @@ impl CodeReviewPanel {
             }
         }
 
-        // Single metadata line: "author <email> · hash" (matches build_description_lines)
-        let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
-        let metadata_text = format!(
-            "{} <{}> \u{00B7} {}",
-            commit.author_name, commit.author_email, short_hash
-        );
-        lines.push(metadata_text);
-
         // Extract selected text from these lines
         let (start_row, start_col) = start;
         let (end_row, end_col) = end;
@@ -1099,29 +1091,36 @@ impl Render for CodeReviewPanel {
             };
 
             // When range selected: show "Showing changes from X commits" header
-            // When single commit: show commit detail (hash, author, body)
-            let commit_detail: Option<gpui::AnyElement> = if range_count > 1 {
-                Some(
-                    div()
-                        .w_full()
-                        .px(px(16.0))
-                        .py(px(10.0))
-                        .border_b_1()
-                        .border_color(rgba(0x333333ff))
-                        .text_xs()
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(rgba(0xccccccff))
-                        .child(format!("Showing changes from {} commits", range_count))
-                        .into_any_element(),
+            // When single commit: show commit detail (title + body) and fixed metadata bar
+            let copy_feedback = self
+                .copy_hash_time
+                .is_some_and(|t| t.elapsed().as_secs_f32() < 2.0);
+            let detail_file_count = self.files.len();
+            let detail_total_additions: u64 = self.files.iter().map(|f| f.additions).sum();
+            let detail_total_deletions: u64 = self.files.iter().map(|f| f.deletions).sum();
+
+            let (commit_detail, metadata_bar): (
+                Option<gpui::AnyElement>,
+                Option<gpui::AnyElement>,
+            ) = if range_count > 1 {
+                (
+                    Some(
+                        div()
+                            .w_full()
+                            .px(px(16.0))
+                            .py(px(10.0))
+                            .border_b_1()
+                            .border_color(rgba(0x333333ff))
+                            .text_xs()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(rgba(0xccccccff))
+                            .child(format!("Showing changes from {} commits", range_count))
+                            .into_any_element(),
+                    ),
+                    None,
                 )
             } else {
-                let copy_feedback = self
-                    .copy_hash_time
-                    .is_some_and(|t| t.elapsed().as_secs_f32() < 2.0);
                 let copy_weak = weak.clone();
-                let detail_file_count = self.files.len();
-                let detail_total_additions: u64 = self.files.iter().map(|f| f.additions).sum();
-                let detail_total_deletions: u64 = self.files.iter().map(|f| f.deletions).sum();
                 let desc_selection = self.description_text_selection.clone();
                 let desc_char_width = text_selection::measure_char_width(window);
 
@@ -1166,26 +1165,9 @@ impl Render for CodeReviewPanel {
                     })
                 };
 
-                self.selected_commit().map(|commit| {
+                let detail = self.selected_commit().map(|commit| {
                     commit_list::render_commit_detail(
                         commit,
-                        copy_feedback,
-                        {
-                            let weak = copy_weak;
-                            Arc::new(
-                                move |oid: String, _window: &mut Window, cx: &mut gpui::App| {
-                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(oid));
-                                    weak.update(cx, |this, cx| {
-                                        this.copy_hash_time = Some(std::time::Instant::now());
-                                        cx.notify();
-                                    })
-                                    .ok();
-                                },
-                            )
-                        },
-                        detail_file_count,
-                        detail_total_additions,
-                        detail_total_deletions,
                         &desc_selection,
                         on_desc_drag_start,
                         on_desc_drag_move,
@@ -1193,7 +1175,33 @@ impl Render for CodeReviewPanel {
                         desc_char_width,
                     )
                     .into_any_element()
-                })
+                });
+
+                let bar = self.selected_commit().map(|commit| {
+                    commit_list::render_metadata_bar(
+                        commit,
+                        copy_feedback,
+                        {
+                            Arc::new(
+                                move |oid: String, _window: &mut Window, cx: &mut gpui::App| {
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(oid));
+                                    copy_weak
+                                        .update(cx, |this, cx| {
+                                            this.copy_hash_time = Some(std::time::Instant::now());
+                                            cx.notify();
+                                        })
+                                        .ok();
+                                },
+                            )
+                        },
+                        detail_file_count,
+                        detail_total_additions,
+                        detail_total_deletions,
+                    )
+                    .into_any_element()
+                });
+
+                (detail, bar)
             };
 
             let files_header_text = if file_count > 0 {
@@ -1226,14 +1234,12 @@ impl Render for CodeReviewPanel {
                     // Range header is a simple bar — no scroll wrapper needed
                     detail
                 } else {
-                    // Single commit detail with max height and scroll (like GitHub Desktop)
+                    // Single commit detail with max height and scroll
                     div()
                         .id("commit-detail-scroll")
                         .w_full()
                         .max_h(px(150.0))
                         .overflow_y_scroll()
-                        .border_b_1()
-                        .border_color(rgba(0x333333ff))
                         .child(detail)
                         .into_any_element()
                 }
@@ -1253,6 +1259,7 @@ impl Render for CodeReviewPanel {
                         .flex()
                         .flex_col()
                         .children(commit_detail_section)
+                        .children(metadata_bar)
                         .child(
                             div()
                                 .id("files-and-diff")
@@ -3460,17 +3467,20 @@ mod tests {
     #[test]
     fn test_copy_selected_description_text_multi_line() {
         let mut panel = CodeReviewPanel::new();
-        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
-        panel.set_commits(commits);
+        // Use a commit with a body so there are multiple selectable lines
+        let mut commit = make_commit(0);
+        commit.body = Some("Body line one\nBody line two".to_string());
+        panel.set_commits(vec![commit]);
         panel.select_commit(0);
-        // Description lines for commit 0 (merged metadata):
+        // Description lines (metadata bar is separate, not selectable):
         // Row 0: "Commit 0" (summary)
-        // Row 1: "A <a@b> · oid0" (merged metadata line)
-        // Select from row 0 col 0 to row 1 col 1 => "Commit 0\nA"
+        // Row 1: "Body line one"
+        // Row 2: "Body line two"
+        // Select from row 0 col 0 to row 1 col 4 => "Commit 0\nBody"
         panel.description_text_selection.anchor = Some((0, 0));
-        panel.description_text_selection.cursor = Some((1, 1));
+        panel.description_text_selection.cursor = Some((1, 4));
         let result = panel.copy_active_selection();
-        assert_eq!(result, Some("Commit 0\nA".to_string()));
+        assert_eq!(result, Some("Commit 0\nBody".to_string()));
     }
 
     #[test]
