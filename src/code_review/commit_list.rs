@@ -232,15 +232,13 @@ fn build_description_lines(commit: &CommitInfo) -> Vec<(String, f32)> {
         }
     }
 
-    // Author line
-    lines.push((
-        format!("{} <{}>", commit.author_name, commit.author_email),
-        BODY_ROW_HEIGHT,
-    ));
-
-    // Hash line
+    // Single metadata line: "author <email> · hash" (per D-01, D-02, D-06, D-07)
     let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
-    lines.push((short_hash, BODY_ROW_HEIGHT));
+    let metadata_text = format!(
+        "{} <{}> \u{00B7} {}",
+        commit.author_name, commit.author_email, short_hash
+    );
+    lines.push((metadata_text, BODY_ROW_HEIGHT));
 
     lines
 }
@@ -510,4 +508,50 @@ pub fn render_commit_detail(
     }
 
     detail
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::git::types::CommitInfo;
+
+    #[test]
+    fn test_build_description_lines_no_body() {
+        let commit = CommitInfo {
+            oid: "abc1234def5678".to_string(),
+            summary: "Test commit".to_string(),
+            body: None,
+            author_name: "Alice".to_string(),
+            author_email: "alice@example.com".to_string(),
+            time_seconds: 1000,
+            time_offset: 0,
+            decorations: vec![],
+        };
+        let lines = build_description_lines(&commit);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].0, "Test commit");
+        assert!(lines[1].0.contains("\u{00B7}"));
+        assert!(lines[1].0.contains("Alice <alice@example.com>"));
+        assert!(lines[1].0.contains("abc1234"));
+    }
+
+    #[test]
+    fn test_build_description_lines_with_body() {
+        let commit = CommitInfo {
+            oid: "abc1234def5678".to_string(),
+            summary: "Test commit".to_string(),
+            body: Some("Line one\nLine two".to_string()),
+            author_name: "Alice".to_string(),
+            author_email: "alice@example.com".to_string(),
+            time_seconds: 1000,
+            time_offset: 0,
+            decorations: vec![],
+        };
+        let lines = build_description_lines(&commit);
+        assert_eq!(lines.len(), 4); // summary + 2 body + metadata
+        assert_eq!(lines[0].0, "Test commit");
+        assert_eq!(lines[1].0, "Line one");
+        assert_eq!(lines[2].0, "Line two");
+        assert!(lines[3].0.contains("\u{00B7}"));
+    }
 }

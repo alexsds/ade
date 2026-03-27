@@ -712,12 +712,13 @@ impl CodeReviewPanel {
             }
         }
 
-        // Author line
-        lines.push(format!("{} <{}>", commit.author_name, commit.author_email));
-
-        // Hash line
+        // Single metadata line: "author <email> · hash" (matches build_description_lines)
         let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
-        lines.push(short_hash);
+        let metadata_text = format!(
+            "{} <{}> \u{00B7} {}",
+            commit.author_name, commit.author_email, short_hash
+        );
+        lines.push(metadata_text);
 
         // Extract selected text from these lines
         let (start_row, start_col) = start;
@@ -3462,10 +3463,9 @@ mod tests {
         let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
         panel.set_commits(commits);
         panel.select_commit(0);
-        // Description lines for commit 0:
+        // Description lines for commit 0 (merged metadata):
         // Row 0: "Commit 0" (summary)
-        // Row 1: "A <a@b>" (author line)
-        // Row 2: "oid0" -> short = "oid0" (only 4 chars, <7)
+        // Row 1: "A <a@b> · oid0" (merged metadata line)
         // Select from row 0 col 0 to row 1 col 1 => "Commit 0\nA"
         panel.description_text_selection.anchor = Some((0, 0));
         panel.description_text_selection.cursor = Some((1, 1));
