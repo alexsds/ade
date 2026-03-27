@@ -121,6 +121,8 @@ pub struct CodeReviewPanel {
     pub diff_text_selection: text_selection::TextSelection,
     /// Character-level text selection state for Changes tab diff view.
     pub changes_diff_text_selection: text_selection::TextSelection,
+    /// Character-level text selection state for commit description area.
+    pub description_text_selection: text_selection::TextSelection,
 
     /// Anchor index for range selection (fixed end). When anchor == selected_commit_index,
     /// it is a single selection. Set on every select_commit call (D-02, Pitfall 1).
@@ -167,6 +169,7 @@ impl CodeReviewPanel {
             copy_hash_time: None,
             diff_text_selection: text_selection::TextSelection::default(),
             changes_diff_text_selection: text_selection::TextSelection::default(),
+            description_text_selection: text_selection::TextSelection::default(),
         }
     }
 
@@ -263,6 +266,8 @@ impl CodeReviewPanel {
         self.diff_scroll_top = 0;
         // Clear diff text selection on new diff load (D-07)
         self.diff_text_selection.clear();
+        // Clear description text selection on new diff load
+        self.description_text_selection.clear();
 
         // Restore file selection by path (D-08), fall back to first if not found
         if let Some(ref path) = prev_file_path {
@@ -314,6 +319,8 @@ impl CodeReviewPanel {
             self.pending_range_diff_request = None;
             // Clear diff text selection on commit switch
             self.diff_text_selection.clear();
+            // Clear description text selection on commit switch
+            self.description_text_selection.clear();
         }
     }
 
@@ -593,7 +600,9 @@ impl CodeReviewPanel {
     // --- Character-level text selection methods (Phase 33, replaces Phase 32 line-level) ---
 
     /// Start a drag at the given (row, col) position for the active tab.
+    /// Clears description selection (mutual exclusion per D-10).
     pub fn start_diff_drag(&mut self, row: usize, col: usize) {
+        self.description_text_selection.clear();
         match self.active_tab {
             ReviewTab::History => self.diff_text_selection.start_drag(row, col),
             ReviewTab::Changes => self.changes_diff_text_selection.start_drag(row, col),
@@ -645,6 +654,101 @@ impl CodeReviewPanel {
 
         let rows = diff_view::flatten_diff_for_copy(file_diff);
         Some(text_selection::copy_selected_text(&rows, start, end))
+    }
+
+    // --- Description text selection methods (Phase 33, Plan 02) ---
+
+    /// Start a drag in the commit description area.
+    /// Clears diff selection (mutual exclusion per D-10).
+    pub fn start_description_drag(&mut self, row: usize, col: usize) {
+        self.clear_diff_selection();
+        self.description_text_selection.start_drag(row, col);
+    }
+
+    /// Update the drag position in the commit description area.
+    pub fn update_description_drag(&mut self, row: usize, col: usize) {
+        self.description_text_selection.update_drag(row, col);
+    }
+
+    /// End the current drag in the commit description area.
+    pub fn end_description_drag(&mut self) {
+        self.description_text_selection.end_drag();
+    }
+
+    /// Clear the description text selection.
+    #[allow(dead_code)]
+    pub fn clear_description_selection(&mut self) {
+        self.description_text_selection.clear();
+    }
+
+    /// Copy text from whichever area has an active selection (description or diff).
+    /// Returns None if no selection exists in either area (D-13).
+    pub fn copy_active_selection(&self) -> Option<String> {
+        // Check description selection first (it's smaller, quick check)
+        if !self.description_text_selection.is_empty() {
+            return self.copy_selected_description_text();
+        }
+        // Then check diff selection
+        self.copy_selected_diff_text()
+    }
+
+    /// Extract selected text from the commit description area.
+    fn copy_selected_description_text(&self) -> Option<String> {
+        let (start, end) = self.description_text_selection.normalized_range()?;
+
+        // Build the description text lines (same as render_commit_detail builds them)
+        let commit = self.selected_commit()?;
+        let mut lines: Vec<String> = Vec::new();
+
+        // Line 0: summary (title)
+        lines.push(commit.summary.clone());
+
+        // Line 1+: body lines (if present)
+        if let Some(body) = &commit.body {
+            if !body.trim().is_empty() {
+                for line in body.lines() {
+                    lines.push(line.to_string());
+                }
+            }
+        }
+
+        // Author line
+        lines.push(format!("{} <{}>", commit.author_name, commit.author_email));
+
+        // Hash line
+        let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
+        lines.push(short_hash);
+
+        // Extract selected text from these lines
+        let (start_row, start_col) = start;
+        let (end_row, end_col) = end;
+        let mut result_lines = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            if i < start_row || i > end_row {
+                continue;
+            }
+            let chars: Vec<char> = line.chars().collect();
+            let col_start = if i == start_row {
+                start_col.min(chars.len())
+            } else {
+                0
+            };
+            let col_end = if i == end_row {
+                end_col.min(chars.len())
+            } else {
+                chars.len()
+            };
+            if col_start <= col_end {
+                let selected: String = chars[col_start..col_end].iter().collect();
+                result_lines.push(selected);
+            }
+        }
+
+        if result_lines.is_empty() {
+            None
+        } else {
+            Some(result_lines.join("\n"))
+        }
     }
 
     // --- Range selection methods (Phase 27) ---
@@ -815,7 +919,7 @@ fn render_tab_label(
 }
 
 impl Render for CodeReviewPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let weak = cx.weak_entity();
 
         // Tab bar on_switch callback (D-01, D-02)
@@ -1017,6 +1121,50 @@ impl Render for CodeReviewPanel {
                 let detail_file_count = self.files.len();
                 let detail_total_additions: u64 = self.files.iter().map(|f| f.additions).sum();
                 let detail_total_deletions: u64 = self.files.iter().map(|f| f.deletions).sum();
+                let desc_selection = self.description_text_selection.clone();
+                let desc_char_width = text_selection::measure_char_width(window);
+
+                let on_desc_drag_start: Arc<
+                    dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static,
+                > = {
+                    let weak = weak.clone();
+                    Arc::new(
+                        move |row: usize, col: usize, _window: &mut Window, cx: &mut gpui::App| {
+                            weak.update(cx, |this, cx| {
+                                this.start_description_drag(row, col);
+                                cx.notify();
+                            })
+                            .ok();
+                        },
+                    )
+                };
+
+                let on_desc_drag_move: Arc<
+                    dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static,
+                > = {
+                    let weak = weak.clone();
+                    Arc::new(
+                        move |row: usize, col: usize, _window: &mut Window, cx: &mut gpui::App| {
+                            weak.update(cx, |this, cx| {
+                                this.update_description_drag(row, col);
+                                cx.notify();
+                            })
+                            .ok();
+                        },
+                    )
+                };
+
+                let on_desc_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = {
+                    let weak = weak.clone();
+                    Arc::new(move |_window: &mut Window, cx: &mut gpui::App| {
+                        weak.update(cx, |this, cx| {
+                            this.end_description_drag();
+                            cx.notify();
+                        })
+                        .ok();
+                    })
+                };
+
                 self.selected_commit().map(|commit| {
                     commit_list::render_commit_detail(
                         commit,
@@ -1037,6 +1185,11 @@ impl Render for CodeReviewPanel {
                         detail_file_count,
                         detail_total_additions,
                         detail_total_deletions,
+                        &desc_selection,
+                        on_desc_drag_start,
+                        on_desc_drag_move,
+                        on_desc_drag_end,
+                        desc_char_width,
                     )
                     .into_any_element()
                 })
@@ -3180,5 +3333,157 @@ mod tests {
         assert_eq!(panel.diff_text_selection.cursor, Some((3, 5)));
         assert_eq!(panel.changes_diff_text_selection.anchor, Some((7, 2)));
         assert_eq!(panel.changes_diff_text_selection.cursor, Some((7, 2)));
+    }
+
+    // --- Description text selection tests (Phase 33, Plan 02) ---
+
+    #[test]
+    fn test_description_selection_clears_on_commit_switch() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(1);
+        // Start description selection
+        panel.description_text_selection.start_drag(0, 0);
+        panel.description_text_selection.update_drag(2, 5);
+        assert!(!panel.description_text_selection.is_empty());
+        // Switch commit
+        panel.select_commit(2);
+        // Description selection should be cleared
+        assert!(panel.description_text_selection.is_empty());
+    }
+
+    #[test]
+    fn test_copy_active_selection_prefers_description() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..5).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(0);
+        // Set up both selections (shouldn't normally happen, but test priority)
+        panel.description_text_selection.anchor = Some((0, 0));
+        panel.description_text_selection.cursor = Some((0, 6));
+        panel.diff_text_selection.anchor = Some((0, 0));
+        panel.diff_text_selection.cursor = Some((0, 5));
+        // copy_active_selection should check description first
+        let result = panel.copy_active_selection();
+        assert!(result.is_some());
+        // Should be "Commit" (first 6 chars of "Commit 0")
+        assert_eq!(result.unwrap(), "Commit");
+    }
+
+    #[test]
+    fn test_copy_active_selection_returns_diff_when_no_description() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.selected_file_index = Some(0);
+        panel.diff_data = Some(DiffData {
+            files: vec![FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            }],
+            file_diffs: vec![FileDiff {
+                path: "a.rs".to_string(),
+                additions: 1,
+                deletions: 0,
+                hunks: vec![DiffHunk {
+                    header: "@@ -1,1 +1,1 @@".to_string(),
+                    lines: vec![DiffLine {
+                        line_type: DiffLineType::Context,
+                        content: "hello world".to_string(),
+                        old_lineno: Some(1),
+                        new_lineno: Some(1),
+                    }],
+                }],
+            }],
+        });
+        // No description selection
+        assert!(panel.description_text_selection.is_empty());
+        // Set diff selection
+        panel.diff_text_selection.anchor = Some((1, 0));
+        panel.diff_text_selection.cursor = Some((1, 5));
+        let result = panel.copy_active_selection();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_copy_active_selection_returns_none_when_both_empty() {
+        let panel = CodeReviewPanel::new();
+        assert!(panel.description_text_selection.is_empty());
+        assert!(panel.diff_text_selection.is_empty());
+        assert!(panel.copy_active_selection().is_none());
+    }
+
+    #[test]
+    fn test_start_diff_drag_clears_description() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        // Start description selection
+        panel.description_text_selection.start_drag(0, 0);
+        panel.description_text_selection.update_drag(1, 5);
+        assert!(!panel.description_text_selection.is_empty());
+        // Start diff drag - should clear description selection (mutual exclusion)
+        panel.start_diff_drag(2, 3);
+        assert!(panel.description_text_selection.is_empty());
+    }
+
+    #[test]
+    fn test_start_description_drag_clears_diff() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        // Start diff selection
+        panel.diff_text_selection.start_drag(0, 0);
+        panel.diff_text_selection.update_drag(3, 5);
+        assert!(!panel.diff_text_selection.is_empty());
+        // Start description drag - should clear diff selection (mutual exclusion)
+        panel.start_description_drag(0, 0);
+        assert!(panel.diff_text_selection.is_empty());
+    }
+
+    #[test]
+    fn test_copy_selected_description_text_single_line() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(0);
+        // Select first 6 chars of summary "Commit 0" => "Commit"
+        panel.description_text_selection.anchor = Some((0, 0));
+        panel.description_text_selection.cursor = Some((0, 6));
+        let result = panel.copy_active_selection();
+        assert_eq!(result, Some("Commit".to_string()));
+    }
+
+    #[test]
+    fn test_copy_selected_description_text_multi_line() {
+        let mut panel = CodeReviewPanel::new();
+        let commits: Vec<CommitInfo> = (0..3).map(make_commit).collect();
+        panel.set_commits(commits);
+        panel.select_commit(0);
+        // Description lines for commit 0:
+        // Row 0: "Commit 0" (summary)
+        // Row 1: "A <a@b>" (author line)
+        // Row 2: "oid0" -> short = "oid0" (only 4 chars, <7)
+        // Select from row 0 col 0 to row 1 col 1 => "Commit 0\nA"
+        panel.description_text_selection.anchor = Some((0, 0));
+        panel.description_text_selection.cursor = Some((1, 1));
+        let result = panel.copy_active_selection();
+        assert_eq!(result, Some("Commit 0\nA".to_string()));
+    }
+
+    #[test]
+    fn test_description_selection_clears_on_set_diff() {
+        let mut panel = CodeReviewPanel::new();
+        panel.description_text_selection.start_drag(0, 0);
+        panel.description_text_selection.update_drag(1, 5);
+        assert!(!panel.description_text_selection.is_empty());
+        let diff = DiffData {
+            files: vec![],
+            file_diffs: vec![],
+        };
+        panel.set_diff(diff);
+        assert!(panel.description_text_selection.is_empty());
     }
 }

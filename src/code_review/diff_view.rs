@@ -433,14 +433,10 @@ fn render_diff_row(
                     let mut combined = highlights.clone();
                     combined.extend(intra_line_highlights.iter().cloned());
                     prepare_highlights(content, &mut combined);
-                    div()
-                        .flex_1()
-                        .pl(px(8.0))
-                        .text_color(text_color)
-                        .child(
-                            StyledText::new(SharedString::from(content.clone()))
-                                .with_highlights(combined),
-                        )
+                    div().flex_1().pl(px(8.0)).text_color(text_color).child(
+                        StyledText::new(SharedString::from(content.clone()))
+                            .with_highlights(combined),
+                    )
                 } else {
                     div()
                         .flex_1()

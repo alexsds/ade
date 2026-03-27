@@ -213,11 +213,11 @@ impl AdeWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // In Code Review mode, copy selected diff lines instead of terminal text (D-09)
+        // In Code Review mode, copy from whichever area has active selection (D-09, D-10)
         if self.mode == Mode::CodeReview {
             let copied_text = self
                 .code_review_panel
-                .update(cx, |panel, _| panel.copy_selected_diff_text());
+                .update(cx, |panel, _| panel.copy_active_selection());
             if let Some(text) = copied_text {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
             }

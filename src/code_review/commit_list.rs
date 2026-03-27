@@ -4,13 +4,17 @@
 //! dimmed author + relative time on the second line, with colored decoration
 //! badges for branches and tags.
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::git::types::{CommitInfo, Decoration, format_relative_time};
 use gpui::{
-    App, FontWeight, IntoElement, Styled, UniformListScrollHandle, Window, div, prelude::*, px,
-    rgba, uniform_list,
+    App, Bounds, FontWeight, IntoElement, MouseButton, Pixels, Styled, UniformListScrollHandle,
+    Window, canvas, div, font, prelude::*, px, rgba, uniform_list,
 };
+
+use super::text_selection::TextSelection;
 
 /// Render a scrollable commit list using GPUI's uniform_list.
 ///
@@ -204,8 +208,118 @@ fn render_spinner_row() -> impl IntoElement {
         .child("Loading...")
 }
 
+/// Height for the title row (text_sm ~14px + gap)
+const TITLE_ROW_HEIGHT: f32 = 20.0;
+/// Height for body/author/hash/stats rows (text_xs ~12px + gap)
+const BODY_ROW_HEIGHT: f32 = 18.0;
+/// Horizontal padding inside the commit detail container
+const DETAIL_PADDING: f32 = 12.0;
+
+/// Build the logical text lines of the commit detail for selection purposes.
+/// Returns Vec of (text, row_height) pairs.
+fn build_description_lines(commit: &CommitInfo) -> Vec<(String, f32)> {
+    let mut lines: Vec<(String, f32)> = Vec::new();
+
+    // Row 0: summary (title)
+    lines.push((commit.summary.clone(), TITLE_ROW_HEIGHT));
+
+    // Row 1+: body lines (if present)
+    if let Some(body) = &commit.body {
+        if !body.trim().is_empty() {
+            for line in body.lines() {
+                lines.push((line.to_string(), BODY_ROW_HEIGHT));
+            }
+        }
+    }
+
+    // Author line
+    lines.push((
+        format!("{} <{}>", commit.author_name, commit.author_email),
+        BODY_ROW_HEIGHT,
+    ));
+
+    // Hash line
+    let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
+    lines.push((short_hash, BODY_ROW_HEIGHT));
+
+    lines
+}
+
+/// Map a Y position (relative to the description text area) to a row index
+/// using cumulative row heights.
+fn y_to_row(local_y: f32, row_heights: &[(String, f32)]) -> usize {
+    let mut y_acc = 0.0;
+    for (i, (_, h)) in row_heights.iter().enumerate() {
+        if local_y < y_acc + h {
+            return i;
+        }
+        y_acc += h;
+    }
+    // Past the end — clamp to last row
+    row_heights.len().saturating_sub(1)
+}
+
+/// Render a single description row with optional selection overlay.
+/// Uses Menlo monospace font for consistent char width.
+fn render_description_row(
+    text: &str,
+    row_index: usize,
+    is_title: bool,
+    text_color: u32,
+    text_selection: &TextSelection,
+    char_width: f32,
+) -> gpui::AnyElement {
+    let char_count = text.chars().count();
+    let sel_range = if text_selection.row_is_selected(row_index) {
+        text_selection.selection_for_row(row_index, char_count)
+    } else {
+        None
+    };
+    let is_fully_selected = sel_range
+        .map(|(s, e)| s == 0 && e >= char_count)
+        .unwrap_or(false);
+
+    let height = if is_title {
+        TITLE_ROW_HEIGHT
+    } else {
+        BODY_ROW_HEIGHT
+    };
+    let text_size = if is_title { px(14.0) } else { px(12.0) };
+
+    let mut row_div = div()
+        .w_full()
+        .h(px(height))
+        .font_family(font("Menlo").family)
+        .text_size(text_size)
+        .text_color(rgba(text_color))
+        .relative();
+
+    if is_title {
+        row_div = row_div.font_weight(FontWeight::BOLD);
+    }
+
+    if is_fully_selected {
+        row_div = row_div.bg(rgba(0x264f7860));
+    } else if let Some((start_col, end_col)) = sel_range {
+        let start_px = start_col as f32 * char_width;
+        let width_px = (end_col - start_col) as f32 * char_width;
+        row_div = row_div.child(
+            div()
+                .absolute()
+                .top_0()
+                .left(px(start_px))
+                .w(px(width_px))
+                .h_full()
+                .bg(rgba(0x264f7860)),
+        );
+    }
+
+    row_div.child(text.to_string()).into_any_element()
+}
+
 /// Render the commit detail section shown below the commit list when a
 /// commit is selected. Shows bold title, body, author+hash+copy, and aggregate stats.
+/// Supports mouse drag text selection with selection overlay rendering.
 pub fn render_commit_detail(
     commit: &CommitInfo,
     copy_feedback: bool,
@@ -213,11 +327,14 @@ pub fn render_commit_detail(
     file_count: usize,
     total_additions: u64,
     total_deletions: u64,
+    text_selection: &TextSelection,
+    on_desc_drag_start: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
+    on_desc_drag_move: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
+    on_desc_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
+    char_width: f32,
 ) -> impl IntoElement {
     let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
     let full_oid = commit.oid.clone();
-
-    let author_line = format!("{} <{}>", commit.author_name, commit.author_email);
 
     // Copy button: show checkmark for 2s after copy, otherwise show copy icon
     let (copy_icon, copy_color) = if copy_feedback {
@@ -226,70 +343,152 @@ pub fn render_commit_detail(
         ("\u{29C9}", rgba(0x666666ff)) // dimmed copy icon
     };
 
-    // Title (bold, D-13)
-    let mut detail = div()
-        .w_full()
-        .p(px(12.0))
-        .flex()
-        .flex_col()
-        .gap(px(4.0))
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::BOLD)
-                .text_color(rgba(0xddddddff))
-                .child(commit.summary.clone()),
-        );
+    // Build description lines for selection mapping
+    let desc_lines = build_description_lines(commit);
+    let desc_lines_for_mouse = desc_lines.clone();
+    let desc_lines_for_move = desc_lines.clone();
 
-    // Body (if present, D-14)
+    // Container bounds for mouse position mapping (same pattern as diff_view)
+    let container_bounds: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
+    let bounds_for_canvas = container_bounds.clone();
+    let bounds_for_down = container_bounds.clone();
+    let bounds_for_move = container_bounds.clone();
+
+    let cw_down = char_width;
+    let cw_move = char_width;
+
+    // Build selectable text rows
+    let mut text_rows: Vec<gpui::AnyElement> = Vec::new();
+
+    // Row 0: title
+    text_rows.push(render_description_row(
+        &commit.summary,
+        0,
+        true,
+        0xddddddff,
+        text_selection,
+        char_width,
+    ));
+
+    let mut row_idx = 1;
+
+    // Body rows
     if let Some(body) = &commit.body {
         if !body.trim().is_empty() {
-            detail = detail.child(
-                div()
-                    .text_xs()
-                    .text_color(rgba(0xccccccff))
-                    .child(body.clone()),
-            );
+            for line in body.lines() {
+                text_rows.push(render_description_row(
+                    line,
+                    row_idx,
+                    false,
+                    0xccccccff,
+                    text_selection,
+                    char_width,
+                ));
+                row_idx += 1;
+            }
         }
     }
 
-    // Author + hash + copy button (D-14, moved below title/body)
+    // Author line
+    let author_line = format!("{} <{}>", commit.author_name, commit.author_email);
+    text_rows.push(render_description_row(
+        &author_line,
+        row_idx,
+        false,
+        0xaaaaaaff,
+        text_selection,
+        char_width,
+    ));
+    row_idx += 1;
+
+    // Hash line
+    text_rows.push(render_description_row(
+        &short_hash,
+        row_idx,
+        false,
+        0x888888ff,
+        text_selection,
+        char_width,
+    ));
+
+    // Text area: selectable description content with mouse handlers
+    let text_area = div()
+        .id("commit-detail-text-area")
+        .w_full()
+        .cursor_text()
+        .relative()
+        // Canvas to capture container bounds
+        .child(
+            canvas(
+                {
+                    let b = bounds_for_canvas;
+                    move |bounds, _window, _cx| {
+                        b.set(bounds);
+                    }
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        )
+        .on_mouse_down(MouseButton::Left, {
+            let on_drag_start = on_desc_drag_start.clone();
+            move |event, window, cx| {
+                let b = bounds_for_down.get();
+                let local_y = f32::from(event.position.y) - f32::from(b.origin.y);
+                let local_x = f32::from(event.position.x) - f32::from(b.origin.x);
+                let row = y_to_row(local_y, &desc_lines_for_mouse);
+                let col = (local_x / cw_down).max(0.0).floor() as usize;
+                on_drag_start(row, col, window, cx);
+            }
+        })
+        .on_mouse_move({
+            let on_drag_move = on_desc_drag_move.clone();
+            move |event, window, cx| {
+                if event.dragging() {
+                    let b = bounds_for_move.get();
+                    let local_y = f32::from(event.position.y) - f32::from(b.origin.y);
+                    let local_x = f32::from(event.position.x) - f32::from(b.origin.x);
+                    let row = y_to_row(local_y, &desc_lines_for_move);
+                    let col = (local_x / cw_move).max(0.0).floor() as usize;
+                    on_drag_move(row, col, window, cx);
+                }
+            }
+        })
+        .on_mouse_up(MouseButton::Left, {
+            let on_drag_end = on_desc_drag_end.clone();
+            move |_event, window, cx| {
+                on_drag_end(window, cx);
+            }
+        })
+        .children(text_rows);
+
+    // Main container
+    let mut detail = div()
+        .w_full()
+        .p(px(DETAIL_PADDING))
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .child(text_area);
+
+    // Copy hash button row (not part of selectable text area)
     detail = detail.child(
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(6.0))
-            // Author
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgba(0xaaaaaaff))
-                    .child(author_line),
-            )
-            // Short hash
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgba(0x888888ff))
-                    .child(short_hash),
-            )
-            // Copy hash button with feedback
-            .child(
-                div()
-                    .id("copy-hash-detail")
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(copy_color)
-                    .cursor_pointer()
-                    .when(!copy_feedback, |s| {
-                        s.hover(|s| s.text_color(rgba(0xccccccff)))
-                    })
-                    .on_click(move |_event, window, cx| {
-                        on_copy(full_oid.clone(), window, cx);
-                    })
-                    .child(copy_icon),
-            ),
+        div().flex().flex_row().items_center().gap(px(6.0)).child(
+            div()
+                .id("copy-hash-detail")
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(copy_color)
+                .cursor_pointer()
+                .when(!copy_feedback, |s| {
+                    s.hover(|s| s.text_color(rgba(0xccccccff)))
+                })
+                .on_click(move |_event, window, cx| {
+                    on_copy(full_oid.clone(), window, cx);
+                })
+                .child(copy_icon),
+        ),
     );
 
     // Aggregate stats (D-15, D-16, D-17)
