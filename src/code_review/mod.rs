@@ -121,8 +121,6 @@ pub struct CodeReviewPanel {
     pub diff_text_selection: text_selection::TextSelection,
     /// Character-level text selection state for Changes tab diff view.
     pub changes_diff_text_selection: text_selection::TextSelection,
-    /// Cached monospace character width for diff view (measured once during render).
-    pub diff_char_width: Option<f32>,
 
     /// Anchor index for range selection (fixed end). When anchor == selected_commit_index,
     /// it is a single selection. Set on every select_commit call (D-02, Pitfall 1).
@@ -169,7 +167,6 @@ impl CodeReviewPanel {
             copy_hash_time: None,
             diff_text_selection: text_selection::TextSelection::default(),
             changes_diff_text_selection: text_selection::TextSelection::default(),
-            diff_char_width: None,
         }
     }
 
@@ -935,8 +932,8 @@ impl Render for CodeReviewPanel {
                 })
             };
 
-            let diff_char_width = self.diff_char_width.unwrap_or(7.2);
-            let diff_scroll_top = self.diff_scroll_top;
+            // char_width and scroll_top are now read live inside diff_view closures
+            // via measure_char_width(window) and scroll_handle.logical_scroll_top_index()
 
             let is_commit_list_active = self.active_panel == ActivePanel::CommitList;
             let is_file_list_active = self.active_panel == ActivePanel::FileList;
@@ -1151,8 +1148,6 @@ impl Render for CodeReviewPanel {
                                             diff_on_drag_start.clone(),
                                             diff_on_drag_move.clone(),
                                             diff_on_drag_end.clone(),
-                                            diff_char_width,
-                                            diff_scroll_top,
                                         )
                                         .into_any_element()
                                     } else {
@@ -1246,8 +1241,7 @@ impl Render for CodeReviewPanel {
                 })
             };
 
-            let changes_diff_char_width = self.diff_char_width.unwrap_or(7.2);
-            let changes_diff_scroll_top = self.changes_diff_scroll_top;
+            // char_width and scroll_top are now read live inside diff_view closures
 
             let changes_file_list_content = file_list::render_file_list_with_empty_msg(
                 &self.changes_files,
@@ -1293,8 +1287,6 @@ impl Render for CodeReviewPanel {
                         changes_diff_on_drag_start.clone(),
                         changes_diff_on_drag_move.clone(),
                         changes_diff_on_drag_end.clone(),
-                        changes_diff_char_width,
-                        changes_diff_scroll_top,
                     )
                     .into_any_element()
                 } else {

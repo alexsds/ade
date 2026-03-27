@@ -14,8 +14,8 @@ use crate::git::types::{DiffLineType, FileDiff};
 use crate::syntax::SyntaxHighlighter;
 use gpui::{
     Bounds, FontWeight, HighlightStyle, IntoElement, MouseButton, Pixels, SharedString, Styled,
-    StyledText, TextAlign, UniformListScrollHandle, Window, canvas, div, prelude::*, px, rgba,
-    uniform_list,
+    StyledText, TextAlign, UniformListScrollHandle, Window, canvas, div, font, prelude::*, px,
+    rgba, uniform_list,
 };
 
 /// Prepare highlight ranges for GPUI's StyledText.
@@ -175,6 +175,10 @@ const CONTENT_X_OFFSET: f32 = 88.0;
 /// Render a virtualized diff view using uniform_list.
 /// Only visible lines are rendered — smooth scrolling for any diff size.
 /// Character-level text selection via container-level mouse events.
+///
+/// Scroll offset is captured from the uniform_list render callback (`range.start`)
+/// so it always reflects the actual visible range, regardless of scroll source
+/// (keyboard, trackpad, programmatic).
 pub fn render_diff_view(
     file_diff: &FileDiff,
     highlighter: &mut SyntaxHighlighter,
@@ -184,8 +188,6 @@ pub fn render_diff_view(
     on_drag_start: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
     on_drag_move: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
     on_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
-    char_width: f32,
-    scroll_top: usize,
 ) -> impl IntoElement {
     let rows = flatten_and_highlight_diff(file_diff, highlighter);
     let row_count = rows.len();
@@ -195,16 +197,20 @@ pub fn render_diff_view(
 
     let text_sel = text_selection.clone();
 
-    // Shared bounds cell for container position tracking.
-    // Canvas sets bounds during paint; mouse handlers read them.
+    // Shared cells between uniform_list render callback and mouse handlers.
+    // Set during render (request_layout phase), read during mouse events.
     let container_bounds: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
+    let scroll_start: Rc<Cell<usize>> = Rc::new(Cell::new(0));
+    let char_width_cell: Rc<Cell<f32>> = Rc::new(Cell::new(0.0));
 
     let bounds_for_canvas = container_bounds.clone();
     let bounds_for_down = container_bounds.clone();
     let bounds_for_move = container_bounds.clone();
+    let scroll_for_down = scroll_start.clone();
+    let scroll_for_move = scroll_start.clone();
+    let cw_for_down = char_width_cell.clone();
+    let cw_for_move = char_width_cell.clone();
 
-    let cw = char_width;
-    let st = scroll_top;
     let total = row_count;
 
     div()
@@ -212,15 +218,12 @@ pub fn render_diff_view(
         .size_full()
         .flex()
         .flex_col()
-        // File header bar (sticky at top)
         .child(render_file_header(&path, additions, deletions))
-        // Selection container: mouse events for drag-to-select (D-01, D-08)
         .child(
             div()
                 .id("diff-selection-area")
                 .size_full()
                 .cursor_text()
-                // Invisible canvas to capture container bounds during paint
                 .child(
                     canvas(
                         {
@@ -238,6 +241,15 @@ pub fn render_diff_view(
                     let on_drag_start = on_drag_start.clone();
                     move |event, window, cx| {
                         let b = bounds_for_down.get();
+                        let st = scroll_for_down.get();
+                        let cw = {
+                            let c = cw_for_down.get();
+                            if c > 0.0 {
+                                c
+                            } else {
+                                super::text_selection::measure_char_width(window)
+                            }
+                        };
                         let (row, col) = super::text_selection::pixel_to_diff_position(
                             f32::from(event.position.y),
                             f32::from(event.position.x),
@@ -254,10 +266,18 @@ pub fn render_diff_view(
                 })
                 .on_mouse_move({
                     let on_drag_move = on_drag_move.clone();
-                    let bounds_for_move = bounds_for_move.clone();
                     move |event, window, cx| {
                         if event.dragging() {
                             let b = bounds_for_move.get();
+                            let st = scroll_for_move.get();
+                            let cw = {
+                                let c = cw_for_move.get();
+                                if c > 0.0 {
+                                    c
+                                } else {
+                                    super::text_selection::measure_char_width(window)
+                                }
+                            };
                             let (row, col) = super::text_selection::pixel_to_diff_position(
                                 f32::from(event.position.y),
                                 f32::from(event.position.x),
@@ -279,12 +299,27 @@ pub fn render_diff_view(
                         on_drag_end(window, cx);
                     }
                 })
-                // Virtualized diff lines (only visible rows rendered)
                 .child(
                     uniform_list("diff-lines", row_count, {
+                        let scroll_cell = scroll_start.clone();
+                        let cw_cell = char_width_cell.clone();
                         move |range, window, cx| {
+                            // Capture actual scroll position from the uniform_list's visible range
+                            scroll_cell.set(range.start);
                             let visible = range.end - range.start;
                             on_visible_count(visible, window, cx);
+                            // Measure char width once per render cycle
+                            let cw = {
+                                let cached = cw_cell.get();
+                                if cached > 0.0 {
+                                    cached
+                                } else {
+                                    let measured =
+                                        super::text_selection::measure_char_width(window);
+                                    cw_cell.set(measured);
+                                    measured
+                                }
+                            };
                             range
                                 .map(|ix| {
                                     let row = rows[ix].clone();
@@ -300,69 +335,62 @@ pub fn render_diff_view(
 }
 
 /// Render a single diff row (hunk header or diff line).
-/// Uses `TextSelection` for per-character selection highlighting.
-/// `char_width` is used to compute selection overlay positioning.
+///
+/// Selection background is rendered as an absolutely positioned overlay div on the
+/// ROW div, independent of syntax highlighting. This avoids `prepare_highlights`
+/// clipping the selection when it overlaps with syntax color ranges.
+///
+/// The overlay is positioned from the row's left edge using known layout offsets:
+/// - Diff lines: CONTENT_X_OFFSET (88px = 40+40+8) + char_col * char_width
+/// - Hunk headers: 12px (horizontal padding) + char_col * char_width
 fn render_diff_row(
     row: &DiffRow,
     index: usize,
     text_selection: &TextSelection,
-    _char_width: f32,
+    char_width: f32,
 ) -> gpui::AnyElement {
     match row {
         DiffRow::HunkHeader(header) => {
+            let char_count = header.chars().count();
+            let sel_range = if text_selection.row_is_selected(index) {
+                text_selection.selection_for_row(index, char_count)
+            } else {
+                None
+            };
+            let is_fully_selected = sel_range
+                .map(|(s, e)| s == 0 && e >= char_count)
+                .unwrap_or(false);
+
             let mut row_div = div()
                 .id(("diff-row", index))
                 .h(px(DIFF_LINE_HEIGHT))
                 .w_full()
                 .text_xs()
+                .font_family(font("Menlo").family)
                 .text_color(rgba(0x79c0ffff))
                 .px(px(12.0))
                 .flex()
-                .items_center();
+                .items_center()
+                .relative();
 
-            // Selection highlight for hunk headers (D-06: hunk headers ARE selectable)
-            if text_selection.row_is_selected(index) {
-                let sel_range = text_selection.selection_for_row(index, header.len());
-                if let Some((start_col, end_col)) = sel_range {
-                    if start_col == 0 && end_col >= header.len() {
-                        // Full row selected
-                        row_div = row_div.bg(rgba(0x264f7860));
-                    } else {
-                        // Partial selection via HighlightStyle background
-                        row_div = row_div.bg(rgba(0x1a2233ff));
-                        let chars: Vec<char> = header.chars().collect();
-                        let start_byte = header
-                            .char_indices()
-                            .nth(start_col.min(chars.len()))
-                            .map(|(i, _)| i)
-                            .unwrap_or(header.len());
-                        let end_byte = header
-                            .char_indices()
-                            .nth(end_col.min(chars.len()))
-                            .map(|(i, _)| i)
-                            .unwrap_or(header.len());
-                        if start_byte < end_byte {
-                            let mut highlights = vec![(
-                                start_byte..end_byte,
-                                HighlightStyle {
-                                    background_color: Some(rgba(0x264f7860).into()),
-                                    ..Default::default()
-                                },
-                            )];
-                            prepare_highlights(header, &mut highlights);
-                            return row_div
-                                .child(
-                                    StyledText::new(SharedString::from(header.clone()))
-                                        .with_highlights(highlights),
-                                )
-                                .into_any_element();
-                        }
-                    }
-                } else {
-                    row_div = row_div.bg(rgba(0x1a2233ff));
-                }
+            if is_fully_selected {
+                row_div = row_div.bg(rgba(0x264f7860));
             } else {
                 row_div = row_div.bg(rgba(0x1a2233ff));
+                if let Some((start_col, end_col)) = sel_range {
+                    // Overlay from row edge: 12px padding + char offset
+                    let start_px = 12.0 + start_col as f32 * char_width;
+                    let width_px = (end_col - start_col) as f32 * char_width;
+                    row_div = row_div.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left(px(start_px))
+                            .w(px(width_px))
+                            .h_full()
+                            .bg(rgba(0x264f7860)),
+                    );
+                }
             }
 
             row_div.child(header.clone()).into_any_element()
@@ -386,17 +414,41 @@ fn render_diff_row(
             let new_text = new_lineno.map(|n| format!("{}", n)).unwrap_or_default();
 
             let line_height = px(DIFF_LINE_HEIGHT);
+            let char_count = content.chars().count();
 
-            // Check selection state for this row
             let sel_range = if text_selection.row_is_selected(index) {
-                text_selection.selection_for_row(index, content.chars().count())
+                text_selection.selection_for_row(index, char_count)
             } else {
                 None
             };
 
             let is_fully_selected = sel_range
-                .map(|(s, e)| s == 0 && e >= content.chars().count())
+                .map(|(s, e)| s == 0 && e >= char_count)
                 .unwrap_or(false);
+
+            // Content child — syntax + intra-line highlights only (NO selection in highlights)
+            let content_child = {
+                let has_syntax = !highlights.is_empty() || !intra_line_highlights.is_empty();
+                if has_syntax {
+                    let mut combined = highlights.clone();
+                    combined.extend(intra_line_highlights.iter().cloned());
+                    prepare_highlights(content, &mut combined);
+                    div()
+                        .flex_1()
+                        .pl(px(8.0))
+                        .text_color(text_color)
+                        .child(
+                            StyledText::new(SharedString::from(content.clone()))
+                                .with_highlights(combined),
+                        )
+                } else {
+                    div()
+                        .flex_1()
+                        .pl(px(8.0))
+                        .text_color(text_color)
+                        .child(content.clone())
+                }
+            };
 
             let mut row_div = div()
                 .id(("diff-row", index))
@@ -404,9 +456,10 @@ fn render_diff_row(
                 .w_full()
                 .flex()
                 .flex_row()
+                .font_family(font("Menlo").family)
                 .text_size(px(12.0))
                 .line_height(line_height)
-                // Old line number gutter
+                .relative()
                 .child(
                     div()
                         .w(px(40.0))
@@ -417,7 +470,6 @@ fn render_diff_row(
                         .text_align(TextAlign::Right)
                         .child(old_text),
                 )
-                // New line number gutter
                 .child(
                     div()
                         .w(px(40.0))
@@ -428,63 +480,27 @@ fn render_diff_row(
                         .text_align(TextAlign::Right)
                         .child(new_text),
                 )
-                // Line content — use StyledText for syntax + intra-line + selection highlights
-                .child({
-                    let has_syntax = !highlights.is_empty() || !intra_line_highlights.is_empty();
-                    let has_partial_selection = sel_range.is_some() && !is_fully_selected;
+                .child(content_child);
 
-                    if has_syntax || has_partial_selection {
-                        let mut combined = highlights.clone();
-                        combined.extend(intra_line_highlights.iter().cloned());
-
-                        // Add selection background highlight for partial selections
-                        if let Some((start_col, end_col)) = sel_range {
-                            if !is_fully_selected {
-                                let chars: Vec<char> = content.chars().collect();
-                                let start_byte = content
-                                    .char_indices()
-                                    .nth(start_col.min(chars.len()))
-                                    .map(|(i, _)| i)
-                                    .unwrap_or(content.len());
-                                let end_byte = content
-                                    .char_indices()
-                                    .nth(end_col.min(chars.len()))
-                                    .map(|(i, _)| i)
-                                    .unwrap_or(content.len());
-                                if start_byte < end_byte {
-                                    // Add selection highlight FIRST so syntax colors take
-                                    // priority for text color via prepare_highlights clipping
-                                    combined.insert(
-                                        0,
-                                        (
-                                            start_byte..end_byte,
-                                            HighlightStyle {
-                                                background_color: Some(rgba(0x264f7860).into()),
-                                                ..Default::default()
-                                            },
-                                        ),
-                                    );
-                                }
-                            }
-                        }
-
-                        prepare_highlights(content, &mut combined);
-                        div().flex_1().pl(px(8.0)).text_color(text_color).child(
-                            StyledText::new(SharedString::from(content.clone()))
-                                .with_highlights(combined),
-                        )
-                    } else {
-                        div()
-                            .flex_1()
-                            .pl(px(8.0))
-                            .text_color(text_color)
-                            .child(content.clone())
-                    }
-                });
-
-            // Background: full-row selection takes priority, then line type bg
+            // Selection: full-row bg or positioned overlay from ROW edge
             if is_fully_selected {
                 row_div = row_div.bg(rgba(0x264f7860));
+            } else if let Some((start_col, end_col)) = sel_range {
+                // Overlay from row edge: gutters(80) + padding(8) + char offset
+                let start_px = CONTENT_X_OFFSET + start_col as f32 * char_width;
+                let width_px = (end_col - start_col) as f32 * char_width;
+                row_div = row_div.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left(px(start_px))
+                        .w(px(width_px))
+                        .h_full()
+                        .bg(rgba(0x264f7860)),
+                );
+                if let Some(bg) = line_bg {
+                    row_div = row_div.bg(bg);
+                }
             } else if let Some(bg) = line_bg {
                 row_div = row_div.bg(bg);
             }
@@ -607,7 +623,7 @@ mod tests {
         let noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
         let sel = TextSelection::default();
         let _element = render_diff_view(
-            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end, 7.2, 0,
+            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end,
         );
     }
 
@@ -635,7 +651,7 @@ mod tests {
         let noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
         let sel = TextSelection::default();
         let _element = render_diff_view(
-            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end, 7.2, 0,
+            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end,
         );
     }
 
@@ -666,7 +682,7 @@ mod tests {
         let noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
         let sel = TextSelection::default();
         let _element = render_diff_view(
-            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end, 7.2, 0,
+            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end,
         );
     }
 
@@ -849,7 +865,7 @@ mod tests {
         sel.anchor = Some((1, 0));
         sel.cursor = Some((3, 5));
         let _element = render_diff_view(
-            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end, 7.2, 0,
+            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end,
         );
     }
 }

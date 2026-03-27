@@ -49,6 +49,8 @@ impl TextSelection {
     }
 
     /// Returns true if no selection exists (anchor or cursor is None).
+    /// Used by Plan 33-02 for copy_active_selection routing.
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.anchor.is_none() || self.cursor.is_none()
     }
