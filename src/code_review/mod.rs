@@ -327,8 +327,7 @@ impl CodeReviewPanel {
     /// Select a file by index. Clears diff line selection (D-07).
     pub fn select_file(&mut self, index: usize) {
         if index < self.files.len() {
-            self.diff_selection_anchor = None;
-            self.diff_selection_cursor = None;
+            self.clear_diff_selection();
             self.selected_file_index = Some(index);
         }
     }
@@ -592,8 +591,7 @@ impl CodeReviewPanel {
     /// Clears diff line selection (D-07).
     pub fn select_changes_file(&mut self, index: usize) {
         if index < self.changes_files.len() {
-            self.changes_diff_selection_anchor = None;
-            self.changes_diff_selection_cursor = None;
+            self.clear_diff_selection();
             self.selected_changes_file_index = Some(index);
             self.pending_changes_diff_request = Some(self.changes_files[index].path.clone());
             self.changes_diff_scroll_top = 0;
