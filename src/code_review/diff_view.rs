@@ -5,12 +5,17 @@
 
 use std::sync::Arc;
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use crate::code_review::intra_line;
+use crate::code_review::text_selection::TextSelection;
 use crate::git::types::{DiffLineType, FileDiff};
 use crate::syntax::SyntaxHighlighter;
 use gpui::{
-    FontWeight, HighlightStyle, IntoElement, SharedString, Styled, StyledText, TextAlign,
-    UniformListScrollHandle, Window, div, prelude::*, px, rgba, uniform_list,
+    Bounds, FontWeight, HighlightStyle, IntoElement, MouseButton, Pixels, SharedString, Styled,
+    StyledText, TextAlign, UniformListScrollHandle, Window, canvas, div, prelude::*, px, rgba,
+    uniform_list,
 };
 
 /// Prepare highlight ranges for GPUI's StyledText.
@@ -88,6 +93,26 @@ pub enum DiffRow {
     },
 }
 
+/// Flatten a FileDiff into DiffRows for copy extraction (no syntax highlighting needed).
+/// Available at runtime for `copy_selected_diff_text`.
+pub fn flatten_diff_for_copy(file_diff: &FileDiff) -> Vec<DiffRow> {
+    let mut rows = Vec::new();
+    for hunk in &file_diff.hunks {
+        rows.push(DiffRow::HunkHeader(hunk.header.clone()));
+        for line in &hunk.lines {
+            rows.push(DiffRow::Line {
+                old_lineno: line.old_lineno,
+                new_lineno: line.new_lineno,
+                content: line.content.clone(),
+                line_type: line.line_type.clone(),
+                highlights: vec![],
+                intra_line_highlights: vec![],
+            });
+        }
+    }
+    rows
+}
+
 /// Flatten a FileDiff into a Vec<DiffRow> for uniform_list rendering.
 /// Used by tests; production code uses flatten_and_highlight_diff instead.
 #[cfg(test)]
@@ -144,23 +169,43 @@ pub fn flatten_and_highlight_diff(
 /// Line height for diff rows (compact, like GitHub Desktop)
 const DIFF_LINE_HEIGHT: f32 = 20.0;
 
+/// Content x offset: 2x line number gutters (40px each) + content padding (8px)
+const CONTENT_X_OFFSET: f32 = 88.0;
+
 /// Render a virtualized diff view using uniform_list.
 /// Only visible lines are rendered — smooth scrolling for any diff size.
-/// `selection` is (anchor, cursor) for diff line selection highlighting.
-/// `on_select` is called with (flat_index, shift_held) when a Line row is clicked.
+/// Character-level text selection via container-level mouse events.
 pub fn render_diff_view(
     file_diff: &FileDiff,
     highlighter: &mut SyntaxHighlighter,
     scroll_handle: &UniformListScrollHandle,
     on_visible_count: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>,
-    selection: (Option<usize>, Option<usize>),
-    on_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static>,
+    text_selection: &TextSelection,
+    on_drag_start: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
+    on_drag_move: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
+    on_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
+    char_width: f32,
+    scroll_top: usize,
 ) -> impl IntoElement {
     let rows = flatten_and_highlight_diff(file_diff, highlighter);
     let row_count = rows.len();
     let path = file_diff.path.clone();
     let additions = file_diff.additions;
     let deletions = file_diff.deletions;
+
+    let text_sel = text_selection.clone();
+
+    // Shared bounds cell for container position tracking.
+    // Canvas sets bounds during paint; mouse handlers read them.
+    let container_bounds: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
+
+    let bounds_for_canvas = container_bounds.clone();
+    let bounds_for_down = container_bounds.clone();
+    let bounds_for_move = container_bounds.clone();
+
+    let cw = char_width;
+    let st = scroll_top;
+    let total = row_count;
 
     div()
         .w_full()
@@ -169,56 +214,159 @@ pub fn render_diff_view(
         .flex_col()
         // File header bar (sticky at top)
         .child(render_file_header(&path, additions, deletions))
-        // Virtualized diff lines (only visible rows rendered)
+        // Selection container: mouse events for drag-to-select (D-01, D-08)
         .child(
-            uniform_list("diff-lines", row_count, {
-                move |range, window, cx| {
-                    let visible = range.end - range.start;
-                    on_visible_count(visible, window, cx);
-                    range
-                        .map(|ix| {
-                            let row = rows[ix].clone();
-                            let is_selected = match selection {
-                                (Some(a), Some(c)) => {
-                                    let lo = a.min(c);
-                                    let hi = a.max(c);
-                                    ix >= lo && ix <= hi && matches!(row, DiffRow::Line { .. })
-                                }
-                                _ => false,
-                            };
-                            let on_select = on_select.clone();
-                            render_diff_row(&row, ix, is_selected, on_select)
-                        })
-                        .collect()
-                }
-            })
-            .size_full()
-            .track_scroll(scroll_handle),
+            div()
+                .id("diff-selection-area")
+                .size_full()
+                .cursor_text()
+                // Invisible canvas to capture container bounds during paint
+                .child(
+                    canvas(
+                        {
+                            let b = bounds_for_canvas;
+                            move |bounds, _window, _cx| {
+                                b.set(bounds);
+                            }
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                )
+                .on_mouse_down(MouseButton::Left, {
+                    let on_drag_start = on_drag_start.clone();
+                    move |event, window, cx| {
+                        let b = bounds_for_down.get();
+                        let (row, col) = super::text_selection::pixel_to_diff_position(
+                            f32::from(event.position.y),
+                            f32::from(event.position.x),
+                            f32::from(b.origin.y),
+                            f32::from(b.origin.x),
+                            st,
+                            cw,
+                            CONTENT_X_OFFSET,
+                            DIFF_LINE_HEIGHT,
+                            total,
+                        );
+                        on_drag_start(row, col, window, cx);
+                    }
+                })
+                .on_mouse_move({
+                    let on_drag_move = on_drag_move.clone();
+                    let bounds_for_move = bounds_for_move.clone();
+                    move |event, window, cx| {
+                        if event.dragging() {
+                            let b = bounds_for_move.get();
+                            let (row, col) = super::text_selection::pixel_to_diff_position(
+                                f32::from(event.position.y),
+                                f32::from(event.position.x),
+                                f32::from(b.origin.y),
+                                f32::from(b.origin.x),
+                                st,
+                                cw,
+                                CONTENT_X_OFFSET,
+                                DIFF_LINE_HEIGHT,
+                                total,
+                            );
+                            on_drag_move(row, col, window, cx);
+                        }
+                    }
+                })
+                .on_mouse_up(MouseButton::Left, {
+                    let on_drag_end = on_drag_end.clone();
+                    move |_event, window, cx| {
+                        on_drag_end(window, cx);
+                    }
+                })
+                // Virtualized diff lines (only visible rows rendered)
+                .child(
+                    uniform_list("diff-lines", row_count, {
+                        move |range, window, cx| {
+                            let visible = range.end - range.start;
+                            on_visible_count(visible, window, cx);
+                            range
+                                .map(|ix| {
+                                    let row = rows[ix].clone();
+                                    render_diff_row(&row, ix, &text_sel, cw)
+                                })
+                                .collect()
+                        }
+                    })
+                    .size_full()
+                    .track_scroll(scroll_handle),
+                ),
         )
 }
 
 /// Render a single diff row (hunk header or diff line).
-/// `is_selected` highlights the row with selection color.
-/// `on_select` is called with (flat_index, shift_held) for Line rows; hunk headers are not clickable (D-06).
+/// Uses `TextSelection` for per-character selection highlighting.
+/// `char_width` is used to compute selection overlay positioning.
 fn render_diff_row(
     row: &DiffRow,
     index: usize,
-    is_selected: bool,
-    on_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static>,
+    text_selection: &TextSelection,
+    _char_width: f32,
 ) -> gpui::AnyElement {
     match row {
-        DiffRow::HunkHeader(header) => div()
-            .id(("diff-row", index))
-            .h(px(DIFF_LINE_HEIGHT))
-            .w_full()
-            .bg(rgba(0x1a2233ff))
-            .text_xs()
-            .text_color(rgba(0x79c0ffff))
-            .px(px(12.0))
-            .flex()
-            .items_center()
-            .child(header.clone())
-            .into_any_element(),
+        DiffRow::HunkHeader(header) => {
+            let mut row_div = div()
+                .id(("diff-row", index))
+                .h(px(DIFF_LINE_HEIGHT))
+                .w_full()
+                .text_xs()
+                .text_color(rgba(0x79c0ffff))
+                .px(px(12.0))
+                .flex()
+                .items_center();
+
+            // Selection highlight for hunk headers (D-06: hunk headers ARE selectable)
+            if text_selection.row_is_selected(index) {
+                let sel_range = text_selection.selection_for_row(index, header.len());
+                if let Some((start_col, end_col)) = sel_range {
+                    if start_col == 0 && end_col >= header.len() {
+                        // Full row selected
+                        row_div = row_div.bg(rgba(0x264f7860));
+                    } else {
+                        // Partial selection via HighlightStyle background
+                        row_div = row_div.bg(rgba(0x1a2233ff));
+                        let chars: Vec<char> = header.chars().collect();
+                        let start_byte = header
+                            .char_indices()
+                            .nth(start_col.min(chars.len()))
+                            .map(|(i, _)| i)
+                            .unwrap_or(header.len());
+                        let end_byte = header
+                            .char_indices()
+                            .nth(end_col.min(chars.len()))
+                            .map(|(i, _)| i)
+                            .unwrap_or(header.len());
+                        if start_byte < end_byte {
+                            let mut highlights = vec![(
+                                start_byte..end_byte,
+                                HighlightStyle {
+                                    background_color: Some(rgba(0x264f7860).into()),
+                                    ..Default::default()
+                                },
+                            )];
+                            prepare_highlights(header, &mut highlights);
+                            return row_div
+                                .child(
+                                    StyledText::new(SharedString::from(header.clone()))
+                                        .with_highlights(highlights),
+                                )
+                                .into_any_element();
+                        }
+                    }
+                } else {
+                    row_div = row_div.bg(rgba(0x1a2233ff));
+                }
+            } else {
+                row_div = row_div.bg(rgba(0x1a2233ff));
+            }
+
+            row_div.child(header.clone()).into_any_element()
+        }
         DiffRow::Line {
             old_lineno,
             new_lineno,
@@ -239,7 +387,18 @@ fn render_diff_row(
 
             let line_height = px(DIFF_LINE_HEIGHT);
 
-            let mut row = div()
+            // Check selection state for this row
+            let sel_range = if text_selection.row_is_selected(index) {
+                text_selection.selection_for_row(index, content.chars().count())
+            } else {
+                None
+            };
+
+            let is_fully_selected = sel_range
+                .map(|(s, e)| s == 0 && e >= content.chars().count())
+                .unwrap_or(false);
+
+            let mut row_div = div()
                 .id(("diff-row", index))
                 .h(line_height)
                 .w_full()
@@ -269,13 +428,46 @@ fn render_diff_row(
                         .text_align(TextAlign::Right)
                         .child(new_text),
                 )
-                // Line content — use StyledText for syntax + intra-line highlights
+                // Line content — use StyledText for syntax + intra-line + selection highlights
                 .child({
-                    let has_highlights =
-                        !highlights.is_empty() || !intra_line_highlights.is_empty();
-                    if has_highlights {
+                    let has_syntax = !highlights.is_empty() || !intra_line_highlights.is_empty();
+                    let has_partial_selection = sel_range.is_some() && !is_fully_selected;
+
+                    if has_syntax || has_partial_selection {
                         let mut combined = highlights.clone();
                         combined.extend(intra_line_highlights.iter().cloned());
+
+                        // Add selection background highlight for partial selections
+                        if let Some((start_col, end_col)) = sel_range {
+                            if !is_fully_selected {
+                                let chars: Vec<char> = content.chars().collect();
+                                let start_byte = content
+                                    .char_indices()
+                                    .nth(start_col.min(chars.len()))
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(content.len());
+                                let end_byte = content
+                                    .char_indices()
+                                    .nth(end_col.min(chars.len()))
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(content.len());
+                                if start_byte < end_byte {
+                                    // Add selection highlight FIRST so syntax colors take
+                                    // priority for text color via prepare_highlights clipping
+                                    combined.insert(
+                                        0,
+                                        (
+                                            start_byte..end_byte,
+                                            HighlightStyle {
+                                                background_color: Some(rgba(0x264f7860).into()),
+                                                ..Default::default()
+                                            },
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+
                         prepare_highlights(content, &mut combined);
                         div().flex_1().pl(px(8.0)).text_color(text_color).child(
                             StyledText::new(SharedString::from(content.clone()))
@@ -290,20 +482,14 @@ fn render_diff_row(
                     }
                 });
 
-            // Click handler for diff line selection per D-04, D-05
-            row = row.cursor_pointer().on_click(move |event, window, cx| {
-                let shift = event.modifiers().shift;
-                on_select(index, shift, window, cx);
-            });
-
-            // Selection highlight takes priority per D-01, D-02, D-03
-            if is_selected {
-                row = row.bg(rgba(0x264f7860)); // semi-transparent selection blue at ~37% opacity
+            // Background: full-row selection takes priority, then line type bg
+            if is_fully_selected {
+                row_div = row_div.bg(rgba(0x264f7860));
             } else if let Some(bg) = line_bg {
-                row = row.bg(bg);
+                row_div = row_div.bg(bg);
             }
 
-            row.into_any_element()
+            row_div.into_any_element()
         }
     }
 }
@@ -414,9 +600,15 @@ mod tests {
         let sh = UniformListScrollHandle::new();
         let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _| {});
-        let noop_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static> =
+        let noop_start: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _, _| {});
-        let _element = render_diff_view(&file_diff, &mut hl, &sh, noop, (None, None), noop_select);
+        let noop_move: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _, _| {});
+        let noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
+        let sel = TextSelection::default();
+        let _element = render_diff_view(
+            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end, 7.2, 0,
+        );
     }
 
     #[test]
@@ -436,9 +628,15 @@ mod tests {
         let sh = UniformListScrollHandle::new();
         let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _| {});
-        let noop_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static> =
+        let noop_start: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _, _| {});
-        let _element = render_diff_view(&file_diff, &mut hl, &sh, noop, (None, None), noop_select);
+        let noop_move: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _, _| {});
+        let noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
+        let sel = TextSelection::default();
+        let _element = render_diff_view(
+            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end, 7.2, 0,
+        );
     }
 
     #[test]
@@ -461,9 +659,15 @@ mod tests {
         let sh = UniformListScrollHandle::new();
         let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _| {});
-        let noop_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static> =
+        let noop_start: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _, _| {});
-        let _element = render_diff_view(&file_diff, &mut hl, &sh, noop, (None, None), noop_select);
+        let noop_move: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _, _| {});
+        let noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
+        let sel = TextSelection::default();
+        let _element = render_diff_view(
+            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end, 7.2, 0,
+        );
     }
 
     #[test]
@@ -635,16 +839,17 @@ mod tests {
         let sh = UniformListScrollHandle::new();
         let noop: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _| {});
-        let noop_select: Arc<dyn Fn(usize, bool, &mut Window, &mut gpui::App) + 'static> =
+        let noop_start: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static> =
             Arc::new(|_, _, _, _| {});
-        // Select rows 1-3 (first line through third line)
+        let noop_move: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _, _| {});
+        let noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
+        // Select rows 1-3 (character-level)
+        let mut sel = TextSelection::default();
+        sel.anchor = Some((1, 0));
+        sel.cursor = Some((3, 5));
         let _element = render_diff_view(
-            &file_diff,
-            &mut hl,
-            &sh,
-            noop,
-            (Some(1), Some(3)),
-            noop_select,
+            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end, 7.2, 0,
         );
     }
 }

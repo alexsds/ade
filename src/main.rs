@@ -217,7 +217,7 @@ impl AdeWindow {
         if self.mode == Mode::CodeReview {
             let copied_text = self
                 .code_review_panel
-                .update(cx, |panel, _| panel.copy_selected_diff_lines());
+                .update(cx, |panel, _| panel.copy_selected_diff_text());
             if let Some(text) = copied_text {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
             }
