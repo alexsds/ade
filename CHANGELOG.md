@@ -3,6 +3,34 @@
 All notable changes to ADE (Advanced Developer Environment) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v1.8] — 2026-03-28 — UX Polish
+
+### Added
+- Fish-style shortened CWD display in toolbar (tracks active pane)
+- Diff stats (+N ~N -N) shown in toolbar across all modes (not just Code Review)
+- Conditional git element rendering — no branch/dirty/stats when not in a git repo
+- Copy commit hash button on commit list rows with short hash display
+- Fractional scroll accumulator for smooth trackpad scrolling in terminal
+- Character-level drag-to-select text in diff view with per-character highlighting
+- Drag-to-select text in commit description (title + body)
+- Cmd+C copies from whichever area (diff or description) has active selection
+- Mutual exclusion between diff and description text selections
+- `TextSelection` struct with `(row, col)` anchor/cursor for reusable drag selection
+- GitHub Desktop-style fixed metadata bar: author · hash [copy] + colored +N/-N stats
+- Separator lines (top + bottom) on metadata bar
+- Copy icon with green checkmark feedback (2s duration) on metadata bar
+
+### Changed
+- Commit detail section now renders title + body only (metadata bar is a separate fixed element)
+- Diff file header simplified to filename only (per-file stats removed)
+- `render_commit_detail` signature simplified (metadata/copy/stats params removed)
+- `build_description_lines` no longer includes metadata row
+- `copy_selected_description_text` no longer includes metadata line
+
+### Removed
+- Per-file addition/deletion stats from diff view file header
+- Separate author row, hash row, copy button row, and stats row from commit detail (replaced by metadata bar)
+
 ## [v1.7] — 2026-03-25 — Multiple Commit Selection
 
 ### Added
