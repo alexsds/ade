@@ -316,7 +316,8 @@ fn render_description_row(
 }
 
 /// Render the commit detail section shown below the commit list when a
-/// commit is selected. Shows bold title, body, author+hash+copy, and aggregate stats.
+/// commit is selected. Shows bold title, body, and a compact metadata bar
+/// with author · hash [copy] on the left and colored +N -N stats on the right.
 /// Supports mouse drag text selection with selection overlay rendering.
 pub fn render_commit_detail(
     commit: &CommitInfo,
@@ -387,27 +388,129 @@ pub fn render_commit_detail(
         }
     }
 
-    // Author line
-    let author_line = format!("{} <{}>", commit.author_name, commit.author_email);
-    text_rows.push(render_description_row(
-        &author_line,
-        row_idx,
-        false,
-        0xaaaaaaff,
-        text_selection,
-        char_width,
-    ));
-    row_idx += 1;
+    // Metadata bar: author · hash [copy]              [+N -N]
+    // This is the last child of the text area, matching the last row in build_description_lines
+    let metadata_row_index = row_idx;
 
-    // Hash line
-    text_rows.push(render_description_row(
-        &short_hash,
-        row_idx,
-        false,
-        0x888888ff,
-        text_selection,
-        char_width,
-    ));
+    // Build left side content: author, dot, hash, copy icon
+    let author_text = format!("{} <{}>", commit.author_name, commit.author_email);
+
+    let left_side = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(8.0))
+        .overflow_hidden()
+        .flex_1()
+        .child(
+            div()
+                .text_xs()
+                .font_family(font("Menlo").family)
+                .text_color(rgba(0xaaaaaaff)) // D-10: dimmed gray for author
+                .child(author_text),
+        )
+        .child(
+            div()
+                .text_xs()
+                .font_family(font("Menlo").family)
+                .text_color(rgba(0x666666ff)) // D-07: dot separator color
+                .child("\u{00B7}"),
+        )
+        .child(
+            div()
+                .text_xs()
+                .font_family(font("Menlo").family)
+                .text_color(rgba(0x888888ff)) // D-10: dimmed gray for hash
+                .child(short_hash.clone()),
+        )
+        .child(
+            div()
+                .id("copy-hash-detail")
+                .flex_shrink_0()
+                .text_xs()
+                .font_family(font("Menlo").family)
+                .text_color(copy_color)
+                .cursor_pointer()
+                .when(!copy_feedback, |s| {
+                    s.hover(|s| s.text_color(rgba(0xccccccff))) // hover color
+                })
+                .on_click(move |_event, window, cx| {
+                    on_copy(full_oid.clone(), window, cx);
+                })
+                .child(copy_icon), // D-11: checkmark feedback preserved
+        );
+
+    // Build right side: colored stats (only when files loaded)
+    let right_side = if file_count > 0 {
+        div()
+            .flex()
+            .flex_row()
+            .gap(px(8.0))
+            .flex_shrink_0()
+            .text_xs()
+            .font_family(font("Menlo").family)
+            .child(
+                div()
+                    .text_color(rgba(0x3fb950ff)) // D-09: green additions
+                    .child(format!("+{}", total_additions)),
+            )
+            .child(
+                div()
+                    .text_color(rgba(0xf85149ff)) // D-09: red deletions
+                    .child(format!("-{}", total_deletions)),
+            )
+            .into_any_element()
+    } else {
+        div().into_any_element()
+    };
+
+    // Selection overlay for the metadata bar row
+    let metadata_text = format!(
+        "{} <{}> \u{00B7} {}",
+        commit.author_name,
+        commit.author_email,
+        commit.oid.get(..7).unwrap_or(&commit.oid)
+    );
+    let metadata_char_count = metadata_text.chars().count();
+    let sel_range = if text_selection.row_is_selected(metadata_row_index) {
+        text_selection.selection_for_row(metadata_row_index, metadata_char_count)
+    } else {
+        None
+    };
+    let is_fully_selected = sel_range
+        .map(|(s, e)| s == 0 && e >= metadata_char_count)
+        .unwrap_or(false);
+
+    let mut metadata_bar = div()
+        .w_full()
+        .mt(px(8.0)) // D-08: extra spacing between body and metadata bar
+        .h(px(BODY_ROW_HEIGHT))
+        .flex()
+        .flex_row()
+        .justify_between()
+        .items_center()
+        .relative()
+        .child(left_side)
+        .child(right_side);
+
+    // Apply selection overlay to metadata bar (same pattern as render_description_row)
+    if is_fully_selected {
+        metadata_bar = metadata_bar.bg(rgba(0x264f7860));
+    } else if let Some((start_col, end_col)) = sel_range {
+        let start_px = start_col as f32 * char_width;
+        let width_px = (end_col - start_col) as f32 * char_width;
+        metadata_bar = metadata_bar.child(
+            div()
+                .absolute()
+                .top_0()
+                .left(px(start_px))
+                .w(px(width_px))
+                .h_full()
+                .bg(rgba(0x264f7860)),
+        );
+    }
+
+    text_rows.push(metadata_bar.into_any_element());
 
     // Text area: selectable description content with mouse handlers
     let text_area = div()
@@ -461,51 +564,13 @@ pub fn render_commit_detail(
         })
         .children(text_rows);
 
-    // Main container
-    let mut detail = div()
+    // Main container: only text_area as child (metadata bar is inside text_area)
+    let detail = div()
         .w_full()
         .p(px(DETAIL_PADDING))
         .flex()
         .flex_col()
-        .gap(px(4.0))
         .child(text_area);
-
-    // Copy hash button row (not part of selectable text area)
-    detail = detail.child(
-        div().flex().flex_row().items_center().gap(px(6.0)).child(
-            div()
-                .id("copy-hash-detail")
-                .flex_shrink_0()
-                .text_xs()
-                .text_color(copy_color)
-                .cursor_pointer()
-                .when(!copy_feedback, |s| {
-                    s.hover(|s| s.text_color(rgba(0xccccccff)))
-                })
-                .on_click(move |_event, window, cx| {
-                    on_copy(full_oid.clone(), window, cx);
-                })
-                .child(copy_icon),
-        ),
-    );
-
-    // Aggregate stats (D-15, D-16, D-17)
-    if file_count > 0 {
-        let stats_text = format!(
-            "{} changed {}  +{}  -{}",
-            file_count,
-            if file_count == 1 { "file" } else { "files" },
-            total_additions,
-            total_deletions
-        );
-        detail = detail.child(
-            div()
-                .pt(px(4.0))
-                .text_xs()
-                .text_color(rgba(0x888888ff))
-                .child(stats_text),
-        );
-    }
 
     detail
 }

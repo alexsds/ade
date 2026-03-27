@@ -192,8 +192,6 @@ pub fn render_diff_view(
     let rows = flatten_and_highlight_diff(file_diff, highlighter);
     let row_count = rows.len();
     let path = file_diff.path.clone();
-    let additions = file_diff.additions;
-    let deletions = file_diff.deletions;
 
     let text_sel = text_selection.clone();
 
@@ -218,7 +216,7 @@ pub fn render_diff_view(
         .size_full()
         .flex()
         .flex_col()
-        .child(render_file_header(&path, additions, deletions))
+        .child(render_file_header(&path))
         .child(
             div()
                 .id("diff-selection-area")
@@ -506,8 +504,8 @@ fn render_diff_row(
     }
 }
 
-/// Render the file header bar at the top of the diff view.
-fn render_file_header(path: &str, additions: u64, deletions: u64) -> impl IntoElement {
+/// Render the file header bar at the top of the diff view (filename only, no stats).
+fn render_file_header(path: &str) -> impl IntoElement {
     div()
         .w_full()
         .h(px(28.0))
@@ -518,7 +516,6 @@ fn render_file_header(path: &str, additions: u64, deletions: u64) -> impl IntoEl
         .border_color(rgba(0x333333ff))
         .flex()
         .flex_row()
-        .justify_between()
         .items_center()
         .child(
             div()
@@ -526,23 +523,6 @@ fn render_file_header(path: &str, additions: u64, deletions: u64) -> impl IntoEl
                 .font_weight(FontWeight::BOLD)
                 .text_color(rgba(0xddddddff))
                 .child(path.to_string()),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .gap(px(8.0))
-                .text_xs()
-                .child(
-                    div()
-                        .text_color(rgba(0x3fb950ff))
-                        .child(format!("+{}", additions)),
-                )
-                .child(
-                    div()
-                        .text_color(rgba(0xf85149ff))
-                        .child(format!("-{}", deletions)),
-                ),
         )
 }
 
