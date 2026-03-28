@@ -3,6 +3,22 @@
 All notable changes to ADE (Advanced Developer Environment) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v1.9] — 2026-03-28 — TUI Mouse/Scroll
+
+### Added
+- Normal mouse encoding (X10-style) via `normal_mouse_sequence()` for legacy TUI app compatibility
+- `scroll_button_from_delta()` and `alt_scroll_arrow()` pure helper functions for testable scroll logic
+- Momentum scroll filtering for TUI/alt-screen modes (prevents trackpad overshoot)
+- Cell-height-based pixel-to-lines scroll conversion for accurate proportional scrolling
+- 6 unit tests for normal mouse encoding (button press, release, scroll, UTF-8 coords, out-of-range)
+- Unit tests for scroll direction helpers
+
+### Fixed
+- Mouse events now reach TUI apps: changed `contains(MOUSE_MODE)` to `intersects(MOUSE_MODE)` across all 6 mouse handlers (click, drag, move, release, wheel, shift+click)
+- SGR vs normal mouse encoding dispatch based on terminal mode flags
+- macOS natural scrolling direction in TUI apps (mouse mode) and alt-screen apps (faux-scroll)
+- Normal encoding mouse release correctly uses button 3 (xterm protocol requirement)
+
 ## [v1.8] — 2026-03-28 — UX Polish
 
 ### Added
