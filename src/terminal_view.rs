@@ -427,11 +427,8 @@ impl TerminalView {
         let rows = content.size.screen_lines;
         let display_offset = content.display_offset;
 
-        // If mouse mode + SGR and shift NOT held: forward to app
-        if mode.contains(TermMode::MOUSE_MODE)
-            && mode.contains(TermMode::SGR_MOUSE)
-            && !event.modifiers.shift
-        {
+        // If mouse mode and shift NOT held: forward to app
+        if mode.intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift {
             let (col, row) = mouse_position_to_cell(
                 event.position,
                 bounds,
@@ -455,9 +452,17 @@ impl TerminalView {
                 event.modifiers.alt,
                 event.modifiers.control,
             );
-            let seq = sgr_mouse_sequence(button_value, col, row, true);
-            self.terminal
-                .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
+            if mode.contains(TermMode::SGR_MOUSE) {
+                let seq = sgr_mouse_sequence(button_value, col, row, true);
+                self.terminal
+                    .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
+            } else {
+                let utf8 = mode.contains(TermMode::UTF8_MOUSE);
+                let seq = normal_mouse_sequence(button_value, col, row, utf8);
+                if !seq.is_empty() {
+                    self.terminal.update(cx, |t, _| t.write_to_pty(seq));
+                }
+            }
             return;
         }
 
@@ -498,7 +503,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         let mode = self.terminal.read(cx).content().mode;
-        if mode.contains(TermMode::MOUSE_MODE) && mode.contains(TermMode::SGR_MOUSE) {
+        if mode.intersects(TermMode::MOUSE_MODE) {
             let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
             let content = self.terminal.read(cx).content();
             let (col, row) = mouse_position_to_cell(
@@ -516,9 +521,17 @@ impl TerminalView {
                 event.modifiers.alt,
                 event.modifiers.control,
             );
-            let seq = sgr_mouse_sequence(button_value, col, row, true);
-            self.terminal
-                .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
+            if mode.contains(TermMode::SGR_MOUSE) {
+                let seq = sgr_mouse_sequence(button_value, col, row, true);
+                self.terminal
+                    .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
+            } else {
+                let utf8 = mode.contains(TermMode::UTF8_MOUSE);
+                let seq = normal_mouse_sequence(button_value, col, row, utf8);
+                if !seq.is_empty() {
+                    self.terminal.update(cx, |t, _| t.write_to_pty(seq));
+                }
+            }
         }
     }
 
@@ -529,7 +542,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         let mode = self.terminal.read(cx).content().mode;
-        if mode.contains(TermMode::MOUSE_MODE) && mode.contains(TermMode::SGR_MOUSE) {
+        if mode.intersects(TermMode::MOUSE_MODE) {
             let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
             let content = self.terminal.read(cx).content();
             let (col, row) = mouse_position_to_cell(
@@ -547,19 +560,24 @@ impl TerminalView {
                 event.modifiers.alt,
                 event.modifiers.control,
             );
-            let seq = sgr_mouse_sequence(button_value, col, row, true);
-            self.terminal
-                .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
+            if mode.contains(TermMode::SGR_MOUSE) {
+                let seq = sgr_mouse_sequence(button_value, col, row, true);
+                self.terminal
+                    .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
+            } else {
+                let utf8 = mode.contains(TermMode::UTF8_MOUSE);
+                let seq = normal_mouse_sequence(button_value, col, row, utf8);
+                if !seq.is_empty() {
+                    self.terminal.update(cx, |t, _| t.write_to_pty(seq));
+                }
+            }
         }
     }
 
     fn on_mouse_up(&mut self, event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let mode = self.terminal.read(cx).content().mode;
 
-        if mode.contains(TermMode::MOUSE_MODE)
-            && mode.contains(TermMode::SGR_MOUSE)
-            && !event.modifiers.shift
-        {
+        if mode.intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift {
             let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
             let content = self.terminal.read(cx).content();
             let (col, row) = mouse_position_to_cell(
@@ -571,23 +589,39 @@ impl TerminalView {
                 content.size.screen_lines,
             );
 
-            let base_button = match event.button {
-                MouseButton::Left => 0,
-                MouseButton::Middle => 1,
-                MouseButton::Right => 2,
-                _ => return,
-            };
-
-            let button_value = sgr_mouse_button_value(
-                base_button,
-                false,
-                false,
-                event.modifiers.alt,
-                event.modifiers.control,
-            );
-            let seq = sgr_mouse_sequence(button_value, col, row, false);
-            self.terminal
-                .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
+            if mode.contains(TermMode::SGR_MOUSE) {
+                // SGR: send actual button with 'm' suffix
+                let base_button = match event.button {
+                    MouseButton::Left => 0,
+                    MouseButton::Middle => 1,
+                    MouseButton::Right => 2,
+                    _ => return,
+                };
+                let button_value = sgr_mouse_button_value(
+                    base_button,
+                    false,
+                    false,
+                    event.modifiers.alt,
+                    event.modifiers.control,
+                );
+                let seq = sgr_mouse_sequence(button_value, col, row, false);
+                self.terminal
+                    .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
+            } else {
+                // Normal: button 3 = release (regardless of which button was released)
+                let release_value = sgr_mouse_button_value(
+                    3,
+                    false,
+                    false,
+                    event.modifiers.alt,
+                    event.modifiers.control,
+                );
+                let utf8 = mode.contains(TermMode::UTF8_MOUSE);
+                let seq = normal_mouse_sequence(release_value, col, row, utf8);
+                if !seq.is_empty() {
+                    self.terminal.update(cx, |t, _| t.write_to_pty(seq));
+                }
+            }
             return;
         }
 
@@ -620,10 +654,7 @@ impl TerminalView {
         let display_offset = content.display_offset;
 
         // Mouse mode: forward motion events
-        if mode.contains(TermMode::MOUSE_MODE)
-            && mode.contains(TermMode::SGR_MOUSE)
-            && !event.modifiers.shift
-        {
+        if mode.intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift {
             // Only send motion if button is pressed (drag)
             if event.pressed_button.is_some() {
                 let (col, row) = mouse_position_to_cell(
@@ -649,9 +680,17 @@ impl TerminalView {
                     event.modifiers.alt,
                     event.modifiers.control,
                 );
-                let seq = sgr_mouse_sequence(button_value, col, row, true);
-                self.terminal
-                    .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
+                if mode.contains(TermMode::SGR_MOUSE) {
+                    let seq = sgr_mouse_sequence(button_value, col, row, true);
+                    self.terminal
+                        .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
+                } else {
+                    let utf8 = mode.contains(TermMode::UTF8_MOUSE);
+                    let seq = normal_mouse_sequence(button_value, col, row, utf8);
+                    if !seq.is_empty() {
+                        self.terminal.update(cx, |t, _| t.write_to_pty(seq));
+                    }
+                }
             }
             return;
         }
@@ -707,11 +746,8 @@ impl TerminalView {
 
         let mode = self.terminal.read(cx).content().mode;
 
-        // Case 1: Mouse mode + SGR: send scroll events as mouse button 64/65
-        if mode.contains(TermMode::MOUSE_MODE)
-            && mode.contains(TermMode::SGR_MOUSE)
-            && !event.modifiers.shift
-        {
+        // Case 1: Mouse mode: send scroll events as mouse button 64/65
+        if mode.intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift {
             let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
             let content = self.terminal.read(cx).content();
             let (col, row) = mouse_position_to_cell(
@@ -732,10 +768,20 @@ impl TerminalView {
                 event.modifiers.control,
             );
             let steps = delta_lines.unsigned_abs().min(10);
-            for _ in 0..steps {
-                let seq = sgr_mouse_sequence(button_value, col, row, true);
-                self.terminal
-                    .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
+            if mode.contains(TermMode::SGR_MOUSE) {
+                for _ in 0..steps {
+                    let seq = sgr_mouse_sequence(button_value, col, row, true);
+                    self.terminal
+                        .update(cx, |t, _| t.write_to_pty(seq.into_bytes()));
+                }
+            } else {
+                let utf8 = mode.contains(TermMode::UTF8_MOUSE);
+                for _ in 0..steps {
+                    let seq = normal_mouse_sequence(button_value, col, row, utf8);
+                    if !seq.is_empty() {
+                        self.terminal.update(cx, |t, _| t.write_to_pty(seq));
+                    }
+                }
             }
             return;
         }
