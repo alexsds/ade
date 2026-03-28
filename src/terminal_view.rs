@@ -1196,4 +1196,55 @@ mod tests {
         assert!(col >= 1 && col <= 80, "col {} out of range [1, 80]", col);
         assert!(row >= 1 && row <= 24, "row {} out of range [1, 24]", row);
     }
+
+    #[test]
+    fn test_mouse_mode_intersects() {
+        // MOUSE_MODE is MOUSE_REPORT_CLICK | MOUSE_MOTION | MOUSE_DRAG.
+        // A TUI app only sets ONE bit. intersects() detects it; contains() does not.
+        let click_only = TermMode::MOUSE_REPORT_CLICK;
+        assert!(click_only.intersects(TermMode::MOUSE_MODE));
+        assert!(!click_only.contains(TermMode::MOUSE_MODE));
+    }
+
+    #[test]
+    fn test_normal_mouse_sequence_basic() {
+        // Left click at col 5, row 10 (1-based): ESC [ M (0+32) (5+32) (10+32)
+        let seq = normal_mouse_sequence(0, 5, 10, false);
+        assert_eq!(seq, vec![0x1b, b'[', b'M', 32, 37, 42]);
+    }
+
+    #[test]
+    fn test_normal_mouse_sequence_release() {
+        // Release (button 3) at col 5, row 10: ESC [ M (3+32) (5+32) (10+32)
+        let seq = normal_mouse_sequence(3, 5, 10, false);
+        assert_eq!(seq, vec![0x1b, b'[', b'M', 35, 37, 42]);
+    }
+
+    #[test]
+    fn test_normal_mouse_sequence_scroll() {
+        // Scroll up (button 64) at col 1, row 1: ESC [ M (64+32) (1+32) (1+32)
+        let up = normal_mouse_sequence(64, 1, 1, false);
+        assert_eq!(up, vec![0x1b, b'[', b'M', 96, 33, 33]);
+        // Scroll down (button 65): ESC [ M (65+32) (1+32) (1+32)
+        let down = normal_mouse_sequence(65, 1, 1, false);
+        assert_eq!(down, vec![0x1b, b'[', b'M', 97, 33, 33]);
+    }
+
+    #[test]
+    fn test_normal_mouse_sequence_utf8() {
+        // col 100, row 100 with UTF-8 (1-based): encoded values are 100+32=132 > 127 -> 2-byte UTF-8
+        let seq = normal_mouse_sequence(0, 100, 100, true);
+        // Button: 0+32 = 32 (single byte, <= 127)
+        // Col: 132 -> 0xC0 + 132/64 = 0xC2, 0x80 + 132%64 = 0x80 + 4 = 0x84
+        // Row: 132 -> 0xC2, 0x84
+        assert_eq!(seq, vec![0x1b, b'[', b'M', 32, 0xC2, 0x84, 0xC2, 0x84]);
+    }
+
+    #[test]
+    fn test_normal_mouse_sequence_out_of_range() {
+        // Non-UTF8: max coord is 223. Col 224 -> out of range -> empty.
+        assert!(normal_mouse_sequence(0, 224, 1, false).is_empty());
+        // UTF-8: max coord is 2015. Col 2016 -> out of range -> empty.
+        assert!(normal_mouse_sequence(0, 2016, 1, true).is_empty());
+    }
 }
