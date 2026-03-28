@@ -108,6 +108,11 @@ fn normal_mouse_sequence(button_value: u8, col: u16, row: u16, utf8: bool) -> Ve
     msg
 }
 
+/// Scroll multiplier for TUI app forwarding (Cases 1 & 2).
+/// Trackpad pixel deltas convert to very few lines per event (~1-2).
+/// Multiply to match the feel of native terminals like iTerm/Alacritty.
+const SCROLL_MULTIPLIER: u32 = 3;
+
 /// Map scroll delta to xterm mouse button ID.
 /// Positive delta (trackpad swipe down with natural scrolling) = ScrollUp (64).
 /// Negative delta = ScrollDown (65).
@@ -763,11 +768,23 @@ impl TerminalView {
             TouchPhase::Moved => {}
         }
 
+        let mode = self.terminal.read(cx).content().mode;
+
+        // TUI apps (Cases 1 & 2) use a smaller pixel divisor so scroll events
+        // fire more often (every ~5px) with 1 line each — smoother than bursts.
+        let is_tui_scroll = (mode.intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift)
+            || (mode.contains(TermMode::ALT_SCREEN)
+                && mode.contains(TermMode::ALTERNATE_SCROLL));
+        let divisor = if is_tui_scroll {
+            (self.cell_height / SCROLL_MULTIPLIER as f32).max(1.0)
+        } else {
+            self.cell_height
+        };
+
         let delta_lines: i32 = match event.delta {
             ScrollDelta::Lines(p) => p.y.round() as i32,
             ScrollDelta::Pixels(p) => {
-                // Use actual cell_height instead of hardcoded 16.0 for accurate conversion
-                self.scroll_accumulator += f32::from(p.y) / self.cell_height;
+                self.scroll_accumulator += f32::from(p.y) / divisor;
                 let lines = self.scroll_accumulator.trunc() as i32;
                 if lines != 0 {
                     self.scroll_accumulator -= lines as f32;
@@ -778,8 +795,6 @@ impl TerminalView {
         if delta_lines == 0 {
             return;
         }
-
-        let mode = self.terminal.read(cx).content().mode;
 
         // Case 1: Mouse mode -- send scroll events as mouse button 64/65 (SCROLL-01)
         if mode.intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift {
