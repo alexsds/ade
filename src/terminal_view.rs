@@ -71,6 +71,43 @@ fn sgr_mouse_sequence(button_value: u8, col: u16, row: u16, pressed: bool) -> St
     format!("\x1b[<{};{};{}{}", button_value, col, row, suffix)
 }
 
+/// Encode a mouse event in normal (X10-style) format.
+/// Format: ESC [ M Cb Cx Cy
+/// Where Cb = button_value + 32, Cx = column + 32, Cy = row + 32.
+/// Column and row are 1-based (from mouse_position_to_cell). The +32 offset makes
+/// the byte printable per the xterm protocol (spec says 32 + 1 + 0-based, which
+/// equals 32 + 1-based).
+/// Max coordinate is 223 (non-UTF8) or 2015 (UTF8).
+/// Returns empty Vec if coordinates exceed the encoding limit.
+fn normal_mouse_sequence(button_value: u8, col: u16, row: u16, utf8: bool) -> Vec<u8> {
+    let max_coord: u16 = if utf8 { 2015 } else { 223 };
+    if col > max_coord || row > max_coord {
+        return Vec::new();
+    }
+
+    let mut msg = vec![0x1b, b'[', b'M', 32u8.saturating_add(button_value)];
+
+    // Encode column: value = col + 32 (col is 1-based)
+    let col_val = col as usize + 32;
+    if utf8 && col_val > 127 {
+        msg.push((0xC0 + col_val / 64) as u8);
+        msg.push((0x80 + (col_val & 63)) as u8);
+    } else {
+        msg.push(col_val as u8);
+    }
+
+    // Encode row: value = row + 32 (row is 1-based)
+    let row_val = row as usize + 32;
+    if utf8 && row_val > 127 {
+        msg.push((0xC0 + row_val / 64) as u8);
+        msg.push((0x80 + (row_val & 63)) as u8);
+    } else {
+        msg.push(row_val as u8);
+    }
+
+    msg
+}
+
 /// Convert a mouse position (in pixels) to 1-based cell coordinates.
 fn mouse_position_to_cell(
     position: gpui::Point<Pixels>,
