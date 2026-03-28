@@ -3,3 +3,15 @@
 *.swp
 *.swo
 .DS_Store
+.opencode/
+
+# Claude Code - GSD managed tooling (installed/updated by /gsd:update)
+.claude/get-shit-done/
+.claude/gsd-file-manifest.json
+.claude/hooks/gsd-*
+.claude/agents/gsd-*
+.claude/commands/gsd/
+.claude/package.json
+
+# Claude Code - personal settings
+.claude/settings.local.json
