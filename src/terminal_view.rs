@@ -108,6 +108,25 @@ fn normal_mouse_sequence(button_value: u8, col: u16, row: u16, utf8: bool) -> Ve
     msg
 }
 
+/// Map scroll delta to xterm mouse button ID.
+/// Positive delta (trackpad swipe down with natural scrolling) = ScrollUp (64).
+/// Negative delta = ScrollDown (65).
+/// Matches Zed's `AlacMouseButton::from_scroll` convention.
+fn scroll_button_from_delta(delta_lines: i32) -> u8 {
+    if delta_lines > 0 { 64 } else { 65 }
+}
+
+/// Map scroll delta to arrow key escape for ALTERNATE_SCROLL mode.
+/// Positive delta = Up arrow, negative = Down arrow.
+/// Used in apps like less/man that convert scroll to arrow keys on alt screen.
+fn alt_scroll_arrow(delta_lines: i32) -> &'static [u8] {
+    if delta_lines > 0 {
+        b"\x1b[A"
+    } else {
+        b"\x1b[B"
+    }
+}
+
 /// Convert a mouse position (in pixels) to 1-based cell coordinates.
 fn mouse_position_to_cell(
     position: gpui::Point<Pixels>,
@@ -1329,5 +1348,35 @@ mod tests {
         assert!(normal_mouse_sequence(0, 224, 1, false).is_empty());
         // UTF-8: max coord is 2015. Col 2016 -> out of range -> empty.
         assert!(normal_mouse_sequence(0, 2016, 1, true).is_empty());
+    }
+
+    // --- SCROLL-01: Scroll direction mapping tests ---
+
+    #[test]
+    fn test_scroll_button_positive_delta_is_scroll_up() {
+        // Positive delta (natural scroll: swipe down = scroll up) -> button 64 (ScrollUp)
+        assert_eq!(scroll_button_from_delta(1), 64);
+        assert_eq!(scroll_button_from_delta(5), 64);
+    }
+
+    #[test]
+    fn test_scroll_button_negative_delta_is_scroll_down() {
+        // Negative delta -> button 65 (ScrollDown)
+        assert_eq!(scroll_button_from_delta(-1), 65);
+        assert_eq!(scroll_button_from_delta(-3), 65);
+    }
+
+    // --- SCROLL-02: Alt-scroll direction tests ---
+
+    #[test]
+    fn test_alt_scroll_positive_delta_is_up_arrow() {
+        assert_eq!(alt_scroll_arrow(1), b"\x1b[A");
+        assert_eq!(alt_scroll_arrow(10), b"\x1b[A");
+    }
+
+    #[test]
+    fn test_alt_scroll_negative_delta_is_down_arrow() {
+        assert_eq!(alt_scroll_arrow(-1), b"\x1b[B");
+        assert_eq!(alt_scroll_arrow(-5), b"\x1b[B");
     }
 }
