@@ -10,7 +10,7 @@ use std::ops::Range;
 use gpui::{
     Bounds, ClipboardItem, Context, EntityInputHandler, FocusHandle, KeyDownEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Render, ScrollDelta, ScrollWheelEvent,
-    SharedString, UTF16Selection, Window, div, point, prelude::*, px, size,
+    SharedString, TouchPhase, UTF16Selection, Window, div, point, prelude::*, px, size,
 };
 
 use alacritty_terminal::grid::Scroll;
@@ -301,6 +301,8 @@ pub struct TerminalView {
     pending_copy: Option<String>,
     /// Accumulates fractional trackpad scroll deltas so small gestures aren't lost
     scroll_accumulator: f32,
+    /// Whether physical scroll touch has ended (for momentum filtering in TUI apps)
+    scroll_ended: bool,
 }
 
 impl TerminalView {
@@ -316,6 +318,7 @@ impl TerminalView {
             dragged: false,
             pending_copy: None,
             scroll_accumulator: 0.0,
+            scroll_ended: false,
         }
     }
 
@@ -748,10 +751,23 @@ impl TerminalView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Track touch phase for momentum filtering (SCROLL-03)
+        match event.touch_phase {
+            TouchPhase::Started => {
+                self.scroll_accumulator = 0.0;
+                self.scroll_ended = false;
+            }
+            TouchPhase::Ended => {
+                self.scroll_ended = true;
+            }
+            TouchPhase::Moved => {}
+        }
+
         let delta_lines: i32 = match event.delta {
             ScrollDelta::Lines(p) => p.y.round() as i32,
             ScrollDelta::Pixels(p) => {
-                self.scroll_accumulator += f32::from(p.y) / 16.0;
+                // Use actual cell_height instead of hardcoded 16.0 for accurate conversion
+                self.scroll_accumulator += f32::from(p.y) / self.cell_height;
                 let lines = self.scroll_accumulator.trunc() as i32;
                 if lines != 0 {
                     self.scroll_accumulator -= lines as f32;
@@ -765,8 +781,13 @@ impl TerminalView {
 
         let mode = self.terminal.read(cx).content().mode;
 
-        // Case 1: Mouse mode: send scroll events as mouse button 64/65
+        // Case 1: Mouse mode -- send scroll events as mouse button 64/65 (SCROLL-01)
         if mode.intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift {
+            // Filter momentum events to prevent TUI app overshooting (SCROLL-03)
+            if self.scroll_ended {
+                return;
+            }
+
             let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
             let content = self.terminal.read(cx).content();
             let (col, row) = mouse_position_to_cell(
@@ -778,7 +799,8 @@ impl TerminalView {
                 content.size.screen_lines,
             );
 
-            let button: u8 = if delta_lines < 0 { 64 } else { 65 };
+            // FIXED: positive delta = ScrollUp (64), negative = ScrollDown (65)
+            let button = scroll_button_from_delta(delta_lines);
             let button_value = sgr_mouse_button_value(
                 button,
                 false,
@@ -805,13 +827,15 @@ impl TerminalView {
             return;
         }
 
-        // Case 2: Alt screen with ALTERNATE_SCROLL: send arrow keys
+        // Case 2: Alt screen with ALTERNATE_SCROLL -- send arrow keys (SCROLL-02)
         if mode.contains(TermMode::ALT_SCREEN) && mode.contains(TermMode::ALTERNATE_SCROLL) {
-            let arrow = if delta_lines < 0 {
-                b"\x1b[A" // Up
-            } else {
-                b"\x1b[B" // Down
-            };
+            // Filter momentum events to prevent overshooting (SCROLL-03)
+            if self.scroll_ended {
+                return;
+            }
+
+            // FIXED: positive delta = Up arrow, negative = Down arrow
+            let arrow = alt_scroll_arrow(delta_lines);
             let steps = delta_lines.unsigned_abs().min(10);
             for _ in 0..steps {
                 self.terminal
@@ -820,7 +844,8 @@ impl TerminalView {
             return;
         }
 
-        // Case 3: Normal scrollback
+        // Case 3: Normal scrollback -- NO momentum filtering, NO direction change
+        // Positive delta_lines -> positive Scroll::Delta -> scroll up into history (already correct)
         {
             let mut term = self.terminal.read(cx).term.lock();
             term.scroll_display(Scroll::Delta(delta_lines));
