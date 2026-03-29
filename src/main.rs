@@ -9,6 +9,7 @@ mod tabs;
 mod terminal;
 mod terminal_element;
 mod terminal_view;
+mod theme;
 mod toolbar;
 
 use std::time::Duration;
