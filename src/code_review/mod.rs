@@ -901,7 +901,10 @@ fn render_tab_label(
         .items_center()
         .justify_center()
         .when(!is_active, |el| {
-            el.hover(|s| s.text_color(t.colors.text_secondary))
+            el.hover(|s| {
+                s.text_color(t.colors.text_secondary)
+                    .bg(t.colors.element_hover)
+            })
         })
         // Both tabs always have 2px bottom border to prevent layout jump;
         // active = blue, inactive = transparent
