@@ -72,40 +72,40 @@ pub struct ThemeColors {
 impl ThemeColors {
     pub fn default_dark() -> Self {
         Self {
-            // -- Surfaces --
-            bg_base: rgba(0x1e1e1eff).into(),
-            bg_surface: rgba(0x252525ff).into(),
-            bg_elevated: rgba(0x1a1a2eff).into(),
-            bg_overlay: rgba(0x1a2233ff).into(),
+            // -- Surfaces (D-02: blue-tinted dark backgrounds) --
+            bg_base: rgba(0x0d1117ff).into(),
+            bg_surface: rgba(0x161b22ff).into(),
+            bg_elevated: rgba(0x1c2129ff).into(),
+            bg_overlay: rgba(0x2d333bff).into(),
             transparent: rgba(0x00000000).into(),
 
-            // -- Borders --
-            border_subtle: rgba(0x2a2a2aff).into(),
-            border_default: rgba(0x333333ff).into(),
-            border_strong: rgba(0x444444ff).into(),
+            // -- Borders (D-04) --
+            border_subtle: rgba(0x21262dff).into(),
+            border_default: rgba(0x30363dff).into(),
+            border_strong: rgba(0x484f58ff).into(),
 
-            // -- Text --
-            text_primary: rgba(0xddddddff).into(),
-            text_secondary: rgba(0xccccccff).into(),
-            text_muted: rgba(0x888888ff).into(),
-            text_dimmed: rgba(0x666666ff).into(),
-            text_faint: rgba(0x555555ff).into(),
-            text_bright: rgba(0xeeeeeeff).into(),
+            // -- Text (D-03: primary/secondary/muted) --
+            text_primary: rgba(0xe6edf3ff).into(),
+            text_secondary: rgba(0x8b949eff).into(),
+            text_muted: rgba(0x484f58ff).into(),
+            text_dimmed: rgba(0x484f58ff).into(),
+            text_faint: rgba(0x484f58ff).into(),
+            text_bright: rgba(0xe6edf3ff).into(),
             text_on_emphasis: rgba(0xffffffff).into(),
-            text_commit_hash: rgba(0xaaaaaaff).into(),
-            text_commit_time: rgba(0x777777ff).into(),
+            text_commit_hash: rgba(0x8b949eff).into(),
+            text_commit_time: rgba(0x484f58ff).into(),
 
-            // -- Interactive --
-            accent: rgba(0x0078d4ff).into(),
-            element_hover: rgba(0x2a2d2eff).into(),
-            tab_hover: rgba(0x2e2e2eff).into(),
-            button_bg: rgba(0x333333ff).into(),
-            button_hover: rgba(0x444444ff).into(),
-            element_selected: rgba(0x264f78ff).into(),
-            element_selected_inactive: rgba(0x264f7840).into(),
-            selection_bg: rgba(0x264f7860).into(),
+            // -- Interactive (D-05 through D-08: amber-gold accent) --
+            accent: rgba(0xe5a100ff).into(),
+            element_hover: rgba(0x2d333bff).into(),
+            tab_hover: rgba(0x2d333bff).into(),
+            button_bg: rgba(0x30363dff).into(),
+            button_hover: rgba(0x3d444dff).into(),
+            element_selected: rgba(0xe5a10040).into(),
+            element_selected_inactive: rgba(0xe5a10020).into(),
+            selection_bg: rgba(0xe5a10060).into(),
 
-            // -- Git status --
+            // -- Git status (D-19: unchanged) --
             git_added: rgba(0x3fb950ff).into(),
             git_clean: rgba(0x4ec94eff).into(),
             git_modified: rgba(0xd29922ff).into(),
@@ -114,26 +114,26 @@ impl ThemeColors {
             git_renamed: rgba(0x79c0ffff).into(),
             git_unknown: rgba(0x8b949eff).into(),
 
-            // -- Git badge backgrounds --
+            // -- Git badge backgrounds (unchanged) --
             git_added_bg: rgba(0x23863630).into(),
             git_modified_bg: rgba(0x9e6a0330).into(),
             git_deleted_bg: rgba(0xda363430).into(),
             git_renamed_bg: rgba(0x388bfd30).into(),
             git_unknown_bg: rgba(0x48484830).into(),
 
-            // -- Diff --
+            // -- Diff (D-20: desaturated backgrounds) --
             diff_add_text: rgba(0x7ee787ff).into(),
-            diff_add_line_bg: rgba(0x23863620).into(),
+            diff_add_line_bg: rgba(0x12261eff).into(),
             diff_add_word_bg: rgba(0x2ea04370).into(),
             diff_remove_text: rgba(0xf47067ff).into(),
-            diff_remove_line_bg: rgba(0xda363420).into(),
+            diff_remove_line_bg: rgba(0x2d1215ff).into(),
             diff_remove_word_bg: rgba(0xda363470).into(),
             diff_hunk_text: rgba(0x79c0ffff).into(),
-            diff_hunk_bg: rgba(0x1a2233ff).into(),
-            diff_context_text: rgba(0xccccccff).into(),
-            diff_gutter_text: rgba(0x555555ff).into(),
+            diff_hunk_bg: rgba(0x161b30ff).into(),
+            diff_context_text: rgba(0x8b949eff).into(),
+            diff_gutter_text: rgba(0x484f58ff).into(),
 
-            // -- Decoration badges --
+            // -- Decoration badges (unchanged) --
             badge_branch_bg: rgba(0x3fb95030).into(),
             badge_branch_text: rgba(0x3fb950ff).into(),
             badge_tag_bg: rgba(0xd2a64130).into(),

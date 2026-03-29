@@ -35,8 +35,8 @@ pub struct Sizes {
 impl Sizes {
     pub fn default() -> Self {
         Self {
-            toolbar_height: px(32.0),
-            tab_bar_height: px(30.0),
+            toolbar_height: px(36.0),
+            tab_bar_height: px(32.0),
             commit_row_height: px(44.0),
             file_row_height: px(28.0),
             diff_line_height: px(20.0),
@@ -65,8 +65,8 @@ mod tests {
     #[test]
     fn test_sizes_match_decisions() {
         let s = Sizes::default();
-        assert_eq!(s.toolbar_height, px(32.0)); // current value
-        assert_eq!(s.tab_bar_height, px(30.0)); // current value
+        assert_eq!(s.toolbar_height, px(36.0)); // D-16
+        assert_eq!(s.tab_bar_height, px(32.0)); // D-17
         assert_eq!(s.commit_row_height, px(44.0));
         assert_eq!(s.file_row_height, px(28.0));
         assert_eq!(s.diff_line_height, px(20.0));
