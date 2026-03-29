@@ -131,7 +131,7 @@ impl ThemeColors {
             diff_hunk_text: rgba(0x79c0ffff).into(),
             diff_hunk_bg: rgba(0x161b30ff).into(),
             diff_context_text: rgba(0x8b949eff).into(),
-            diff_gutter_text: rgba(0x484f58ff).into(),
+            diff_gutter_text: rgba(0x6e7681ff).into(),
 
             // -- Decoration badges (unchanged) --
             badge_branch_bg: rgba(0x3fb95030).into(),
