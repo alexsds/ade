@@ -12,10 +12,11 @@ use crate::code_review::intra_line;
 use crate::code_review::text_selection::TextSelection;
 use crate::git::types::{DiffLineType, FileDiff};
 use crate::syntax::SyntaxHighlighter;
+use crate::theme;
 use gpui::{
     Bounds, FontWeight, HighlightStyle, IntoElement, MouseButton, Pixels, SharedString, Styled,
     StyledText, TextAlign, UniformListScrollHandle, Window, canvas, div, font, prelude::*, px,
-    rgba, uniform_list,
+    uniform_list,
 };
 
 /// Prepare highlight ranges for GPUI's StyledText.
@@ -347,6 +348,7 @@ fn render_diff_row(
     text_selection: &TextSelection,
     char_width: f32,
 ) -> gpui::AnyElement {
+    let t = theme::theme();
     match row {
         DiffRow::HunkHeader(header) => {
             let char_count = header.chars().count();
@@ -365,16 +367,16 @@ fn render_diff_row(
                 .w_full()
                 .text_xs()
                 .font_family(font("Menlo").family)
-                .text_color(rgba(0x79c0ffff))
+                .text_color(t.colors.diff_hunk_text)
                 .px(px(12.0))
                 .flex()
                 .items_center()
                 .relative();
 
             if is_fully_selected {
-                row_div = row_div.bg(rgba(0x264f7860));
+                row_div = row_div.bg(t.colors.selection_bg);
             } else {
-                row_div = row_div.bg(rgba(0x1a2233ff));
+                row_div = row_div.bg(t.colors.diff_hunk_bg);
                 if let Some((start_col, end_col)) = sel_range {
                     // Overlay from row edge: 12px padding + char offset
                     let start_px = 12.0 + start_col as f32 * char_width;
@@ -386,7 +388,7 @@ fn render_diff_row(
                             .left(px(start_px))
                             .w(px(width_px))
                             .h_full()
-                            .bg(rgba(0x264f7860)),
+                            .bg(t.colors.selection_bg),
                     );
                 }
             }
@@ -402,10 +404,14 @@ fn render_diff_row(
             intra_line_highlights,
         } => {
             let (line_bg, text_color) = match line_type {
-                DiffLineType::Add => (Some(rgba(0x23863620)), rgba(0x7ee787ff)),
-                DiffLineType::Remove => (Some(rgba(0xda363420)), rgba(0xf47067ff)),
-                DiffLineType::HunkHeader => (Some(rgba(0x1a2233ff)), rgba(0x79c0ffff)),
-                DiffLineType::Context => (None, rgba(0xccccccff)),
+                DiffLineType::Add => (Some(t.colors.diff_add_line_bg), t.colors.diff_add_text),
+                DiffLineType::Remove => {
+                    (Some(t.colors.diff_remove_line_bg), t.colors.diff_remove_text)
+                }
+                DiffLineType::HunkHeader => {
+                    (Some(t.colors.diff_hunk_bg), t.colors.diff_hunk_text)
+                }
+                DiffLineType::Context => (None, t.colors.diff_context_text),
             };
 
             let old_text = old_lineno.map(|n| format!("{}", n)).unwrap_or_default();
@@ -459,7 +465,7 @@ fn render_diff_row(
                         .w(px(40.0))
                         .flex_shrink_0()
                         .text_size(px(11.0))
-                        .text_color(rgba(0x555555ff))
+                        .text_color(t.colors.diff_gutter_text)
                         .pr(px(4.0))
                         .text_align(TextAlign::Right)
                         .child(old_text),
@@ -469,7 +475,7 @@ fn render_diff_row(
                         .w(px(40.0))
                         .flex_shrink_0()
                         .text_size(px(11.0))
-                        .text_color(rgba(0x555555ff))
+                        .text_color(t.colors.diff_gutter_text)
                         .pr(px(4.0))
                         .text_align(TextAlign::Right)
                         .child(new_text),
@@ -478,7 +484,7 @@ fn render_diff_row(
 
             // Selection: full-row bg or positioned overlay from ROW edge
             if is_fully_selected {
-                row_div = row_div.bg(rgba(0x264f7860));
+                row_div = row_div.bg(t.colors.selection_bg);
             } else if let Some((start_col, end_col)) = sel_range {
                 // Overlay from row edge: gutters(80) + padding(8) + char offset
                 let start_px = CONTENT_X_OFFSET + start_col as f32 * char_width;
@@ -490,7 +496,7 @@ fn render_diff_row(
                         .left(px(start_px))
                         .w(px(width_px))
                         .h_full()
-                        .bg(rgba(0x264f7860)),
+                        .bg(t.colors.selection_bg),
                 );
                 if let Some(bg) = line_bg {
                     row_div = row_div.bg(bg);
@@ -506,14 +512,15 @@ fn render_diff_row(
 
 /// Render the file header bar at the top of the diff view (filename only, no stats).
 fn render_file_header(path: &str) -> impl IntoElement {
+    let t = theme::theme();
     div()
         .w_full()
         .h(px(28.0))
         .flex_shrink_0()
         .px(px(12.0))
-        .bg(rgba(0x1a1a2eff))
+        .bg(t.colors.bg_elevated)
         .border_b_1()
-        .border_color(rgba(0x333333ff))
+        .border_color(t.colors.border_default)
         .flex()
         .flex_row()
         .items_center()
@@ -521,7 +528,7 @@ fn render_file_header(path: &str) -> impl IntoElement {
             div()
                 .text_xs()
                 .font_weight(FontWeight::BOLD)
-                .text_color(rgba(0xddddddff))
+                .text_color(t.colors.text_primary)
                 .child(path.to_string()),
         )
 }
@@ -534,7 +541,7 @@ pub fn render_diff_empty() -> impl IntoElement {
         .items_center()
         .justify_center()
         .text_sm()
-        .text_color(rgba(0x666666ff))
+        .text_color(theme::theme().colors.text_dimmed)
         .child("Select a file to view its diff")
 }
 
@@ -542,6 +549,7 @@ pub fn render_diff_empty() -> impl IntoElement {
 mod tests {
     use super::*;
     use crate::git::types::*;
+    use gpui::rgba;
 
     fn sample_file_diff() -> FileDiff {
         FileDiff {

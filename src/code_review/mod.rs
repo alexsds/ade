@@ -13,10 +13,11 @@ pub mod text_selection;
 use std::sync::Arc;
 
 use crate::git::types::{CommitInfo, DiffData, FileChange, FileDiff};
+use crate::theme;
 use crate::toolbar::format_changes_label;
 use gpui::{
     Context, FontWeight, IntoElement, ScrollStrategy, SharedString, Styled,
-    UniformListScrollHandle, Window, div, prelude::*, px, rgba,
+    UniformListScrollHandle, Window, div, prelude::*, px,
 };
 
 /// Which tab is active in the Code Review panel.
@@ -848,14 +849,15 @@ fn render_review_tab_bar(
     changes_file_count: usize,
     on_switch: Arc<dyn Fn(ReviewTab, &mut Window, &mut gpui::App) + 'static>,
 ) -> impl IntoElement {
+    let t = theme::theme();
     let changes_label = format_changes_label(changes_file_count);
     div()
         .w_full()
         .flex()
         .flex_row()
-        .bg(rgba(0x1e1e1eff))
+        .bg(t.colors.bg_base)
         .border_b_1()
-        .border_color(rgba(0x333333ff))
+        .border_color(t.colors.border_default)
         .child(render_tab_label(
             &changes_label,
             active_tab == ReviewTab::Changes,
@@ -883,6 +885,7 @@ fn render_tab_label(
     is_active: bool,
     on_click: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
 ) -> impl IntoElement {
+    let t = theme::theme();
     div()
         .id(SharedString::from(format!("tab-{}", label.to_lowercase())))
         .flex_1()
@@ -890,9 +893,9 @@ fn render_tab_label(
         .cursor_pointer()
         .text_xs()
         .text_color(if is_active {
-            rgba(0xeeeeeeff)
+            t.colors.text_bright
         } else {
-            rgba(0x888888ff)
+            t.colors.text_muted
         })
         .flex()
         .items_center()
@@ -901,9 +904,9 @@ fn render_tab_label(
         // active = blue, inactive = transparent
         .border_b_2()
         .border_color(if is_active {
-            rgba(0x0078d4ff)
+            t.colors.accent
         } else {
-            rgba(0x00000000)
+            t.colors.transparent
         })
         .on_click(move |_event, window, cx| {
             on_click(window, cx);
@@ -1037,6 +1040,7 @@ impl Render for CodeReviewPanel {
             let is_diff_view_active = self.active_panel == ActivePanel::DiffView;
 
             // Build commit list content
+            let t = theme::theme();
             let commit_list_content: gpui::AnyElement = if self.loading {
                 div()
                     .size_full()
@@ -1044,7 +1048,7 @@ impl Render for CodeReviewPanel {
                     .items_center()
                     .justify_center()
                     .text_sm()
-                    .text_color(rgba(0x888888ff))
+                    .text_color(t.colors.text_muted)
                     .child("Loading commits...")
                     .into_any_element()
             } else if self.commits.is_empty() {
@@ -1054,7 +1058,7 @@ impl Render for CodeReviewPanel {
                     .items_center()
                     .justify_center()
                     .text_sm()
-                    .text_color(rgba(0x888888ff))
+                    .text_color(t.colors.text_muted)
                     .child("No commits found")
                     .into_any_element()
             } else {
@@ -1110,10 +1114,10 @@ impl Render for CodeReviewPanel {
                             .px(px(16.0))
                             .py(px(10.0))
                             .border_b_1()
-                            .border_color(rgba(0x333333ff))
+                            .border_color(t.colors.border_default)
                             .text_xs()
                             .font_weight(FontWeight::BOLD)
-                            .text_color(rgba(0xccccccff))
+                            .text_color(t.colors.text_secondary)
                             .child(format!("Showing changes from {} commits", range_count))
                             .into_any_element(),
                     ),
@@ -1218,7 +1222,7 @@ impl Render for CodeReviewPanel {
                 .flex()
                 .flex_col()
                 .border_r_1()
-                .border_color(rgba(0x333333ff))
+                .border_color(t.colors.border_default)
                 // Tab bar replaces "Commits" header (D-01)
                 .child(render_review_tab_bar(
                     self.active_tab,
@@ -1245,11 +1249,13 @@ impl Render for CodeReviewPanel {
                 }
             });
 
+            let diff_focus_color = t.colors.element_selected;
+            let transparent_color = t.colors.transparent;
             div()
                 .size_full()
                 .flex()
                 .flex_row()
-                .bg(rgba(0x1e1e1eff))
+                .bg(t.colors.bg_base)
                 .child(left_panel)
                 .child(
                     div()
@@ -1276,17 +1282,17 @@ impl Render for CodeReviewPanel {
                                         .flex()
                                         .flex_col()
                                         .border_r_1()
-                                        .border_color(rgba(0x333333ff))
+                                        .border_color(t.colors.border_default)
                                         .child(
                                             div()
                                                 .w_full()
                                                 .px(px(8.0))
                                                 .py(px(6.0))
                                                 .border_b_1()
-                                                .border_color(rgba(0x333333ff))
+                                                .border_color(t.colors.border_default)
                                                 .text_xs()
                                                 .font_weight(FontWeight::BOLD)
-                                                .text_color(rgba(0xccccccff))
+                                                .text_color(t.colors.text_secondary)
                                                 .child(files_header_text),
                                         )
                                         .child(
@@ -1320,9 +1326,9 @@ impl Render for CodeReviewPanel {
                                         .overflow_hidden()
                                         .border_t_2()
                                         .border_color(if is_diff_view_active {
-                                            rgba(0x264f78ff)
+                                            diff_focus_color
                                         } else {
-                                            rgba(0x00000000)
+                                            transparent_color
                                         })
                                         .child(diff_content)
                                 }),
@@ -1413,6 +1419,7 @@ impl Render for CodeReviewPanel {
                 "No uncommitted changes",
             );
 
+            let t = theme::theme();
             // Left panel: 240px with tab bar header + file list (D-08)
             let left_panel = div()
                 .w(px(280.0))
@@ -1421,7 +1428,7 @@ impl Render for CodeReviewPanel {
                 .flex()
                 .flex_col()
                 .border_r_1()
-                .border_color(rgba(0x333333ff))
+                .border_color(t.colors.border_default)
                 // Tab bar (D-01)
                 .child(render_review_tab_bar(
                     self.active_tab,
@@ -1454,11 +1461,13 @@ impl Render for CodeReviewPanel {
                     diff_view::render_diff_empty().into_any_element()
                 };
 
+            let diff_focus_color = t.colors.element_selected;
+            let transparent_color = t.colors.transparent;
             div()
                 .size_full()
                 .flex()
                 .flex_row()
-                .bg(rgba(0x1e1e1eff))
+                .bg(t.colors.bg_base)
                 .child(left_panel)
                 .child(
                     div()
@@ -1467,9 +1476,9 @@ impl Render for CodeReviewPanel {
                         .overflow_hidden()
                         .border_t_2()
                         .border_color(if is_changes_diff_view_active {
-                            rgba(0x264f78ff)
+                            diff_focus_color
                         } else {
-                            rgba(0x00000000)
+                            transparent_color
                         })
                         .child(changes_diff_content),
                 )
