@@ -88,22 +88,22 @@ impl ThemeColors {
             text_primary: rgba(0xe6edf3ff).into(),
             text_secondary: rgba(0x8b949eff).into(),
             text_muted: rgba(0x6e7681ff).into(),
-            text_dimmed: rgba(0x484f58ff).into(),
-            text_faint: rgba(0x484f58ff).into(),
+            text_dimmed: rgba(0x545d68ff).into(),
+            text_faint: rgba(0x545d68ff).into(),
             text_bright: rgba(0xe6edf3ff).into(),
             text_on_emphasis: rgba(0xffffffff).into(),
             text_commit_hash: rgba(0x8b949eff).into(),
-            text_commit_time: rgba(0x484f58ff).into(),
+            text_commit_time: rgba(0x6e7681ff).into(),
 
-            // -- Interactive (D-05 through D-08: amber-gold accent) --
-            accent: rgba(0xe5a100ff).into(),
+            // -- Interactive (deep blue accent) --
+            accent: rgba(0x4688c8ff).into(),
             element_hover: rgba(0x2d333bff).into(),
             tab_hover: rgba(0x2d333bff).into(),
             button_bg: rgba(0x30363dff).into(),
             button_hover: rgba(0x3d444dff).into(),
-            element_selected: rgba(0xe5a10040).into(),
-            element_selected_inactive: rgba(0xe5a10020).into(),
-            selection_bg: rgba(0xe5a10060).into(),
+            element_selected: rgba(0x1d3a5cff).into(),
+            element_selected_inactive: rgba(0x1a304aff).into(),
+            selection_bg: rgba(0x264f78ff).into(),
 
             // -- Git status (D-19: unchanged) --
             git_added: rgba(0x3fb950ff).into(),
