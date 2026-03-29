@@ -195,7 +195,9 @@ cargo build --release
 
 ## Contributing
 
-Contributions welcome! If you find a bug or have a feature request, please [open an issue](https://github.com/alexsds/ade/issues).
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+If you find a bug or have a feature request, please [open an issue](https://github.com/alexsds/ade/issues).
 
 ## License
 
