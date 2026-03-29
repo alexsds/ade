@@ -1,4 +1,5 @@
 /target
+.planning/
 .context/
 *.swp
 *.swo
