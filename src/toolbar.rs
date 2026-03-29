@@ -5,9 +5,10 @@
 //! dirty/clean indicator on the left, and a "Code Review" toggle button
 //! on the right.
 
-use gpui::{Context, IntoElement, Styled, div, prelude::*, px, rgba};
+use gpui::{Context, IntoElement, Styled, div, prelude::*, px};
 
 use crate::git::types::{BranchStatus, FileChange};
+use crate::theme;
 
 /// Compute (added, modified, deleted) counts from file changes.
 /// Added: status 'A' or '?' (untracked). Modified: 'M', 'R', 'C', or unknown.
@@ -87,6 +88,7 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
     cx: &mut Context<V>,
     on_toggle: T,
 ) -> impl IntoElement + use<V, T> {
+    let t = theme::theme();
     let has_git = branch_status.is_some();
 
     // Build branch display and dot color only when in a git repo
@@ -103,12 +105,12 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
     let dot_color = branch_status
         .map(|s| {
             if s.is_dirty {
-                rgba(0xe8a838ff) // orange for dirty
+                t.colors.git_dirty // orange for dirty
             } else {
-                rgba(0x4ec94eff) // green for clean
+                t.colors.git_clean // green for clean
             }
         })
-        .unwrap_or(rgba(0x00000000)); // transparent fallback (not rendered)
+        .unwrap_or(t.colors.transparent); // transparent fallback (not rendered)
 
     let cwd_owned = cwd_display.to_string();
 
@@ -120,9 +122,9 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
         .items_center()
         .justify_between()
         .px(px(12.0))
-        .bg(rgba(0x1e1e1eff))
+        .bg(t.colors.bg_base)
         .border_b_1()
-        .border_color(rgba(0x333333ff))
+        .border_color(t.colors.border_default)
         // Left side: CWD + optional git elements (dot + branch + diff stats)
         .child(
             div()
@@ -134,7 +136,7 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgba(0xccccccff))
+                        .text_color(t.colors.text_secondary)
                         .child(cwd_owned),
                 )
                 // Status dot (only when in a git repo)
@@ -146,7 +148,7 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                     el.child(
                         div()
                             .text_xs()
-                            .text_color(rgba(0xccccccff))
+                            .text_color(t.colors.text_secondary)
                             .child(branch_display),
                     )
                 })
@@ -165,21 +167,21 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                                 .when(added > 0, |d| {
                                     d.child(
                                         div()
-                                            .text_color(rgba(0x4ec94eff))
+                                            .text_color(t.colors.git_clean)
                                             .child(format!("+{}", added)),
                                     )
                                 })
                                 .when(modified > 0, |d| {
                                     d.child(
                                         div()
-                                            .text_color(rgba(0xe8a838ff))
+                                            .text_color(t.colors.git_dirty)
                                             .child(format!("~{}", modified)),
                                     )
                                 })
                                 .when(deleted > 0, |d| {
                                     d.child(
                                         div()
-                                            .text_color(rgba(0xf85149ff))
+                                            .text_color(t.colors.git_deleted)
                                             .child(format!("-{}", deleted)),
                                     )
                                 }),
@@ -195,11 +197,11 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                     .px(px(8.0))
                     .py(px(3.0))
                     .rounded(px(4.0))
-                    .bg(rgba(0x333333ff))
+                    .bg(t.colors.button_bg)
                     .text_xs()
-                    .text_color(rgba(0xddddddff))
+                    .text_color(t.colors.text_primary)
                     .cursor_pointer()
-                    .hover(|style| style.bg(rgba(0x444444ff)))
+                    .hover(|style| style.bg(t.colors.button_hover))
                     .on_click(cx.listener(move |this, _event, window, cx| {
                         on_toggle(this, window, cx);
                     }))

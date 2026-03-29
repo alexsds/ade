@@ -6,10 +6,11 @@
 
 use std::ops::Range;
 
-use gpui::{HighlightStyle, rgba};
+use gpui::HighlightStyle;
 
 use super::diff_view::DiffRow;
 use crate::git::types::DiffLineType;
+use crate::theme;
 
 /// A token with its byte offset in the original string.
 struct Token<'a> {
@@ -118,6 +119,7 @@ fn word_diff(old_line: &str, new_line: &str) -> (Vec<Range<usize>>, Vec<Range<us
 /// are paired positionally: 1st remove with 1st add, etc.
 /// Excess unpaired removes or adds get no intra-line highlights.
 pub fn compute_intra_line_highlights(rows: &mut Vec<DiffRow>) {
+    let t = theme::theme();
     // Collect hunk boundaries (indices of HunkHeader rows)
     let mut hunk_starts: Vec<usize> = Vec::new();
     for (i, row) in rows.iter().enumerate() {
@@ -227,7 +229,7 @@ pub fn compute_intra_line_highlights(rows: &mut Vec<DiffRow>) {
                     intra_line_highlights.push((
                         range,
                         HighlightStyle {
-                            background_color: Some(rgba(0xda363470).into()),
+                            background_color: Some(t.colors.diff_remove_word_bg),
                             ..Default::default()
                         },
                     ));
@@ -246,7 +248,7 @@ pub fn compute_intra_line_highlights(rows: &mut Vec<DiffRow>) {
                     intra_line_highlights.push((
                         range,
                         HighlightStyle {
-                            background_color: Some(rgba(0x2ea04370).into()),
+                            background_color: Some(t.colors.diff_add_word_bg),
                             ..Default::default()
                         },
                     ));
@@ -554,7 +556,7 @@ mod tests {
         ];
         compute_intra_line_highlights(&mut rows);
 
-        // Remove line: darker red = rgba(0xda363470)
+        // Remove line: darker red = diff_remove_word_bg
         if let DiffRow::Line {
             intra_line_highlights,
             ..
@@ -562,11 +564,11 @@ mod tests {
         {
             assert!(!intra_line_highlights.is_empty());
             let bg = intra_line_highlights[0].1.background_color.unwrap();
-            let expected: gpui::Hsla = rgba(0xda363470).into();
+            let expected = crate::theme::theme().colors.diff_remove_word_bg;
             assert_eq!(bg, expected);
         }
 
-        // Add line: darker green = rgba(0x2ea04370)
+        // Add line: darker green = diff_add_word_bg
         if let DiffRow::Line {
             intra_line_highlights,
             ..
@@ -574,7 +576,7 @@ mod tests {
         {
             assert!(!intra_line_highlights.is_empty());
             let bg = intra_line_highlights[0].1.background_color.unwrap();
-            let expected: gpui::Hsla = rgba(0x2ea04370).into();
+            let expected = crate::theme::theme().colors.diff_add_word_bg;
             assert_eq!(bg, expected);
         }
     }
