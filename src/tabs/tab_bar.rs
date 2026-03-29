@@ -43,13 +43,17 @@ pub fn render_tab_bar<V: 'static>(
             t.colors.text_muted
         };
 
+        let group_name = SharedString::from(format!("tab-grp-{}", i));
+        let group_name_clone = group_name.clone();
+
         let close_btn = div()
             .id(SharedString::from(format!("tab-close-{}", i)))
             .text_xs()
-            .text_color(t.colors.text_faint)
+            .text_color(t.colors.transparent)
             .mr(t.spacing.sm)
             .flex_shrink_0()
             .cursor_pointer()
+            .group_hover(group_name_clone, |s| s.text_color(t.colors.text_muted))
             .hover(|s| s.text_color(t.colors.text_secondary))
             .on_click(cx.listener(move |this, _event, window, cx| {
                 on_close_clone(i, this, window, cx);
@@ -58,6 +62,7 @@ pub fn render_tab_bar<V: 'static>(
 
         let tab_element = div()
             .id(SharedString::from(format!("tab-{}", i)))
+            .group(group_name)
             .flex_1()
             .min_w(px(0.0))
             .flex()
