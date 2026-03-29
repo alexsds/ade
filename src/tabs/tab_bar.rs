@@ -59,9 +59,7 @@ pub fn render_tab_bar<V: 'static>(
                     .text_xs()
                     .text_color(t.colors.transparent)
                     .cursor_pointer()
-                    .group_hover(group_name_clone, |s| {
-                        s.text_color(t.colors.text_muted)
-                    })
+                    .group_hover(group_name_clone, |s| s.text_color(t.colors.text_muted))
                     .hover(|s| s.text_color(t.colors.text_secondary))
                     .on_click(cx.listener(move |this, _event, window, cx| {
                         on_close_clone(i, this, window, cx);
