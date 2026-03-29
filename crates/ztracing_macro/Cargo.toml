@@ -1,0 +1,9 @@
+[package]
+name = "ztracing_macro"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "No-op stub replacing Zed's GPL-licensed ztracing_macro"
+
+[lib]
+proc-macro = true

@@ -889,7 +889,6 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
- "serde",
  "wasm-bindgen",
  "windows-link 0.2.1",
 ]
@@ -7007,17 +7006,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zlog"
-version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=cff3ac6f93f506330034652f0d2389591bfb45a0#cff3ac6f93f506330034652f0d2389591bfb45a0"
-dependencies = [
- "anyhow",
- "chrono",
- "collections",
- "log",
-]
-
-[[package]]
 name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7026,18 +7014,13 @@ checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
 [[package]]
 name = "ztracing"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=cff3ac6f93f506330034652f0d2389591bfb45a0#cff3ac6f93f506330034652f0d2389591bfb45a0"
 dependencies = [
- "tracing",
- "tracing-subscriber",
- "zlog",
  "ztracing_macro",
 ]
 
 [[package]]
 name = "ztracing_macro"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=cff3ac6f93f506330034652f0d2389591bfb45a0#cff3ac6f93f506330034652f0d2389591bfb45a0"
 
 [[package]]
 name = "zune-core"
