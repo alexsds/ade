@@ -6,9 +6,10 @@
 use std::sync::Arc;
 
 use crate::git::types::{FileChange, StagingState};
+use crate::theme;
 use gpui::{
     App, FontWeight, IntoElement, Styled, UniformListScrollHandle, Window, div, prelude::*, px,
-    rgba, uniform_list,
+    uniform_list,
 };
 
 /// Render the changed files list for a selected commit.
@@ -41,6 +42,8 @@ pub fn render_file_list_with_empty_msg(
     scroll_handle: &UniformListScrollHandle,
     empty_message: &str,
 ) -> gpui::AnyElement {
+    let t = theme::theme();
+
     if files.is_empty() {
         return div()
             .size_full()
@@ -48,7 +51,7 @@ pub fn render_file_list_with_empty_msg(
             .items_center()
             .justify_center()
             .text_sm()
-            .text_color(rgba(0x666666ff))
+            .text_color(t.colors.text_dimmed)
             .child(empty_message.to_string())
             .into_any_element();
     }
@@ -79,15 +82,16 @@ fn render_file_row(
     on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
     is_active: bool,
 ) -> gpui::AnyElement {
+    let t = theme::theme();
     let status_char = file.status_char;
 
     // Status badge colors
     let (badge_bg, badge_text) = match status_char {
-        'A' => (rgba(0x23863630), rgba(0x3fb950ff)),
-        'M' => (rgba(0x9e6a0330), rgba(0xd29922ff)),
-        'D' => (rgba(0xda363430), rgba(0xf85149ff)),
-        'R' => (rgba(0x388bfd30), rgba(0x79c0ffff)),
-        _ => (rgba(0x48484830), rgba(0x8b949eff)),
+        'A' => (t.colors.git_added_bg, t.colors.git_added),
+        'M' => (t.colors.git_modified_bg, t.colors.git_modified),
+        'D' => (t.colors.git_deleted_bg, t.colors.git_deleted),
+        'R' => (t.colors.git_renamed_bg, t.colors.git_renamed),
+        _ => (t.colors.git_unknown_bg, t.colors.git_unknown),
     };
 
     // Split path into directory and filename (using rsplit_once for UTF-8 safety)
@@ -113,12 +117,13 @@ fn render_file_row(
 
     if is_selected {
         if is_active {
-            row = row.bg(rgba(0x264f78ff)); // D-08: bright (active panel)
+            row = row.bg(t.colors.element_selected); // D-08: bright (active panel)
         } else {
-            row = row.bg(rgba(0x264f7840)); // D-09: dimmed (inactive panel)
+            row = row.bg(t.colors.element_selected_inactive); // D-09: dimmed (inactive panel)
         }
     } else {
-        row = row.hover(|style| style.bg(rgba(0x2a2d2eff)));
+        let hover_bg = t.colors.element_hover;
+        row = row.hover(|style| style.bg(hover_bg));
     }
 
     // Status badge
@@ -143,7 +148,7 @@ fn render_file_row(
                 div()
                     .size(px(6.0))
                     .rounded_full()
-                    .bg(rgba(0x3fb950ff))
+                    .bg(t.colors.git_added)
                     .flex_shrink_0()
             }
             StagingState::Unstaged => {
@@ -151,7 +156,7 @@ fn render_file_row(
                 div()
                     .size(px(6.0))
                     .rounded_full()
-                    .bg(rgba(0xd29922ff))
+                    .bg(t.colors.git_modified)
                     .flex_shrink_0()
             }
             StagingState::Partial => {
@@ -165,14 +170,14 @@ fn render_file_row(
                             .w(px(3.0))
                             .h(px(6.0))
                             .rounded_l(px(3.0))
-                            .bg(rgba(0x3fb950ff)),
+                            .bg(t.colors.git_added),
                     )
                     .child(
                         div()
                             .w(px(3.0))
                             .h(px(6.0))
                             .rounded_r(px(3.0))
-                            .bg(rgba(0xd29922ff)),
+                            .bg(t.colors.git_modified),
                     )
             }
         };
@@ -189,10 +194,10 @@ fn render_file_row(
         .text_xs();
 
     if let Some(dir) = dir_part {
-        name_container = name_container.child(div().text_color(rgba(0x666666ff)).child(dir));
+        name_container = name_container.child(div().text_color(t.colors.text_dimmed).child(dir));
     }
 
-    name_container = name_container.child(div().text_color(rgba(0xddddddff)).child(file_part));
+    name_container = name_container.child(div().text_color(t.colors.text_primary).child(file_part));
 
     row = row.child(name_container);
 
@@ -204,7 +209,7 @@ fn render_file_row(
         if file.additions > 0 {
             stats = stats.child(
                 div()
-                    .text_color(rgba(0x3fb950ff))
+                    .text_color(t.colors.git_added)
                     .child(format!("+{}", file.additions)),
             );
         }
@@ -212,7 +217,7 @@ fn render_file_row(
         if file.deletions > 0 {
             stats = stats.child(
                 div()
-                    .text_color(rgba(0xf85149ff))
+                    .text_color(t.colors.git_deleted)
                     .child(format!("-{}", file.deletions)),
             );
         }

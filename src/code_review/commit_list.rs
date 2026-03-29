@@ -9,9 +9,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::git::types::{CommitInfo, Decoration, format_relative_time};
+use crate::theme;
 use gpui::{
-    App, Bounds, FontWeight, IntoElement, MouseButton, Pixels, Styled, UniformListScrollHandle,
-    Window, canvas, div, font, prelude::*, px, rgba, uniform_list,
+    App, Bounds, FontWeight, Hsla, IntoElement, MouseButton, Pixels, Styled,
+    UniformListScrollHandle, Window, canvas, div, font, prelude::*, px, uniform_list,
 };
 
 use super::text_selection::TextSelection;
@@ -87,6 +88,8 @@ fn render_commit_row(
         format_relative_time(commit.time_seconds, commit.time_offset)
     );
 
+    let t = theme::theme();
+
     let mut row = div()
         .id(("commit-row", index))
         .w_full()
@@ -100,7 +103,7 @@ fn render_commit_row(
         .justify_center()
         .gap(px(1.0))
         .border_b_1()
-        .border_color(rgba(0x2a2a2aff))
+        .border_color(t.colors.border_subtle)
         .on_click(move |event, window, cx| {
             let shift = event.modifiers().shift;
             on_select(index, shift, window, cx);
@@ -108,12 +111,13 @@ fn render_commit_row(
 
     if is_selected {
         if is_active {
-            row = row.bg(rgba(0x264f78ff)); // D-08: bright (active panel)
+            row = row.bg(t.colors.element_selected); // D-08: bright (active panel)
         } else {
-            row = row.bg(rgba(0x264f7840)); // D-09: dimmed (inactive panel)
+            row = row.bg(t.colors.element_selected_inactive); // D-09: dimmed (inactive panel)
         }
     } else {
-        row = row.hover(|style| style.bg(rgba(0x2a2d2eff)));
+        let hover_bg = t.colors.element_hover;
+        row = row.hover(|style| style.bg(hover_bg));
     }
 
     // Summary line with inline decoration badges
@@ -132,7 +136,7 @@ fn render_commit_row(
                     .whitespace_nowrap()
                     .text_xs()
                     .font_weight(FontWeight::BOLD)
-                    .text_color(rgba(0xddddddff))
+                    .text_color(t.colors.text_primary)
                     .child(commit.summary.clone()),
             )
             // Decoration badges (all of them, not just the first)
@@ -157,7 +161,7 @@ fn render_commit_row(
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_xs()
-                    .text_color(rgba(0x777777ff))
+                    .text_color(t.colors.text_commit_time)
                     .child(author_time),
             ),
     );
@@ -167,16 +171,17 @@ fn render_commit_row(
 
 /// Render a single decoration as a small colored rounded badge.
 fn render_decoration_badge(decoration: &Decoration) -> impl IntoElement {
+    let t = theme::theme();
     let (label, bg_color, text_color) = match decoration {
         Decoration::Branch { name } => (
             name.clone(),
-            rgba(0x3fb95030), // green at ~19% opacity
-            rgba(0x3fb950ff), // solid green text
+            t.colors.badge_branch_bg,
+            t.colors.badge_branch_text,
         ),
         Decoration::Tag { name } => (
             name.clone(),
-            rgba(0xd2a64130), // gold at ~19% opacity
-            rgba(0xd2a641ff), // solid gold text
+            t.colors.badge_tag_bg,
+            t.colors.badge_tag_text,
         ),
     };
 
@@ -204,7 +209,7 @@ fn render_spinner_row() -> impl IntoElement {
         .items_center()
         .justify_center()
         .text_xs()
-        .text_color(rgba(0x888888ff))
+        .text_color(theme::theme().colors.text_muted)
         .child("Loading...")
 }
 
@@ -255,7 +260,7 @@ fn render_description_row(
     text: &str,
     row_index: usize,
     is_title: bool,
-    text_color: u32,
+    text_color: Hsla,
     text_selection: &TextSelection,
     char_width: f32,
 ) -> gpui::AnyElement {
@@ -281,15 +286,16 @@ fn render_description_row(
         .h(px(height))
         .font_family(font("Menlo").family)
         .text_size(text_size)
-        .text_color(rgba(text_color))
+        .text_color(text_color)
         .relative();
 
     if is_title {
         row_div = row_div.font_weight(FontWeight::BOLD);
     }
 
+    let sel_bg = theme::theme().colors.selection_bg;
     if is_fully_selected {
-        row_div = row_div.bg(rgba(0x264f7860));
+        row_div = row_div.bg(sel_bg);
     } else if let Some((start_col, end_col)) = sel_range {
         let start_px = start_col as f32 * char_width;
         let width_px = (end_col - start_col) as f32 * char_width;
@@ -300,7 +306,7 @@ fn render_description_row(
                 .left(px(start_px))
                 .w(px(width_px))
                 .h_full()
-                .bg(rgba(0x264f7860)),
+                .bg(sel_bg),
         );
     }
 
@@ -332,6 +338,8 @@ pub fn render_commit_detail(
     let cw_down = char_width;
     let cw_move = char_width;
 
+    let t = theme::theme();
+
     // Build selectable text rows
     let mut text_rows: Vec<gpui::AnyElement> = Vec::new();
 
@@ -340,7 +348,7 @@ pub fn render_commit_detail(
         &commit.summary,
         0,
         true,
-        0xddddddff,
+        t.colors.text_primary,
         text_selection,
         char_width,
     ));
@@ -355,7 +363,7 @@ pub fn render_commit_detail(
                     line,
                     row_idx,
                     false,
-                    0xccccccff,
+                    t.colors.text_secondary,
                     text_selection,
                     char_width,
                 ));
@@ -433,16 +441,18 @@ pub fn render_metadata_bar(
     total_additions: u64,
     total_deletions: u64,
 ) -> impl IntoElement {
+    let t = theme::theme();
     let short_hash = commit.oid.get(..7).unwrap_or(&commit.oid).to_string();
     let full_oid = commit.oid.clone();
 
     let (copy_icon, copy_color) = if copy_feedback {
-        ("\u{2713}", rgba(0x4ec94eff)) // green checkmark
+        ("\u{2713}", t.colors.git_clean) // green checkmark
     } else {
-        ("\u{29C9}", rgba(0x666666ff)) // dimmed copy icon
+        ("\u{29C9}", t.colors.text_dimmed) // dimmed copy icon
     };
 
     let author_text = format!("{} <{}>", commit.author_name, commit.author_email);
+    let hover_text_color = t.colors.text_secondary;
 
     let left_side = div()
         .flex()
@@ -455,21 +465,21 @@ pub fn render_metadata_bar(
             div()
                 .text_xs()
                 .font_family(font("Menlo").family)
-                .text_color(rgba(0xaaaaaaff))
+                .text_color(t.colors.text_commit_hash)
                 .child(author_text),
         )
         .child(
             div()
                 .text_xs()
                 .font_family(font("Menlo").family)
-                .text_color(rgba(0x666666ff))
+                .text_color(t.colors.text_dimmed)
                 .child("\u{00B7}"),
         )
         .child(
             div()
                 .text_xs()
                 .font_family(font("Menlo").family)
-                .text_color(rgba(0x888888ff))
+                .text_color(t.colors.text_muted)
                 .child(short_hash),
         )
         .child(
@@ -481,7 +491,7 @@ pub fn render_metadata_bar(
                 .text_color(copy_color)
                 .cursor_pointer()
                 .when(!copy_feedback, |s| {
-                    s.hover(|s| s.text_color(rgba(0xccccccff)))
+                    s.hover(|s| s.text_color(hover_text_color))
                 })
                 .on_click(move |_event, window, cx| {
                     on_copy(full_oid.clone(), window, cx);
@@ -499,12 +509,12 @@ pub fn render_metadata_bar(
             .font_family(font("Menlo").family)
             .child(
                 div()
-                    .text_color(rgba(0x3fb950ff))
+                    .text_color(t.colors.git_added)
                     .child(format!("+{}", total_additions)),
             )
             .child(
                 div()
-                    .text_color(rgba(0xf85149ff))
+                    .text_color(t.colors.git_deleted)
                     .child(format!("-{}", total_deletions)),
             )
             .into_any_element()
@@ -518,7 +528,7 @@ pub fn render_metadata_bar(
         .px(px(12.0))
         .py(px(6.0))
         .border_y_1()
-        .border_color(rgba(0x333333ff))
+        .border_color(t.colors.border_default)
         .flex()
         .flex_row()
         .justify_between()
