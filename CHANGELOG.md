@@ -3,222 +3,150 @@
 All notable changes to ADE (Advanced Developer Environment) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [v2.0] — 2026-03-29 — UI Levelup
+## [Unreleased]
+
+## [v2.0] - UI Levelup
 
 ### Added
-- Centralized theme system: `src/theme/` module with `ThemeColors` (52 semantic Hsla fields), `Spacing` (4px grid), `Sizes`, `Typography` presets
-- `theme::theme()` LazyLock static accessor for zero-cost theme access across all UI files
-- Midnight Workshop palette: blue-tinted backgrounds (#0d1117 base), amber-gold accent (#e5a100)
-- 3-4 background elevation tiers (base, surface, elevated, overlay) for visual depth
-- `button_accent_hover` theme token for accent-tinted interactive hover states
-- Three-tier border hierarchy: `border_subtle` (panel dividers), `border_default` (section borders), `border_strong` (focus indicators)
-- Hover states on all interactive elements: commit rows, file list rows, tab headers, buttons, review tab labels
-- Commit row left accent border (3px accent/transparent toggle) for selected state
-- Pill-shaped decoration badges (branch/tag) with full capsule radius
-- Inset row separators (commit list and file list) using absolute positioning with 8px margin
-- Pill-shaped stat badges (+N/-N) in metadata bar with colored backgrounds
-- `diff_gutter_bg` theme token for diff gutter depth tint
-- Full-width hunk header bars spanning gutter and content areas
-- Structured two-line empty states with primary message + keyboard hint across all panels
-- Typography presets (`heading`/`body`/`code`/`code_small`) wired into Theme struct and consumed by render code
+- New "Midnight Workshop" dark theme with blue-tinted backgrounds and amber-gold accents
+- Layered background depth across panels for clearer visual hierarchy
+- Hover feedback on all interactive elements: commits, files, tabs, and buttons
+- Accent border on selected commit row for quick visual tracking
+- Pill-shaped branch and tag badges on commits
+- Pill-shaped colored stat badges (+N / -N) in the metadata bar
+- Subtle inset row separators in commit and file lists
+- Full-width hunk header bars in diff view
+- Helpful empty-state messages with keyboard hints in all panels
 
 ### Changed
-- All 109+ hardcoded `rgba()` color calls across 8 UI chrome files replaced with `theme::theme().colors.*` references
-- All padding/margin/gap values snapped to 4px spacing grid tokens (`t.spacing.xs/sm/md`)
-- Component heights driven by `t.sizes.*` fields (toolbar 36px, tab bar 32px)
-- Font sizes in commit list and diff view driven by `t.typography.*` presets instead of hardcoded px values
-- Toolbar branch indicator now renders in semibold weight with accent color
-- Code Review button hover uses accent-tinted background
-- Active tab uses `bg_elevated` background with 2px accent bottom border
-- Inactive tabs use `bg_surface` with `text_muted` text
-- Tab close button invisible by default, appears on tab hover (group_hover)
-- Panel-internal dividers use `border_subtle` (lighter than section borders)
-- Diff focus indicators use `border_strong` for clear active-panel feedback
-- Review tab labels brighten from `text_muted` to `text_secondary` on hover
-- History tab file list empty state updated to two-line format matching all other panels
+- Consistent spacing, sizing, and typography across the entire UI
+- Toolbar branch name now bolder with accent color
+- Active tab highlighted with accent underline; inactive tabs dimmed
+- Tab close button only appears on hover
+- Review tab labels brighten on hover
+- Diff panel shows a clear border when focused
 
-## [v1.9] — 2026-03-28 — TUI Mouse/Scroll
+## [v1.9] - TUI Mouse/Scroll
 
 ### Added
-- Normal mouse encoding (X10-style) via `normal_mouse_sequence()` for legacy TUI app compatibility
-- `scroll_button_from_delta()` and `alt_scroll_arrow()` pure helper functions for testable scroll logic
-- Momentum scroll filtering for TUI/alt-screen modes (prevents trackpad overshoot)
-- Cell-height-based pixel-to-lines scroll conversion for accurate proportional scrolling
-- 6 unit tests for normal mouse encoding (button press, release, scroll, UTF-8 coords, out-of-range)
-- Unit tests for scroll direction helpers
+- Mouse support for TUI apps (click, drag, scroll in apps like vim, htop, etc.)
+- Momentum scroll filtering to prevent trackpad overshoot in TUI apps
 
 ### Fixed
-- Mouse events now reach TUI apps: changed `contains(MOUSE_MODE)` to `intersects(MOUSE_MODE)` across all 6 mouse handlers (click, drag, move, release, wheel, shift+click)
-- SGR vs normal mouse encoding dispatch based on terminal mode flags
-- macOS natural scrolling direction in TUI apps (mouse mode) and alt-screen apps (faux-scroll)
-- Normal encoding mouse release correctly uses button 3 (xterm protocol requirement)
+- Mouse clicks and scrolling now correctly reach TUI applications
+- macOS natural scrolling direction works properly in TUI and alt-screen apps
 
-## [v1.8] — 2026-03-28 — UX Polish
+## [v1.8] - UX Polish
 
 ### Added
-- Fish-style shortened CWD display in toolbar (tracks active pane)
-- Diff stats (+N ~N -N) shown in toolbar across all modes (not just Code Review)
-- Conditional git element rendering — no branch/dirty/stats when not in a git repo
-- Copy commit hash button on commit list rows with short hash display
-- Fractional scroll accumulator for smooth trackpad scrolling in terminal
-- Character-level drag-to-select text in diff view with per-character highlighting
-- Drag-to-select text in commit description (title + body)
-- Cmd+C copies from whichever area (diff or description) has active selection
-- Mutual exclusion between diff and description text selections
-- `TextSelection` struct with `(row, col)` anchor/cursor for reusable drag selection
-- GitHub Desktop-style fixed metadata bar: author · hash [copy] + colored +N/-N stats
-- Separator lines (top + bottom) on metadata bar
-- Copy icon with green checkmark feedback (2s duration) on metadata bar
+- Shortened current directory path in toolbar (fish-style)
+- Diff stats (+N ~N -N) visible in toolbar at all times, not just Code Review mode
+- Copy commit hash button on each commit row
+- Smooth trackpad scrolling in terminal
+- Drag-to-select text in diffs and commit descriptions
+- Cmd+C copies from whichever area has an active selection
+- Fixed metadata bar showing author, hash, and change stats for the selected commit
+- Copy button with green checkmark confirmation feedback
 
 ### Changed
-- Commit detail section now renders title + body only (metadata bar is a separate fixed element)
-- Diff file header simplified to filename only (per-file stats removed)
-- `render_commit_detail` signature simplified (metadata/copy/stats params removed)
-- `build_description_lines` no longer includes metadata row
-- `copy_selected_description_text` no longer includes metadata line
+- Git info hidden in toolbar when not inside a git repo
+- Commit detail area streamlined — metadata moved to a dedicated fixed bar
+
+## [v1.7] - Multiple Commit Selection
+
+### Added
+- Shift+Click to select a range of commits
+- Shift+Up/Down to extend the selection one commit at a time
+- Combined diff view showing all changes across the selected range
+- Aggregated file list with combined stats for multi-commit selections
+- Selection preserved when toggling between Terminal and Code Review modes
+
+### Changed
+- File and commit selections persist across refreshes instead of resetting
+
+### Fixed
+- Crash when diff content contained multi-byte characters (e.g., em dashes)
+
+## [v1.6] - Syntax Highlighting
+
+### Added
+- Syntax highlighting in diffs for 16 languages (Rust, JS, TS, Python, Go, C/C++, Java, Ruby, Shell, HTML, CSS, JSON, YAML, Markdown)
+- Word-level change highlighting within modified lines
+- Language auto-detection from file extension
+- JS/CSS highlighting inside HTML `<script>` and `<style>` blocks
+- Large files (>500KB) gracefully skip highlighting to stay fast
+
+## [v1.5] - Changes/History Tabs
+
+### Added
+- Changes / History tab switcher in Code Review panel
+- Cmd+1 (Changes) / Cmd+2 (History) keyboard shortcuts
+- Uncommitted changes view with file status badges (M/A/D/?) and +/- stats
+- Staged/unstaged indicators on changed files
+- Auto-refresh of working tree changes every 2 seconds
+- File count badge on the Changes tab header
+- Colored diff stats in toolbar (green/yellow/red) next to branch name
+
+### Changed
+- Last active tab remembered when toggling Code Review on and off
+- Selected file preserved across auto-refreshes
+
+## [v1.4] - Code Review Navigation
+
+### Added
+- Arrow key navigation across all Code Review panels (commits, files, diff)
+- Left/Right arrows cycle between panels; Up/Down scrolls within them
+- Selecting a commit automatically loads the first file's diff
+- Active panel highlighted in bright blue; inactive panels dimmed
+- Git history refreshes when entering Code Review mode
+
+### Fixed
+- Diff scrolling now tracks line-by-line without jumping past the end
+
+## [v1.3] - Security Hardening
+
+### Added
+- Control and bidirectional character stripping on all git-sourced text
+- Clipboard access from terminal programs requires opt-in (`ADE_ALLOW_OSC52=1`)
+- Commit history capped at 50,000 to prevent memory issues
+
+### Fixed
+- Several crash scenarios involving stale pane references and edge-case inputs
+- Orphan terminal processes no longer left behind when closing tabs
+- Diff view capped to safe limits for very large changesets
 
 ### Removed
-- Per-file addition/deletion stats from diff view file header
-- Separate author row, hash row, copy button row, and stats row from commit detail (replaced by metadata bar)
+- Unused SSH/HTTPS transport and unmaintained transitive dependencies
 
-## [v1.7] — 2026-03-25 — Multiple Commit Selection
-
-### Added
-- Shift+Click contiguous commit range selection with fixed anchor model
-- Shift+Up/Down arrow to extend selection one commit at a time
-- Combined diff view across selected commit range via `diff_tree_to_tree(oldest_parent, newest)`
-- "Showing changes from X commits" header bar replacing commit detail when range selected
-- Aggregated file list showing union of changed files across range with combined +/- stats
-- OID-based commit selection persistence across Cmd+G mode toggles
-- Path-based file selection persistence across diff refreshes
-- Range collapse fallback when anchor commit missing after refresh
-- `prepare_highlights()` sort+clip+snap for safe multi-source highlight combining
-- `collect_diff_data()` shared helper eliminating ~100 lines of diff collection duplication
-- `snap_char_boundary()` helper preventing GPUI panics on multi-byte UTF-8 chars
-- 37 new unit tests (339 total)
+## [v1.2] - Terminal Backend Upgrade
 
 ### Changed
-- Modifier guard in `on_code_review_key_down` split to allow Shift+Up/Down through while blocking other Shift+keys
-- `set_commits()` now preserves selection by OID lookup instead of resetting to index 0
-- `set_diff()` now preserves file selection by path lookup instead of resetting to index 0
-- File list header format changed from "Changed Files (N)" to "N changed files"
-
-### Fixed
-- GPUI panic on `str::split_at` with multi-byte UTF-8 characters (em dash) in diff content caused by unsorted/overlapping highlight ranges from combining syntax and intra-line highlights
-
-## [v1.6] — 2026-03-25 — Syntax Highlighting
+- Terminal engine replaced with alacritty_terminal for better compatibility and simpler builds
 
 ### Added
-- Per-token syntax highlighting in diff lines via tree-sitter reconstruct-then-parse pipeline
-- 16 language grammars: Rust, JavaScript, TypeScript, Python, Go, C, C++, Java, Ruby, Shell, HTML, CSS, JSON, YAML, Markdown
-- GitHub Dark color theme for syntax tokens (17 highlight groups)
-- Language detection from file extension
-- Intra-line word-diff highlighting with LCS algorithm and darker background spans on changed tokens
-- Language injection support for JS inside `<script>` and CSS inside `<style>` in HTML files
-- `SyntaxHighlighter` with lazy grammar initialization and per-language `HighlightConfiguration` caching
-- Size guard: files over 500KB skip highlighting to prevent performance issues
-- 62 new unit tests (302 total)
-
-### Changed
-- Diff view lines rendered via GPUI `StyledText` with highlight spans instead of plain text
-- `DiffRow::Line` extended with `highlights` and `intra_line_highlights` fields
-
-## [v1.5] — 2026-03-25 — Changes/History Tabs
-
-### Added
-- Changes/History tab switcher in Code Review panel with blue underline indicator
-- Cmd+1 (Changes) / Cmd+2 (History) keyboard shortcuts (Code Review mode only)
-- Working tree diffs: uncommitted file list with status badges (M/A/D/?) and +N/-N stats
-- StagingState enum: staged/unstaged dot indicators on changed files
-- Auto-refresh: 2s timer polls working tree changes while in Code Review mode
-- Refresh on mode entry: Cmd+G triggers immediate working tree file list update
-- Path-based selection preservation: selected file stays selected across auto-refresh
-- Tab memory: last active tab preserved across Cmd+G toggle cycles
-- "Changes (N)" file count badge on tab header
-- Colored diff stats in toolbar: green +N, yellow ~N, red -N next to branch name
-- `compute_diff_stats()` for toolbar stat computation
-- `changes_file_count()` and `changes_files_ref()` accessors on CodeReviewPanel
-- `files_changed()` optimization to skip unnecessary diff re-fetches
-- 27 new unit tests (240 total)
-
-### Changed
-- Tab bar replaces "Commits" header in Code Review panel
-- Left panel width varies by tab: 280px (History), 240px (Changes)
-- Mode-dependent Cmd+1-9 dispatch: Code Review intercepts 1/2, Terminal passes through
-
-## [v1.4] — 2026-03-24 — Code Review Navigation
-
-### Added
-- Left/Right arrow panel switching with circular navigation (commits → files → diff → commits)
-- Up/Down arrow navigation in commit list, file list, and diff view
-- Auto-cascade: selecting a commit auto-selects first file and loads its diff
-- Active/inactive panel selection highlighting (bright blue vs dimmed blue)
-- Diff panel focus indicator (top accent bar)
-- Selection persistence across panel focus changes
-- Git history refresh on Code Review mode entry (Cmd+G)
-- 23 new unit tests for navigation state and scroll behavior
-
-### Fixed
-- Diff scroll using `scroll_to_item_strict` for reliable line-by-line viewport control
-- Diff scroll boundary capped using visible row count (no phantom scroll positions)
-
-## [v1.3] — 2026-03-23 — Security Review Fixes
-
-### Added
-- Comprehensive 5-agent security audit (28 findings fixed)
-- `sanitize_git_string()` for all git-sourced data (bidi/control char stripping)
-- OSC 52 clipboard guard (opt-in via `ADE_ALLOW_OSC52=1`)
-- Bracketed paste end-bracket stripping
-- Division-by-zero guards for mouse coordinate functions
-- Commit history cap at 50,000 commits
-
-### Fixed
-- Crash prevention: Option-returning pane accessors prevent panic on stale IDs
-- Thread-safe home dir detection (`getpwuid_r` over `getpwuid`)
-- Diff size limits (5K files, 500K lines, 10K chars/line)
-- Terminal Drop sends `Msg::Shutdown` to prevent orphan PTYs
-- Tab/pane creation limits (MAX_TABS=50, MAX_PANES=16)
+- Double-click to select a word, triple-click to select a line
+- Terminal auto-scrolls to bottom on keyboard input or paste
 
 ### Removed
-- `syntect` dependency (eliminated unmaintained `yaml-rust` transitive dep)
-- SSH/HTTPS transport from `git2` (unused, removed via `default-features=false`)
+- Ghostty backend and Zig build dependency
 
-## [v1.2] — 2026-03-23 — alacritty_terminal Migration
-
-### Changed
-- Migrated terminal backend from Ghostty to alacritty_terminal 0.25.1 (pure Rust, crates.io)
-- Rewrote cell-based rendering via new `TerminalElement` GPUI Element
-- Rewrote input handling via `TerminalView` entity with key encoding module
-- Rewrote pane/tab integration for alacritty_terminal types
+## [v1.1] - App Packaging
 
 ### Added
-- `key_encode.rs` — pure Rust key-to-escape-sequence encoding for xterm-256color
-- Double-click word selection, triple-click line selection
-- Scroll-to-bottom on keyboard/paste input
+- Native macOS .app bundle with app icon
+- DMG installer with drag-to-Applications
+- Correct shell detection when launched from Finder
 
-### Removed
-- Ghostty terminal backend and all Zig build dependencies
-
-## [v1.1] — 2026-03-22 — App Packaging
+## [v1.0] - MVP
 
 ### Added
-- macOS .app bundle with Info.plist, app icon (.icns), and directory structure
-- `scripts/bundle-macos.sh` — build script to produce Ade.app
-- `scripts/create-dmg.sh` — DMG packaging with drag-to-install
-- Finder-launch shell detection via `getpwuid` FFI with CWD fallback
-
-## [v1.0] — 2026-03-22 — MVP
-
-### Added
-- Terminal embedding via alacritty_terminal with full PTY I/O
+- GPU-accelerated terminal with full shell integration
 - Toggleable git history panel (Cmd+G) with commit log, file list, and unified diff
-- Virtual scrolling for 100K+ commit repos (incremental batch loading)
-- Line-type diff coloring (green/red/blue for additions/removals/hunk headers)
-- Branch name and dirty/clean status in toolbar
-- Git panel auto-updates on CWD change
-- Vertical split (Cmd+D) and horizontal split (Cmd+Shift+D) with draggable dividers
-- Pane navigation via keyboard (Cmd+Opt+Arrow) with active pane dimming
-- Tabs: new (Cmd+T), close (Cmd+W), switch (Cmd+1-9, Cmd+Shift+[/])
-- Tab titles from process name/CWD
-- Native macOS look and feel with iTerm2-convention keybindings
-- Clipboard copy/paste, mouse selection, scrollback
+- Handles repos with 100K+ commits via virtual scrolling
+- Color-coded diffs: green for additions, red for deletions, blue for hunk headers
+- Branch name and dirty/clean indicator in toolbar
+- Git panel auto-updates when you change directories
+- Split panes: vertical (Cmd+D) and horizontal (Cmd+Shift+D) with draggable dividers
+- Keyboard pane navigation (Cmd+Opt+Arrow)
+- Tabs: new (Cmd+T), close (Cmd+W), switch (Cmd+1-9)
+- Clipboard, mouse selection, and scrollback
