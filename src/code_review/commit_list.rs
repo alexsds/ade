@@ -207,7 +207,7 @@ fn render_decoration_badge(decoration: &Decoration) -> impl IntoElement {
         .bg(bg_color)
         .text_color(text_color)
         .text_xs()
-        .line_height(px(14.0))
+        .line_height(t.typography.heading.size)
         .child(label)
 }
 
@@ -293,7 +293,8 @@ fn render_description_row(
     } else {
         BODY_ROW_HEIGHT
     };
-    let text_size = if is_title { px(14.0) } else { px(12.0) };
+    let t = theme::theme();
+    let text_size = if is_title { t.typography.heading.size } else { t.typography.body.size };
 
     let mut row_div = div()
         .w_full()

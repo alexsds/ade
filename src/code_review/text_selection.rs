@@ -3,7 +3,7 @@
 //! Provides `TextSelection` struct for tracking drag-to-select state,
 //! pixel-to-character position mapping, and selected text extraction.
 
-use gpui::{SharedString, Window, px};
+use gpui::{SharedString, Window};
 
 use super::diff_view::DiffRow;
 
@@ -201,7 +201,7 @@ pub fn measure_char_width(window: &mut Window) -> f32 {
     let font = gpui::font("Menlo");
     let mut style = window.text_style();
     style.font_family = font.family.clone();
-    let font_size = px(12.0);
+    let font_size = crate::theme::theme().typography.code.size;
     let run = style.to_run(1);
     let lines = window
         .text_system()
