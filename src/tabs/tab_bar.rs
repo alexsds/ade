@@ -46,19 +46,31 @@ pub fn render_tab_bar<V: 'static>(
         let group_name = SharedString::from(format!("tab-grp-{}", i));
         let group_name_clone = group_name.clone();
 
+        // Fixed-width close button zone (left side, balanced by equal spacer on right)
         let close_btn = div()
-            .id(SharedString::from(format!("tab-close-{}", i)))
-            .text_xs()
-            .text_color(t.colors.transparent)
-            .mr(t.spacing.sm)
+            .w(px(24.0))
             .flex_shrink_0()
-            .cursor_pointer()
-            .group_hover(group_name_clone, |s| s.text_color(t.colors.text_muted))
-            .hover(|s| s.text_color(t.colors.text_secondary))
-            .on_click(cx.listener(move |this, _event, window, cx| {
-                on_close_clone(i, this, window, cx);
-            }))
-            .child("x");
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .id(SharedString::from(format!("tab-close-{}", i)))
+                    .text_xs()
+                    .text_color(t.colors.transparent)
+                    .cursor_pointer()
+                    .group_hover(group_name_clone, |s| {
+                        s.text_color(t.colors.text_muted)
+                    })
+                    .hover(|s| s.text_color(t.colors.text_secondary))
+                    .on_click(cx.listener(move |this, _event, window, cx| {
+                        on_close_clone(i, this, window, cx);
+                    }))
+                    .child("×"),
+            );
+
+        // Equal-width spacer on right to keep title centered
+        let right_spacer = div().w(px(24.0)).flex_shrink_0();
 
         let tab_element = div()
             .id(SharedString::from(format!("tab-{}", i)))
@@ -68,7 +80,6 @@ pub fn render_tab_bar<V: 'static>(
             .flex()
             .flex_row()
             .items_center()
-            .px(t.spacing.md)
             .py(t.spacing.xs)
             .bg(tab_bg)
             .border_b_2()
@@ -92,7 +103,8 @@ pub fn render_tab_bar<V: 'static>(
                     .text_ellipsis()
                     .text_align(gpui::TextAlign::Center)
                     .child(title),
-            );
+            )
+            .child(right_spacer);
 
         tab_elements.push(tab_element.into_any_element());
     }
@@ -115,16 +127,18 @@ pub fn render_tab_bar<V: 'static>(
                 .overflow_hidden()
                 .children(tab_elements),
         )
-        // "+" button at right end (D-05), outside the overflow container
+        // "+" button at right end (D-05), matching close button zone width
         .child(
             div()
                 .id("new-tab-btn")
-                .px(t.spacing.sm)
-                .py(t.spacing.xs)
+                .w(px(32.0))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
                 .text_xs()
                 .text_color(t.colors.text_muted)
                 .cursor_pointer()
-                .flex_shrink_0()
                 .hover(|s| s.text_color(t.colors.text_on_emphasis))
                 .on_click(cx.listener(move |this, _event, window, cx| {
                     on_new(this, window, cx);
