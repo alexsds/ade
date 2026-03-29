@@ -5,7 +5,7 @@
 //! dirty/clean indicator on the left, and a "Code Review" toggle button
 //! on the right.
 
-use gpui::{Context, IntoElement, Styled, div, prelude::*, px};
+use gpui::{Context, IntoElement, Styled, div, prelude::*};
 
 use crate::git::types::{BranchStatus, FileChange};
 use crate::theme;
@@ -116,12 +116,12 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
 
     div()
         .w_full()
-        .h(px(32.0))
+        .h(t.sizes.toolbar_height)
         .flex()
         .flex_row()
         .items_center()
         .justify_between()
-        .px(px(12.0))
+        .px(t.spacing.md)
         .bg(t.colors.bg_base)
         .border_b_1()
         .border_color(t.colors.border_default)
@@ -131,7 +131,7 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap(px(6.0))
+                .gap(t.spacing.sm)
                 // CWD (always shown)
                 .child(
                     div()
@@ -141,7 +141,7 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                 )
                 // Status dot (only when in a git repo)
                 .when(has_git, |el| {
-                    el.child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(dot_color))
+                    el.child(div().w(t.spacing.sm).h(t.spacing.sm).rounded(t.spacing.xs).bg(dot_color))
                 })
                 // Branch name (only when in a git repo)
                 .when(has_git, |el| {
@@ -161,8 +161,8 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                             div()
                                 .flex()
                                 .flex_row()
-                                .gap(px(6.0))
-                                .ml(px(8.0))
+                                .gap(t.spacing.sm)
+                                .ml(t.spacing.sm)
                                 .text_xs()
                                 .when(added > 0, |d| {
                                     d.child(
@@ -194,9 +194,9 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
             el.child(
                 div()
                     .id("code-review-btn")
-                    .px(px(8.0))
-                    .py(px(3.0))
-                    .rounded(px(4.0))
+                    .px(t.spacing.sm)
+                    .py(t.spacing.xs)
+                    .rounded(t.spacing.xs)
                     .bg(t.colors.button_bg)
                     .text_xs()
                     .text_color(t.colors.text_primary)

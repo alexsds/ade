@@ -103,14 +103,14 @@ fn render_file_row(
     let mut row = div()
         .id(("file-row", index))
         .w_full()
-        .h(px(28.0))
+        .h(t.sizes.file_row_height)
         .flex_shrink_0()
-        .px(px(8.0))
+        .px(t.spacing.sm)
         .cursor_pointer()
         .flex()
         .flex_row()
         .items_center()
-        .gap(px(6.0))
+        .gap(t.spacing.sm)
         .on_click(move |_event, window, cx| {
             on_select(index, window, cx);
         });
@@ -129,9 +129,9 @@ fn render_file_row(
     // Status badge
     row = row.child(
         div()
-            .px(px(4.0))
+            .px(t.spacing.xs)
             .py(px(1.0))
-            .rounded(px(2.0))
+            .rounded(t.spacing.line_gap)
             .bg(badge_bg)
             .text_xs()
             .font_weight(FontWeight::BOLD)
@@ -204,7 +204,7 @@ fn render_file_row(
     // +/- stats
     let total = file.additions + file.deletions;
     if total > 0 {
-        let mut stats = div().flex().flex_row().gap(px(4.0)).text_xs();
+        let mut stats = div().flex().flex_row().gap(t.spacing.xs).text_xs();
 
         if file.additions > 0 {
             stats = stats.child(

@@ -889,7 +889,7 @@ fn render_tab_label(
     div()
         .id(SharedString::from(format!("tab-{}", label.to_lowercase())))
         .flex_1()
-        .py(px(8.0))
+        .py(t.spacing.sm)
         .cursor_pointer()
         .text_xs()
         .text_color(if is_active {
@@ -1111,8 +1111,8 @@ impl Render for CodeReviewPanel {
                     Some(
                         div()
                             .w_full()
-                            .px(px(16.0))
-                            .py(px(10.0))
+                            .px(t.spacing.md)
+                            .py(t.spacing.sm)
                             .border_b_1()
                             .border_color(t.colors.border_default)
                             .text_xs()
@@ -1216,7 +1216,7 @@ impl Render for CodeReviewPanel {
 
             // Left panel: 280px with tab bar header + commit list
             let left_panel = div()
-                .w(px(280.0))
+                .w(t.sizes.commit_panel_width)
                 .flex_shrink_0()
                 .h_full()
                 .flex()
@@ -1276,7 +1276,7 @@ impl Render for CodeReviewPanel {
                                 .flex_row()
                                 .child(
                                     div()
-                                        .w(px(280.0))
+                                        .w(t.sizes.commit_panel_width)
                                         .flex_shrink_0()
                                         .h_full()
                                         .flex()
@@ -1286,8 +1286,8 @@ impl Render for CodeReviewPanel {
                                         .child(
                                             div()
                                                 .w_full()
-                                                .px(px(8.0))
-                                                .py(px(6.0))
+                                                .px(t.spacing.sm)
+                                                .py(t.spacing.sm)
                                                 .border_b_1()
                                                 .border_color(t.colors.border_default)
                                                 .text_xs()
@@ -1422,7 +1422,7 @@ impl Render for CodeReviewPanel {
             let t = theme::theme();
             // Left panel: 240px with tab bar header + file list (D-08)
             let left_panel = div()
-                .w(px(280.0))
+                .w(t.sizes.commit_panel_width)
                 .flex_shrink_0()
                 .h_full()
                 .flex()

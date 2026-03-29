@@ -363,12 +363,12 @@ fn render_diff_row(
 
             let mut row_div = div()
                 .id(("diff-row", index))
-                .h(px(DIFF_LINE_HEIGHT))
+                .h(t.sizes.diff_line_height)
                 .w_full()
                 .text_xs()
                 .font_family(font("Menlo").family)
                 .text_color(t.colors.diff_hunk_text)
-                .px(px(12.0))
+                .px(t.spacing.md)
                 .flex()
                 .items_center()
                 .relative();
@@ -378,8 +378,8 @@ fn render_diff_row(
             } else {
                 row_div = row_div.bg(t.colors.diff_hunk_bg);
                 if let Some((start_col, end_col)) = sel_range {
-                    // Overlay from row edge: 12px padding + char offset
-                    let start_px = 12.0 + start_col as f32 * char_width;
+                    // Overlay from row edge: 16px padding + char offset
+                    let start_px = 16.0 + start_col as f32 * char_width;
                     let width_px = (end_col - start_col) as f32 * char_width;
                     row_div = row_div.child(
                         div()
@@ -417,7 +417,7 @@ fn render_diff_row(
             let old_text = old_lineno.map(|n| format!("{}", n)).unwrap_or_default();
             let new_text = new_lineno.map(|n| format!("{}", n)).unwrap_or_default();
 
-            let line_height = px(DIFF_LINE_HEIGHT);
+            let line_height = t.sizes.diff_line_height;
             let char_count = content.chars().count();
 
             let sel_range = if text_selection.row_is_selected(index) {
@@ -437,14 +437,14 @@ fn render_diff_row(
                     let mut combined = highlights.clone();
                     combined.extend(intra_line_highlights.iter().cloned());
                     prepare_highlights(content, &mut combined);
-                    div().flex_1().pl(px(8.0)).text_color(text_color).child(
+                    div().flex_1().pl(t.spacing.sm).text_color(text_color).child(
                         StyledText::new(SharedString::from(content.clone()))
                             .with_highlights(combined),
                     )
                 } else {
                     div()
                         .flex_1()
-                        .pl(px(8.0))
+                        .pl(t.spacing.sm)
                         .text_color(text_color)
                         .child(content.clone())
                 }
@@ -462,21 +462,21 @@ fn render_diff_row(
                 .relative()
                 .child(
                     div()
-                        .w(px(40.0))
+                        .w(t.sizes.gutter_width)
                         .flex_shrink_0()
                         .text_size(px(11.0))
                         .text_color(t.colors.diff_gutter_text)
-                        .pr(px(4.0))
+                        .pr(t.spacing.xs)
                         .text_align(TextAlign::Right)
                         .child(old_text),
                 )
                 .child(
                     div()
-                        .w(px(40.0))
+                        .w(t.sizes.gutter_width)
                         .flex_shrink_0()
                         .text_size(px(11.0))
                         .text_color(t.colors.diff_gutter_text)
-                        .pr(px(4.0))
+                        .pr(t.spacing.xs)
                         .text_align(TextAlign::Right)
                         .child(new_text),
                 )
@@ -515,9 +515,9 @@ fn render_file_header(path: &str) -> impl IntoElement {
     let t = theme::theme();
     div()
         .w_full()
-        .h(px(28.0))
+        .h(t.sizes.file_row_height)
         .flex_shrink_0()
-        .px(px(12.0))
+        .px(t.spacing.md)
         .bg(t.colors.bg_elevated)
         .border_b_1()
         .border_color(t.colors.border_default)

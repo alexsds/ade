@@ -93,15 +93,15 @@ fn render_commit_row(
     let mut row = div()
         .id(("commit-row", index))
         .w_full()
-        .h(px(44.0))
+        .h(t.sizes.commit_row_height)
         .flex_shrink_0()
         .overflow_hidden()
-        .px(px(8.0))
+        .px(t.spacing.sm)
         .cursor_pointer()
         .flex()
         .flex_col()
         .justify_center()
-        .gap(px(1.0))
+        .gap(t.spacing.line_gap)
         .border_b_1()
         .border_color(t.colors.border_subtle)
         .on_click(move |event, window, cx| {
@@ -126,7 +126,7 @@ fn render_commit_row(
             .flex()
             .flex_row()
             .items_center()
-            .gap(px(4.0))
+            .gap(t.spacing.xs)
             .overflow_hidden()
             // Summary text (truncated, takes remaining space)
             .child(
@@ -187,9 +187,9 @@ fn render_decoration_badge(decoration: &Decoration) -> impl IntoElement {
 
     div()
         .flex_shrink_0()
-        .px(px(4.0))
+        .px(t.spacing.xs)
         .py(px(1.0))
-        .rounded(px(3.0))
+        .rounded(t.spacing.xs)
         .bg(bg_color)
         .text_color(text_color)
         .text_xs()
@@ -203,7 +203,7 @@ fn render_spinner_row() -> impl IntoElement {
     div()
         .id("loading-spinner")
         .w_full()
-        .h(px(44.0))
+        .h(theme::theme().sizes.commit_row_height)
         .flex_shrink_0()
         .flex()
         .items_center()
@@ -217,8 +217,8 @@ fn render_spinner_row() -> impl IntoElement {
 const TITLE_ROW_HEIGHT: f32 = 20.0;
 /// Height for body/author/hash/stats rows (text_xs ~12px + gap)
 const BODY_ROW_HEIGHT: f32 = 18.0;
-/// Horizontal padding inside the commit detail container
-const DETAIL_PADDING: f32 = 12.0;
+/// Horizontal padding inside the commit detail container (snapped to 4px grid: md=16px)
+const DETAIL_PADDING: f32 = 16.0;
 
 /// Build the logical text lines of the commit detail for selection purposes.
 /// Returns Vec of (text, row_height) pairs.
@@ -458,7 +458,7 @@ pub fn render_metadata_bar(
         .flex()
         .flex_row()
         .items_center()
-        .gap(px(8.0))
+        .gap(t.spacing.sm)
         .overflow_hidden()
         .flex_1()
         .child(
@@ -503,7 +503,7 @@ pub fn render_metadata_bar(
         div()
             .flex()
             .flex_row()
-            .gap(px(8.0))
+            .gap(t.spacing.sm)
             .flex_shrink_0()
             .text_xs()
             .font_family(font("Menlo").family)
@@ -525,8 +525,8 @@ pub fn render_metadata_bar(
     div()
         .w_full()
         .flex_shrink_0()
-        .px(px(12.0))
-        .py(px(6.0))
+        .px(t.spacing.md)
+        .py(t.spacing.sm)
         .border_y_1()
         .border_color(t.colors.border_default)
         .flex()
