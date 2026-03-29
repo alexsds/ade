@@ -81,7 +81,7 @@ impl ThemeColors {
             transparent: rgba(0x00000000).into(),
 
             // -- Borders (D-04) --
-            border_subtle: rgba(0x2a3038ff).into(),
+            border_subtle: rgba(0x21262d80).into(),
             border_default: rgba(0x30363dff).into(),
             border_strong: rgba(0x484f58ff).into(),
 
