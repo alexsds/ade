@@ -62,6 +62,7 @@ pub struct ThemeColors {
     pub diff_hunk_bg: Hsla,
     pub diff_context_text: Hsla,
     pub diff_gutter_text: Hsla,
+    pub diff_gutter_bg: Hsla,
 
     // -- Decoration badges --
     pub badge_branch_bg: Hsla,
@@ -134,6 +135,7 @@ impl ThemeColors {
             diff_hunk_bg: rgba(0x161b30ff).into(),
             diff_context_text: rgba(0x8b949eff).into(),
             diff_gutter_text: rgba(0x6e7681ff).into(),
+            diff_gutter_bg: rgba(0x1c2129ff).into(), // = bg_elevated, gutter depth tint
 
             // -- Decoration badges (unchanged) --
             badge_branch_bg: rgba(0x3fb95030).into(),
@@ -167,6 +169,10 @@ mod tests {
         assert!(
             colors.button_accent_hover.a > 0.0,
             "button_accent_hover must have alpha"
+        );
+        assert!(
+            colors.diff_gutter_bg.a > 0.0,
+            "diff_gutter_bg must have alpha"
         );
         // transparent field should have zero alpha
         assert!(

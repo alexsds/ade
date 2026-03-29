@@ -365,21 +365,41 @@ fn render_diff_row(
                 .id(("diff-row", index))
                 .h(t.sizes.diff_line_height)
                 .w_full()
-                .text_xs()
-                .font_family(font("Menlo").family)
-                .text_color(t.colors.diff_hunk_text)
-                .px(t.spacing.md)
                 .flex()
-                .items_center()
+                .flex_row()
+                .font_family(font("Menlo").family)
+                .text_xs()
+                .text_color(t.colors.diff_hunk_text)
+                .line_height(t.sizes.diff_line_height)
                 .relative();
 
             if is_fully_selected {
                 row_div = row_div.bg(t.colors.selection_bg);
             } else {
                 row_div = row_div.bg(t.colors.diff_hunk_bg);
+            }
+
+            // Two empty gutter columns with hunk bg (D-17: use diff_hunk_bg, not diff_gutter_bg)
+            row_div = row_div
+                .child(
+                    div()
+                        .w(t.sizes.gutter_width)
+                        .flex_shrink_0()
+                        .bg(t.colors.diff_hunk_bg),
+                )
+                .child(
+                    div()
+                        .w(t.sizes.gutter_width)
+                        .flex_shrink_0()
+                        .bg(t.colors.diff_hunk_bg),
+                )
+                // Content area with header text (D-12)
+                .child(div().flex_1().pl(t.spacing.sm).child(header.clone()));
+
+            // Selection overlay (updated offset: text now starts at CONTENT_X_OFFSET)
+            if !is_fully_selected {
                 if let Some((start_col, end_col)) = sel_range {
-                    // Overlay from row edge: 16px padding + char offset
-                    let start_px = 16.0 + start_col as f32 * char_width;
+                    let start_px = CONTENT_X_OFFSET + start_col as f32 * char_width;
                     let width_px = (end_col - start_col) as f32 * char_width;
                     row_div = row_div.child(
                         div()
@@ -393,7 +413,7 @@ fn render_diff_row(
                 }
             }
 
-            row_div.child(header.clone()).into_any_element()
+            row_div.into_any_element()
         }
         DiffRow::Line {
             old_lineno,
@@ -467,6 +487,7 @@ fn render_diff_row(
                     div()
                         .w(t.sizes.gutter_width)
                         .flex_shrink_0()
+                        .bg(t.colors.diff_gutter_bg)
                         .text_size(px(11.0))
                         .text_color(t.colors.diff_gutter_text)
                         .pr(t.spacing.xs)
@@ -477,6 +498,7 @@ fn render_diff_row(
                     div()
                         .w(t.sizes.gutter_width)
                         .flex_shrink_0()
+                        .bg(t.colors.diff_gutter_bg)
                         .text_size(px(11.0))
                         .text_color(t.colors.diff_gutter_text)
                         .pr(t.spacing.xs)
