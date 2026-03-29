@@ -1114,7 +1114,7 @@ impl Render for CodeReviewPanel {
                             .px(t.spacing.md)
                             .py(t.spacing.sm)
                             .border_b_1()
-                            .border_color(t.colors.border_default)
+                            .border_color(t.colors.border_subtle)
                             .text_xs()
                             .font_weight(FontWeight::BOLD)
                             .text_color(t.colors.text_secondary)
@@ -1222,7 +1222,7 @@ impl Render for CodeReviewPanel {
                 .flex()
                 .flex_col()
                 .border_r_1()
-                .border_color(t.colors.border_default)
+                .border_color(t.colors.border_subtle)
                 // Tab bar replaces "Commits" header (D-01)
                 .child(render_review_tab_bar(
                     self.active_tab,
@@ -1249,7 +1249,7 @@ impl Render for CodeReviewPanel {
                 }
             });
 
-            let diff_focus_color = t.colors.element_selected;
+            let diff_focus_color = t.colors.border_strong;
             let transparent_color = t.colors.transparent;
             div()
                 .size_full()
@@ -1282,7 +1282,7 @@ impl Render for CodeReviewPanel {
                                         .flex()
                                         .flex_col()
                                         .border_r_1()
-                                        .border_color(t.colors.border_default)
+                                        .border_color(t.colors.border_subtle)
                                         .child(
                                             div()
                                                 .w_full()
@@ -1428,7 +1428,7 @@ impl Render for CodeReviewPanel {
                 .flex()
                 .flex_col()
                 .border_r_1()
-                .border_color(t.colors.border_default)
+                .border_color(t.colors.border_subtle)
                 // Tab bar (D-01)
                 .child(render_review_tab_bar(
                     self.active_tab,
@@ -1461,7 +1461,7 @@ impl Render for CodeReviewPanel {
                     diff_view::render_diff_empty().into_any_element()
                 };
 
-            let diff_focus_color = t.colors.element_selected;
+            let diff_focus_color = t.colors.border_strong;
             let transparent_color = t.colors.transparent;
             div()
                 .size_full()

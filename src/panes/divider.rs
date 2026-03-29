@@ -48,7 +48,7 @@ pub fn render_divider(
         let inner = div()
             .w(px(1.0))
             .h_full()
-            .bg(t.colors.border_strong)
+            .bg(t.colors.border_subtle)
             .flex_shrink_0();
 
         div()
@@ -67,7 +67,7 @@ pub fn render_divider(
         let inner = div()
             .h(px(1.0))
             .w_full()
-            .bg(t.colors.border_strong)
+            .bg(t.colors.border_subtle)
             .flex_shrink_0();
 
         div()
