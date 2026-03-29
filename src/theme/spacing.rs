@@ -4,8 +4,6 @@ pub struct Spacing {
     pub xs: Pixels,
     pub sm: Pixels,
     pub md: Pixels,
-    pub lg: Pixels,
-    pub xl: Pixels,
     pub line_gap: Pixels,
 }
 
@@ -15,8 +13,6 @@ impl Spacing {
             xs: px(4.0),
             sm: px(8.0),
             md: px(16.0),
-            lg: px(24.0),
-            xl: px(32.0),
             line_gap: px(2.0),
         }
     }
@@ -57,8 +53,6 @@ mod tests {
         assert_eq!(s.xs, px(4.0));
         assert_eq!(s.sm, px(8.0));
         assert_eq!(s.md, px(16.0));
-        assert_eq!(s.lg, px(24.0));
-        assert_eq!(s.xl, px(32.0));
         assert_eq!(s.line_gap, px(2.0));
     }
 

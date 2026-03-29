@@ -1,10 +1,8 @@
 mod colors;
 mod spacing;
-mod typography;
 
 pub use colors::ThemeColors;
 pub use spacing::{Sizes, Spacing};
-pub use typography::{TextStyleDef, Typography};
 
 use std::sync::LazyLock;
 
@@ -12,7 +10,6 @@ pub struct Theme {
     pub colors: ThemeColors,
     pub spacing: Spacing,
     pub sizes: Sizes,
-    pub typography: Typography,
 }
 
 pub fn theme() -> &'static Theme {
@@ -20,7 +17,6 @@ pub fn theme() -> &'static Theme {
         colors: ThemeColors::default_dark(),
         spacing: Spacing::default(),
         sizes: Sizes::default(),
-        typography: Typography::default(),
     });
     &THEME
 }

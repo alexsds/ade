@@ -5,7 +5,6 @@ pub struct ThemeColors {
     pub bg_base: Hsla,
     pub bg_surface: Hsla,
     pub bg_elevated: Hsla,
-    pub bg_overlay: Hsla,
     pub transparent: Hsla,
 
     // -- Borders --
@@ -18,7 +17,6 @@ pub struct ThemeColors {
     pub text_secondary: Hsla,
     pub text_muted: Hsla,
     pub text_dimmed: Hsla,
-    pub text_faint: Hsla,
     pub text_bright: Hsla,
     pub text_on_emphasis: Hsla,
     pub text_commit_hash: Hsla,
@@ -29,7 +27,6 @@ pub struct ThemeColors {
     pub element_hover: Hsla,
     pub tab_hover: Hsla,
     pub button_bg: Hsla,
-    pub button_hover: Hsla,
     pub button_accent_hover: Hsla,
     pub element_selected: Hsla,
     pub element_selected_inactive: Hsla,
@@ -78,7 +75,6 @@ impl ThemeColors {
             bg_base: rgba(0x0d1117ff).into(),
             bg_surface: rgba(0x161b22ff).into(),
             bg_elevated: rgba(0x1c2129ff).into(),
-            bg_overlay: rgba(0x2d333bff).into(),
             transparent: rgba(0x00000000).into(),
 
             // -- Borders (D-04) --
@@ -91,7 +87,6 @@ impl ThemeColors {
             text_secondary: rgba(0x8b949eff).into(),
             text_muted: rgba(0x6e7681ff).into(),
             text_dimmed: rgba(0x545d68ff).into(),
-            text_faint: rgba(0x545d68ff).into(),
             text_bright: rgba(0xe6edf3ff).into(),
             text_on_emphasis: rgba(0xffffffff).into(),
             text_commit_hash: rgba(0x8b949eff).into(),
@@ -102,7 +97,6 @@ impl ThemeColors {
             element_hover: rgba(0x2d333bff).into(),
             tab_hover: rgba(0x2d333bff).into(),
             button_bg: rgba(0x30363dff).into(),
-            button_hover: rgba(0x3d444dff).into(),
             button_accent_hover: rgba(0x4688c84D).into(),
             element_selected: rgba(0x1d3a5cff).into(),
             element_selected_inactive: rgba(0x1a304aff).into(),
