@@ -3,6 +3,40 @@
 All notable changes to ADE (Advanced Developer Environment) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v2.0] — 2026-03-29 — UI Levelup
+
+### Added
+- Centralized theme system: `src/theme/` module with `ThemeColors` (52 semantic Hsla fields), `Spacing` (4px grid), `Sizes`, `Typography` presets
+- `theme::theme()` LazyLock static accessor for zero-cost theme access across all UI files
+- Midnight Workshop palette: blue-tinted backgrounds (#0d1117 base), amber-gold accent (#e5a100)
+- 3-4 background elevation tiers (base, surface, elevated, overlay) for visual depth
+- `button_accent_hover` theme token for accent-tinted interactive hover states
+- Three-tier border hierarchy: `border_subtle` (panel dividers), `border_default` (section borders), `border_strong` (focus indicators)
+- Hover states on all interactive elements: commit rows, file list rows, tab headers, buttons, review tab labels
+- Commit row left accent border (3px accent/transparent toggle) for selected state
+- Pill-shaped decoration badges (branch/tag) with full capsule radius
+- Inset row separators (commit list and file list) using absolute positioning with 8px margin
+- Pill-shaped stat badges (+N/-N) in metadata bar with colored backgrounds
+- `diff_gutter_bg` theme token for diff gutter depth tint
+- Full-width hunk header bars spanning gutter and content areas
+- Structured two-line empty states with primary message + keyboard hint across all panels
+- Typography presets (`heading`/`body`/`code`/`code_small`) wired into Theme struct and consumed by render code
+
+### Changed
+- All 109+ hardcoded `rgba()` color calls across 8 UI chrome files replaced with `theme::theme().colors.*` references
+- All padding/margin/gap values snapped to 4px spacing grid tokens (`t.spacing.xs/sm/md`)
+- Component heights driven by `t.sizes.*` fields (toolbar 36px, tab bar 32px)
+- Font sizes in commit list and diff view driven by `t.typography.*` presets instead of hardcoded px values
+- Toolbar branch indicator now renders in semibold weight with accent color
+- Code Review button hover uses accent-tinted background
+- Active tab uses `bg_elevated` background with 2px accent bottom border
+- Inactive tabs use `bg_surface` with `text_muted` text
+- Tab close button invisible by default, appears on tab hover (group_hover)
+- Panel-internal dividers use `border_subtle` (lighter than section borders)
+- Diff focus indicators use `border_strong` for clear active-panel feedback
+- Review tab labels brighten from `text_muted` to `text_secondary` on hover
+- History tab file list empty state updated to two-line format matching all other panels
+
 ## [v1.9] — 2026-03-28 — TUI Mouse/Scroll
 
 ### Added
