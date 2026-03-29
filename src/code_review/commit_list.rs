@@ -517,17 +517,23 @@ pub fn render_metadata_bar(
         div()
             .flex()
             .flex_row()
-            .gap(t.spacing.sm)
+            .gap(t.spacing.xs)
             .flex_shrink_0()
             .text_xs()
             .font_family(font("Menlo").family)
             .child(
                 div()
+                    .rounded(px(7.0))
+                    .px(t.spacing.xs)
+                    .bg(t.colors.git_added_bg)
                     .text_color(t.colors.git_added)
                     .child(format!("+{}", total_additions)),
             )
             .child(
                 div()
+                    .rounded(px(7.0))
+                    .px(t.spacing.xs)
+                    .bg(t.colors.git_deleted_bg)
                     .text_color(t.colors.git_deleted)
                     .child(format!("-{}", total_deletions)),
             )
