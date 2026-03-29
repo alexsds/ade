@@ -1,32 +1,41 @@
 # ADE (Advanced Developer Environment)
 
-A GPU-accelerated macOS terminal with built-in git history and diff viewer. Press **Cmd+G** to toggle a GitHub Desktop-style code review panel — right next to the code you're writing.
+A GPU-accelerated macOS terminal with a built-in git code review panel. Press **Cmd+G** to toggle a GitHub Desktop-style view with commit history, file changes, and syntax-highlighted diffs — right next to the code you're writing.
 
 Built in Rust with [GPUI](https://github.com/zed-industries/zed) (Zed's UI framework) and [alacritty_terminal](https://crates.io/crates/alacritty_terminal) for terminal emulation.
 
 ## Features
 
-**Terminal**
-- Full PTY emulation via alacritty_terminal (xterm-256color)
-- Vertical/horizontal pane splitting (Cmd+D / Cmd+Shift+D)
-- Tabs with process name titles (Cmd+T, Cmd+W, Cmd+1-9)
-- Mouse selection, clipboard, scrollback
-- iTerm2-style keybindings
+### Terminal
+- Full terminal emulation (xterm-256color) with smooth trackpad scrolling
+- Split panes: vertical (Cmd+D) and horizontal (Cmd+Shift+D) with draggable dividers
+- Tabs with process name titles
+- Mouse support for TUI apps (vim, htop, etc.) with macOS natural scrolling
+- Double-click to select a word, triple-click to select a line
+- Clipboard copy/paste, mouse selection, and scrollback
 
-**Code Review (Cmd+G)**
-- **History tab**: commit list | file list | unified diff (3-panel layout)
-- **Changes tab**: uncommitted working tree diffs with status badges (M/A/D/?) and +/-  stats
-- Auto-refresh: working tree changes update every ~2s and on mode entry
-- "Changes (N)" file count badge on tab header
-- Colored diff stats in toolbar: green +N, yellow ~N, red -N
-- Keyboard navigation: Left/Right to switch panels, Up/Down to navigate items
-- Cmd+1 (Changes) / Cmd+2 (History) tab switching
-- Auto-cascade: selecting a commit or file loads its diff automatically
-- Selection preserved across auto-refresh cycles
-- Active/inactive panel highlighting
-- Virtual scrolling for 100K+ commit repos
-- Line-type diff coloring (additions, removals, hunk headers)
-- Branch name and dirty status in toolbar
+### Code Review (Cmd+G)
+- **History tab** — 3-panel layout: commit list, file list, and unified diff
+- **Changes tab** — uncommitted working tree diffs with status badges (M/A/D/?) and staged/unstaged indicators
+- Syntax highlighting in diffs for 16 languages (Rust, JS, TS, Python, Go, C/C++, Java, Ruby, Shell, HTML, CSS, JSON, YAML, Markdown)
+- Word-level change highlighting within modified lines
+- Shift+Click or Shift+Up/Down to select multiple commits and view a combined diff
+- Drag-to-select text in diffs and commit descriptions; Cmd+C copies from the active selection
+- Copy commit hash from each commit row (click the hash button)
+- Auto-refresh: working tree changes update every ~2s
+- Selections persist across refreshes, tab switches, and mode toggles
+- Virtual scrolling handles repos with 100K+ commits
+- Metadata bar with author, commit hash, and colored +/- stats
+
+### Toolbar
+- Fish-style shortened current directory path
+- Branch name with dirty/clean indicator
+- Colored diff stats (green +N, yellow ~N, red -N) visible in all modes
+- Git info hides automatically when not in a git repo
+
+### Theme
+- "Midnight Workshop" dark theme with blue-tinted backgrounds and amber-gold accents
+- Layered background depth, hover feedback, and pill-shaped badges throughout
 
 ## Install
 
@@ -60,6 +69,7 @@ cargo build --release
 | Cmd+C | Copy selection (or send SIGINT if no selection) |
 | Cmd+V | Paste from clipboard |
 | Cmd+A | Select all |
+| Cmd+Q | Quit |
 
 ### Code Review
 
@@ -68,17 +78,19 @@ cargo build --release
 | Cmd+G | Toggle Code Review panel on/off |
 | Cmd+1 | Switch to Changes tab |
 | Cmd+2 | Switch to History tab |
-| Left / Right | Switch active panel (file list / diff) — wraps around |
-| Up / Down | Move selection in commit or file list; scroll diff line-by-line |
+| Left / Right | Cycle active panel (commits → files → diff → commits) |
+| Up / Down | Move selection in list panels; scroll diff line-by-line |
+| Shift+Click | Select a range of commits |
+| Shift+Up / Shift+Down | Extend commit selection one row at a time |
 
-Selecting a commit or file auto-loads its diff. Active panel shows bright blue highlight, inactive panels show dimmed highlight. Last active tab is remembered across Cmd+G toggles.
+Active panel highlighted in bright blue; inactive panels dimmed. Selecting a commit auto-loads the first file's diff. Last active tab remembered across Cmd+G toggles.
 
 ### Panes
 
 | Shortcut | Action |
 |----------|--------|
-| Cmd+D | Split active pane vertically (side-by-side) |
-| Cmd+Shift+D | Split active pane horizontally (top/bottom) |
+| Cmd+D | Split vertically (side-by-side) |
+| Cmd+Shift+D | Split horizontally (top/bottom) |
 | Cmd+] | Focus next pane |
 | Cmd+[ | Focus previous pane |
 | Cmd+W | Close active pane |
@@ -91,12 +103,12 @@ Selecting a commit or file auto-loads its diff. Active panel shows bright blue h
 | Cmd+Shift+W | Close tab |
 | Cmd+} | Next tab |
 | Cmd+{ | Previous tab |
-| Cmd+1 through Cmd+9 | Switch to tab N (in Terminal mode) |
+| Cmd+1 through Cmd+9 | Switch to tab N (Terminal mode) |
 
 ## Tech Stack
 
-- **[GPUI](https://github.com/zed-industries/zed)** — GPU-accelerated rendering with `uniform_list` virtualization
-- **[alacritty_terminal](https://crates.io/crates/alacritty_terminal)** — VT100/xterm terminal emulation and PTY I/O
+- **[GPUI](https://github.com/zed-industries/zed)** — GPU-accelerated UI framework
+- **[alacritty_terminal](https://crates.io/crates/alacritty_terminal)** — terminal emulation and PTY I/O
 - **[git2](https://crates.io/crates/git2)** — libgit2 bindings for commit log, diff, and branch status
 
 ## License
