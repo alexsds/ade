@@ -30,6 +30,7 @@ pub struct ThemeColors {
     pub tab_hover: Hsla,
     pub button_bg: Hsla,
     pub button_hover: Hsla,
+    pub button_accent_hover: Hsla,
     pub element_selected: Hsla,
     pub element_selected_inactive: Hsla,
     pub selection_bg: Hsla,
@@ -101,6 +102,7 @@ impl ThemeColors {
             tab_hover: rgba(0x2d333bff).into(),
             button_bg: rgba(0x30363dff).into(),
             button_hover: rgba(0x3d444dff).into(),
+            button_accent_hover: rgba(0x4688c84D).into(),
             element_selected: rgba(0x1d3a5cff).into(),
             element_selected_inactive: rgba(0x1a304aff).into(),
             selection_bg: rgba(0x264f78ff).into(),
@@ -161,6 +163,10 @@ mod tests {
         assert!(
             colors.diff_add_text.a > 0.0,
             "diff_add_text must have alpha"
+        );
+        assert!(
+            colors.button_accent_hover.a > 0.0,
+            "button_accent_hover must have alpha"
         );
         // transparent field should have zero alpha
         assert!(

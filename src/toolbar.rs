@@ -5,7 +5,7 @@
 //! dirty/clean indicator on the left, and a "Code Review" toggle button
 //! on the right.
 
-use gpui::{Context, IntoElement, Styled, div, prelude::*};
+use gpui::{Context, FontWeight, IntoElement, Styled, div, prelude::*};
 
 use crate::git::types::{BranchStatus, FileChange};
 use crate::theme;
@@ -141,14 +141,21 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                 )
                 // Status dot (only when in a git repo)
                 .when(has_git, |el| {
-                    el.child(div().w(t.spacing.sm).h(t.spacing.sm).rounded(t.spacing.xs).bg(dot_color))
+                    el.child(
+                        div()
+                            .w(t.spacing.sm)
+                            .h(t.spacing.sm)
+                            .rounded(t.spacing.xs)
+                            .bg(dot_color),
+                    )
                 })
                 // Branch name (only when in a git repo)
                 .when(has_git, |el| {
                     el.child(
                         div()
                             .text_xs()
-                            .text_color(t.colors.text_secondary)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t.colors.accent)
                             .child(branch_display),
                     )
                 })
@@ -201,7 +208,7 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                     .text_xs()
                     .text_color(t.colors.text_primary)
                     .cursor_pointer()
-                    .hover(|style| style.bg(t.colors.button_hover))
+                    .hover(|style| style.bg(t.colors.button_accent_hover))
                     .on_click(cx.listener(move |this, _event, window, cx| {
                         on_toggle(this, window, cx);
                     }))

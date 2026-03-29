@@ -773,8 +773,7 @@ impl TerminalView {
         // TUI apps (Cases 1 & 2) use a smaller pixel divisor so scroll events
         // fire more often (every ~5px) with 1 line each — smoother than bursts.
         let is_tui_scroll = (mode.intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift)
-            || (mode.contains(TermMode::ALT_SCREEN)
-                && mode.contains(TermMode::ALTERNATE_SCROLL));
+            || (mode.contains(TermMode::ALT_SCREEN) && mode.contains(TermMode::ALTERNATE_SCROLL));
         let divisor = if is_tui_scroll {
             (self.cell_height / SCROLL_MULTIPLIER as f32).max(1.0)
         } else {

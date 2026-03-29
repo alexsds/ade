@@ -405,12 +405,11 @@ fn render_diff_row(
         } => {
             let (line_bg, text_color) = match line_type {
                 DiffLineType::Add => (Some(t.colors.diff_add_line_bg), t.colors.diff_add_text),
-                DiffLineType::Remove => {
-                    (Some(t.colors.diff_remove_line_bg), t.colors.diff_remove_text)
-                }
-                DiffLineType::HunkHeader => {
-                    (Some(t.colors.diff_hunk_bg), t.colors.diff_hunk_text)
-                }
+                DiffLineType::Remove => (
+                    Some(t.colors.diff_remove_line_bg),
+                    t.colors.diff_remove_text,
+                ),
+                DiffLineType::HunkHeader => (Some(t.colors.diff_hunk_bg), t.colors.diff_hunk_text),
                 DiffLineType::Context => (None, t.colors.diff_context_text),
             };
 
@@ -437,10 +436,14 @@ fn render_diff_row(
                     let mut combined = highlights.clone();
                     combined.extend(intra_line_highlights.iter().cloned());
                     prepare_highlights(content, &mut combined);
-                    div().flex_1().pl(t.spacing.sm).text_color(text_color).child(
-                        StyledText::new(SharedString::from(content.clone()))
-                            .with_highlights(combined),
-                    )
+                    div()
+                        .flex_1()
+                        .pl(t.spacing.sm)
+                        .text_color(text_color)
+                        .child(
+                            StyledText::new(SharedString::from(content.clone()))
+                                .with_highlights(combined),
+                        )
                 } else {
                     div()
                         .flex_1()
