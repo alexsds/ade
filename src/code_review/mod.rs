@@ -1092,12 +1092,14 @@ impl Render for CodeReviewPanel {
                 .into_any_element()
             };
 
-            let file_list_content = file_list::render_file_list(
+            let file_list_content = file_list::render_file_list_with_empty_msg(
                 &self.files,
                 selected_file_index,
                 file_on_select,
                 is_file_list_active,
                 &self.file_scroll_handle,
+                "Select a commit to view changes",
+                Some("Use arrow keys or click a commit"),
             );
 
             // Determine if a range of commits is selected (more than 1)

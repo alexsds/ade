@@ -17,6 +17,7 @@ use gpui::{
 /// If `files` is empty, shows a placeholder message.
 /// `selected_index` highlights the selected row.
 /// `on_select` is called with (index, &mut Window, &mut App) when a row is clicked.
+#[allow(dead_code)]
 pub fn render_file_list(
     files: &[FileChange],
     selected_index: Option<usize>,
