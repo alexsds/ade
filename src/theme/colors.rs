@@ -87,7 +87,7 @@ impl ThemeColors {
             // -- Text (D-03: primary/secondary/muted) --
             text_primary: rgba(0xe6edf3ff).into(),
             text_secondary: rgba(0x8b949eff).into(),
-            text_muted: rgba(0x484f58ff).into(),
+            text_muted: rgba(0x6e7681ff).into(),
             text_dimmed: rgba(0x484f58ff).into(),
             text_faint: rgba(0x484f58ff).into(),
             text_bright: rgba(0xe6edf3ff).into(),
