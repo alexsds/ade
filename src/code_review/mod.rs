@@ -1054,18 +1054,29 @@ impl Render for CodeReviewPanel {
                     .items_center()
                     .justify_center()
                     .text_sm()
-                    .text_color(t.colors.text_muted)
+                    .text_color(t.colors.text_secondary)
                     .child("Loading commits...")
                     .into_any_element()
             } else if self.commits.is_empty() {
                 div()
                     .size_full()
                     .flex()
+                    .flex_col()
                     .items_center()
                     .justify_center()
-                    .text_sm()
-                    .text_color(t.colors.text_muted)
-                    .child("No commits found")
+                    .gap(t.spacing.sm)
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(t.colors.text_secondary)
+                            .child("No commits found"),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(t.colors.text_muted)
+                            .child("Open a git repository to see history"),
+                    )
                     .into_any_element()
             } else {
                 commit_list::render_commit_list(
@@ -1423,6 +1434,7 @@ impl Render for CodeReviewPanel {
                 is_changes_file_list_active,
                 &self.changes_file_scroll_handle,
                 "No uncommitted changes",
+                Some("Changes appear here when you modify files"),
             );
 
             let t = theme::theme();

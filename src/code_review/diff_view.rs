@@ -560,14 +560,26 @@ fn render_file_header(path: &str) -> impl IntoElement {
 
 /// Render the empty state placeholder when no file is selected.
 pub fn render_diff_empty() -> impl IntoElement {
+    let t = theme::theme();
     div()
         .size_full()
         .flex()
+        .flex_col()
         .items_center()
         .justify_center()
-        .text_sm()
-        .text_color(theme::theme().colors.text_dimmed)
-        .child("Select a file to view its diff")
+        .gap(t.spacing.sm)
+        .child(
+            div()
+                .text_sm()
+                .text_color(t.colors.text_secondary)
+                .child("Select a file to view its diff"),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(t.colors.text_muted)
+                .child("Use arrow keys to navigate"),
+        )
 }
 
 #[cfg(test)]

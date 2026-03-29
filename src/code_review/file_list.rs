@@ -31,6 +31,7 @@ pub fn render_file_list(
         is_active,
         scroll_handle,
         "Select a commit to view changes",
+        None,
     )
 }
 
@@ -41,19 +42,33 @@ pub fn render_file_list_with_empty_msg(
     is_active: bool,
     scroll_handle: &UniformListScrollHandle,
     empty_message: &str,
+    empty_hint: Option<&str>,
 ) -> gpui::AnyElement {
     let t = theme::theme();
 
     if files.is_empty() {
-        return div()
+        let mut empty_div = div()
             .size_full()
             .flex()
+            .flex_col()
             .items_center()
             .justify_center()
-            .text_sm()
-            .text_color(t.colors.text_dimmed)
-            .child(empty_message.to_string())
-            .into_any_element();
+            .gap(t.spacing.sm)
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(t.colors.text_secondary)
+                    .child(empty_message.to_string()),
+            );
+        if let Some(hint) = empty_hint {
+            empty_div = empty_div.child(
+                div()
+                    .text_xs()
+                    .text_color(t.colors.text_muted)
+                    .child(hint.to_string()),
+            );
+        }
+        return empty_div.into_any_element();
     }
 
     let files: Vec<FileChange> = files.to_vec();
@@ -110,6 +125,7 @@ fn render_file_row(
         .flex()
         .flex_row()
         .items_center()
+        .relative()
         .gap(t.spacing.sm)
         .on_click(move |_event, window, cx| {
             on_select(index, window, cx);
@@ -224,6 +240,19 @@ fn render_file_row(
 
         row = row.child(stats);
     }
+
+    // Inset separator (per D-10 -- matches commit list style)
+    row = row.child(
+        div()
+            .absolute()
+            .bottom_0()
+            .left_0()
+            .right_0()
+            .mx(t.spacing.sm)
+            .h(px(1.0))
+            .border_b_1()
+            .border_color(t.colors.border_subtle),
+    );
 
     row.into_any_element()
 }
