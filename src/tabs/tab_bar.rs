@@ -46,11 +46,11 @@ pub fn render_tab_bar<V: 'static>(
         let close_btn = div()
             .id(SharedString::from(format!("tab-close-{}", i)))
             .text_xs()
-            .text_color(t.colors.transparent)
+            .text_color(t.colors.text_faint)
             .mr(t.spacing.sm)
             .flex_shrink_0()
             .cursor_pointer()
-            .hover(|s| s.text_color(t.colors.text_muted))
+            .hover(|s| s.text_color(t.colors.text_secondary))
             .on_click(cx.listener(move |this, _event, window, cx| {
                 on_close_clone(i, this, window, cx);
             }))
