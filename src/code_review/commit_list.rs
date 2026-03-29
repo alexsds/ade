@@ -96,14 +96,19 @@ fn render_commit_row(
         .h(t.sizes.commit_row_height)
         .flex_shrink_0()
         .overflow_hidden()
+        .relative()
         .px(t.spacing.sm)
         .cursor_pointer()
         .flex()
         .flex_col()
         .justify_center()
         .gap(t.spacing.line_gap)
-        .border_b_1()
-        .border_color(t.colors.border_subtle)
+        .border_l_3()
+        .border_color(if is_selected {
+            t.colors.accent
+        } else {
+            t.colors.transparent
+        })
         .on_click(move |event, window, cx| {
             let shift = event.modifiers().shift;
             on_select(index, shift, window, cx);
@@ -166,6 +171,19 @@ fn render_commit_row(
             ),
     );
 
+    // Inset separator
+    row = row.child(
+        div()
+            .absolute()
+            .bottom_0()
+            .left_0()
+            .right_0()
+            .mx(t.spacing.sm)
+            .h(px(1.0))
+            .border_b_1()
+            .border_color(t.colors.border_subtle),
+    );
+
     row
 }
 
@@ -185,7 +203,7 @@ fn render_decoration_badge(decoration: &Decoration) -> impl IntoElement {
         .flex_shrink_0()
         .px(t.spacing.xs)
         .py(px(1.0))
-        .rounded(t.spacing.xs)
+        .rounded(px(7.0))
         .bg(bg_color)
         .text_color(text_color)
         .text_xs()
