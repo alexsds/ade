@@ -4,7 +4,9 @@
 //! Only shown when 2+ tabs exist (D-04). Tabs have centered titles with
 //! close "x" buttons, highlighted active tab, and "+" button at the right.
 
-use gpui::{Context, IntoElement, SharedString, Styled, div, prelude::*, px, rgba};
+use gpui::{Context, IntoElement, SharedString, Styled, div, prelude::*, px};
+
+use crate::theme;
 
 /// Render the tab bar showing all tabs with selection, close, and new-tab controls.
 ///
@@ -20,6 +22,7 @@ pub fn render_tab_bar<V: 'static>(
     on_close: impl Fn(usize, &mut V, &mut gpui::Window, &mut Context<V>) + 'static + Clone,
     on_new: impl Fn(&mut V, &mut gpui::Window, &mut Context<V>) + 'static,
 ) -> impl IntoElement {
+    let t = theme::theme();
     let mut tab_elements: Vec<gpui::AnyElement> = Vec::with_capacity(tabs.len());
 
     for (i, tab) in tabs.iter().enumerate() {
@@ -29,19 +32,19 @@ pub fn render_tab_bar<V: 'static>(
         let on_close_clone = on_close.clone();
 
         let tab_bg = if is_active {
-            rgba(0x333333ff)
+            t.colors.border_default
         } else {
-            rgba(0x252525ff)
+            t.colors.bg_surface
         };
 
         let close_btn = div()
             .id(SharedString::from(format!("tab-close-{}", i)))
             .text_xs()
-            .text_color(rgba(0x888888ff))
+            .text_color(t.colors.text_muted)
             .mr(px(6.0))
             .flex_shrink_0()
             .cursor_pointer()
-            .hover(|s| s.text_color(rgba(0xffffffff)))
+            .hover(|s| s.text_color(t.colors.text_on_emphasis))
             .on_click(cx.listener(move |this, _event, window, cx| {
                 on_close_clone(i, this, window, cx);
             }))
@@ -58,7 +61,7 @@ pub fn render_tab_bar<V: 'static>(
             .py(px(4.0))
             .bg(tab_bg)
             .cursor_pointer()
-            .hover(|s| s.bg(rgba(0x2e2e2eff)))
+            .hover(|s| s.bg(t.colors.tab_hover))
             .on_click(cx.listener(move |this, _event, window, cx| {
                 on_select_clone(i, this, window, cx);
             }))
@@ -67,7 +70,7 @@ pub fn render_tab_bar<V: 'static>(
                 div()
                     .flex_1()
                     .text_xs()
-                    .text_color(rgba(0xccccccff))
+                    .text_color(t.colors.text_secondary)
                     .overflow_hidden()
                     .text_ellipsis()
                     .text_align(gpui::TextAlign::Center)
@@ -83,9 +86,9 @@ pub fn render_tab_bar<V: 'static>(
         .flex()
         .flex_row()
         .items_center()
-        .bg(rgba(0x252525ff))
+        .bg(t.colors.bg_surface)
         .border_b_1()
-        .border_color(rgba(0x333333ff))
+        .border_color(t.colors.border_default)
         // Tabs container: flex-1 with overflow hidden for squeeze behavior (D-07)
         .child(
             div()
@@ -102,10 +105,10 @@ pub fn render_tab_bar<V: 'static>(
                 .px(px(8.0))
                 .py(px(4.0))
                 .text_xs()
-                .text_color(rgba(0x888888ff))
+                .text_color(t.colors.text_muted)
                 .cursor_pointer()
                 .flex_shrink_0()
-                .hover(|s| s.text_color(rgba(0xffffffff)))
+                .hover(|s| s.text_color(t.colors.text_on_emphasis))
                 .on_click(cx.listener(move |this, _event, window, cx| {
                     on_new(this, window, cx);
                 }))

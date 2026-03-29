@@ -1,7 +1,8 @@
-use gpui::{self, IntoElement, MouseButton, Styled, div, prelude::*, px, rgba};
+use gpui::{self, IntoElement, MouseButton, Styled, div, prelude::*, px};
 
 use super::PaneContainer;
 use crate::panes::tree::SplitDirection;
+use crate::theme;
 
 /// State tracking an active divider drag operation.
 #[derive(Debug, Clone)]
@@ -29,6 +30,7 @@ pub fn render_divider(
     flex_ratios: Vec<f32>,
     pane_container: gpui::WeakEntity<PaneContainer>,
 ) -> impl IntoElement {
+    let t = theme::theme();
     let is_vertical = direction == SplitDirection::Vertical;
 
     // Build unique element ID from branch path and child index
@@ -46,7 +48,7 @@ pub fn render_divider(
         let inner = div()
             .w(px(1.0))
             .h_full()
-            .bg(rgba(0x444444ff))
+            .bg(t.colors.border_strong)
             .flex_shrink_0();
 
         div()
@@ -65,7 +67,7 @@ pub fn render_divider(
         let inner = div()
             .h(px(1.0))
             .w_full()
-            .bg(rgba(0x444444ff))
+            .bg(t.colors.border_strong)
             .flex_shrink_0();
 
         div()
