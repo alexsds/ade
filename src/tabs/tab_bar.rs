@@ -32,19 +32,25 @@ pub fn render_tab_bar<V: 'static>(
         let on_close_clone = on_close.clone();
 
         let tab_bg = if is_active {
-            t.colors.border_default
+            t.colors.bg_elevated
         } else {
             t.colors.bg_surface
+        };
+
+        let tab_text_color = if is_active {
+            t.colors.text_primary
+        } else {
+            t.colors.text_muted
         };
 
         let close_btn = div()
             .id(SharedString::from(format!("tab-close-{}", i)))
             .text_xs()
-            .text_color(t.colors.text_muted)
+            .text_color(t.colors.transparent)
             .mr(t.spacing.sm)
             .flex_shrink_0()
             .cursor_pointer()
-            .hover(|s| s.text_color(t.colors.text_on_emphasis))
+            .hover(|s| s.text_color(t.colors.text_muted))
             .on_click(cx.listener(move |this, _event, window, cx| {
                 on_close_clone(i, this, window, cx);
             }))
@@ -60,6 +66,12 @@ pub fn render_tab_bar<V: 'static>(
             .px(t.spacing.md)
             .py(t.spacing.xs)
             .bg(tab_bg)
+            .border_b_2()
+            .border_color(if is_active {
+                t.colors.accent
+            } else {
+                t.colors.transparent
+            })
             .cursor_pointer()
             .hover(|s| s.bg(t.colors.tab_hover))
             .on_click(cx.listener(move |this, _event, window, cx| {
@@ -70,7 +82,7 @@ pub fn render_tab_bar<V: 'static>(
                 div()
                     .flex_1()
                     .text_xs()
-                    .text_color(t.colors.text_secondary)
+                    .text_color(tab_text_color)
                     .overflow_hidden()
                     .text_ellipsis()
                     .text_align(gpui::TextAlign::Center)
