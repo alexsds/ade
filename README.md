@@ -10,7 +10,7 @@
 
 <p align="center">
   A GPU-accelerated macOS terminal with a built-in git code review panel.<br>
-  Press <kbd>Cmd</kbd>+<kbd>G</kbd> to toggle a GitHub Desktop-style view with commit history, file changes,<br>
+  Press <kbd>Cmd</kbd>+<kbd>G</kbd> to toggle a 3-panel code review view with commit history, file changes,<br>
   and syntax-highlighted diffs — right next to the code you're writing.
 </p>
 

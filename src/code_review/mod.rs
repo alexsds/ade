@@ -1,4 +1,4 @@
-//! Code Review mode: 3-panel layout (GitHub Desktop style)
+//! Code Review mode: 3-panel layout
 //!
 //! Left panel: commit history list (280px)
 //! Middle panel: changed files for selected commit (240px)

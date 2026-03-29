@@ -167,7 +167,7 @@ pub fn flatten_and_highlight_diff(
     rows
 }
 
-/// Line height for diff rows (compact, like GitHub Desktop)
+/// Line height for diff rows (compact)
 const DIFF_LINE_HEIGHT: f32 = 20.0;
 
 /// Content x offset: 2x line number gutters (40px each) + content padding (8px)

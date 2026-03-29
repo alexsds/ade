@@ -29,7 +29,7 @@ cargo fmt --all -- --check           # format check
 
 **Two modes** via `Mode` enum, toggled with **Cmd+G**:
 - `Terminal` — full-screen alacritty_terminal view
-- `CodeReview` — 3-panel GitHub Desktop-style layout (commit list / file list / diff viewer)
+- `CodeReview` — 3-panel layout (commit list / file list / diff viewer)
 
 **Terminal**: `terminal.rs` — PTY spawn via alacritty_terminal's EventLoop and tty module, terminal state management (alacritty_terminal::Term with FairMutex), resize handling. `terminal_element.rs` — GPUI Element for cell-based rendering. `terminal_view.rs` — input handling, mouse events, selection, clipboard. `key_encode.rs` — pure Rust key-to-escape-sequence encoding for xterm-256color.
 

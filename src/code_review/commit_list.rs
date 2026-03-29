@@ -1,6 +1,6 @@
 //! Left panel: scrollable commit history list (uniform_list)
 //!
-//! Renders commits in GitHub Desktop style: bold title on the first line,
+//! Renders commits with bold title on the first line,
 //! dimmed author + relative time on the second line, with colored decoration
 //! badges for branches and tags.
 
