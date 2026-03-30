@@ -7,6 +7,9 @@
 .opencode/
 .remember/
 
+# Claude Code - Remember plugin (session memory)
+.claude/remember/
+
 # Claude Code - GSD managed tooling (installed/updated by /gsd:update)
 .claude/get-shit-done/
 .claude/gsd-file-manifest.json
