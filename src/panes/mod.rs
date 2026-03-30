@@ -221,12 +221,6 @@ impl PaneContainer {
             .map(|p| &p.focus_handle)
     }
 
-    /// Returns the active pane's CWD (for inheriting on split).
-    /// Returns None if the active pane ID is not found (CRASH-03).
-    pub fn active_cwd(&self) -> Option<&std::path::PathBuf> {
-        self.panes.get(&self.active_pane_id).map(|p| &p.cwd)
-    }
-
     /// Returns the runtime CWD of the active pane's foreground process.
     /// Falls back to the static creation-time CWD if runtime detection fails
     /// (e.g., process exited, permission denied).
@@ -587,8 +581,7 @@ mod tests {
         // If this compiles, the method exists with the right signature.
     }
 
-    /// Verify that active_runtime_cwd returns None when pane ID is missing
-    /// (same behavior as active_cwd for missing panes).
+    /// Verify that active_runtime_cwd returns None when pane ID is missing.
     /// This test constructs a minimal PaneContainer with an empty panes map
     /// to test the None-on-missing-pane path.
     #[test]
