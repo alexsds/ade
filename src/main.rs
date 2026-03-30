@@ -268,6 +268,16 @@ impl AdeWindow {
                     if let Some(focus) = tab.pane_container.read(cx).active_pane_focus_handle() {
                         focus.clone().focus(window, cx);
                     }
+                    // FIX-03: Resize panes after returning from Code Review
+                    let size = window.viewport_size();
+                    tab.pane_container.clone().update(cx, |container, cx| {
+                        container.resize_all(
+                            f32::from(size.width),
+                            f32::from(size.height),
+                            window,
+                            cx,
+                        );
+                    });
                 }
             }
             Mode::CodeReview => {
@@ -389,6 +399,18 @@ impl AdeWindow {
         match result {
             panes::PaneCloseResult::Removed(handle) => {
                 handle.focus(window, cx);
+                // FIX-03: Resize remaining panes to fill available space
+                if let Some(tab) = self.tabs.get(self.active_tab_index) {
+                    let size = window.viewport_size();
+                    tab.pane_container.clone().update(cx, |container, cx| {
+                        container.resize_all(
+                            f32::from(size.width),
+                            f32::from(size.height),
+                            window,
+                            cx,
+                        );
+                    });
+                }
             }
             panes::PaneCloseResult::LastPane => {
                 // Last pane in tab -> close the tab (cascade per D-11)
