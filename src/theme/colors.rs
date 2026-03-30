@@ -100,7 +100,7 @@ impl ThemeColors {
             button_accent_hover: rgba(0x4688c84D).into(),
             element_selected: rgba(0x1d3a5cff).into(),
             element_selected_inactive: rgba(0x1a304aff).into(),
-            selection_bg: rgba(0x264f78ff).into(),
+            selection_bg: rgba(0x264f7880).into(),
 
             // -- Git status (D-19: unchanged) --
             git_added: rgba(0x3fb950ff).into(),

@@ -92,11 +92,11 @@ impl TextSelection {
             return None;
         }
         if start_row == end_row {
-            // Single row selection
-            Some((start_col, end_col))
+            // Single row selection — clamp to content bounds
+            Some((start_col.min(content_len), end_col.min(content_len)))
         } else if row_index == start_row {
-            // First row of multi-row selection
-            Some((start_col, content_len))
+            // First row of multi-row selection — clamp start to content length
+            Some((start_col.min(content_len), content_len))
         } else if row_index == end_row {
             // Last row of multi-row selection
             Some((0, end_col))

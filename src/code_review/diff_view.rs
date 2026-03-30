@@ -408,18 +408,20 @@ fn render_diff_row(
             // Selection overlay (updated offset: text now starts at content_x_offset())
             if !is_fully_selected {
                 if let Some((start_col, end_col)) = sel_range {
-                    let x_offset = content_x_offset();
-                    let start_px = x_offset + start_col as f32 * char_width;
-                    let width_px = (end_col - start_col) as f32 * char_width;
-                    row_div = row_div.child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left(px(start_px))
-                            .w(px(width_px))
-                            .h_full()
-                            .bg(t.colors.selection_bg),
-                    );
+                    if end_col > start_col {
+                        let x_offset = content_x_offset();
+                        let start_px = x_offset + start_col as f32 * char_width;
+                        let width_px = (end_col - start_col) as f32 * char_width;
+                        row_div = row_div.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .left(px(start_px))
+                                .w(px(width_px))
+                                .h_full()
+                                .bg(t.colors.selection_bg),
+                        );
+                    }
                 }
             }
 
@@ -521,19 +523,21 @@ fn render_diff_row(
             if is_fully_selected {
                 row_div = row_div.bg(t.colors.selection_bg);
             } else if let Some((start_col, end_col)) = sel_range {
-                // Overlay from row edge: gutters + padding + char offset
-                let x_offset = content_x_offset();
-                let start_px = x_offset + start_col as f32 * char_width;
-                let width_px = (end_col - start_col) as f32 * char_width;
-                row_div = row_div.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left(px(start_px))
-                        .w(px(width_px))
-                        .h_full()
-                        .bg(t.colors.selection_bg),
-                );
+                if end_col > start_col {
+                    // Overlay from row edge: gutters + padding + char offset
+                    let x_offset = content_x_offset();
+                    let start_px = x_offset + start_col as f32 * char_width;
+                    let width_px = (end_col - start_col) as f32 * char_width;
+                    row_div = row_div.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left(px(start_px))
+                            .w(px(width_px))
+                            .h_full()
+                            .bg(t.colors.selection_bg),
+                    );
+                }
                 if let Some(bg) = line_bg {
                     row_div = row_div.bg(bg);
                 }
