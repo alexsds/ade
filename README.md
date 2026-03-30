@@ -2,7 +2,7 @@
   <img src="resources/icon.png" width="128" alt="ADE logo" />
 </p>
 
-<h1 align="center">ADE</h1>
+<h1 align="center">Advanced Developer Environment (ADE)</h1>
 
 <p align="center">
   <strong>The terminal that reviews code.</strong>
