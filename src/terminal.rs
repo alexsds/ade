@@ -177,6 +177,7 @@ pub struct TerminalCell {
     pub fg: Rgb,
     pub bg: Rgb,
     pub flags: alacritty_terminal::term::cell::Flags,
+    pub hyperlink: Option<String>, // TERM-04: URI from OSC 8 hyperlinks
 }
 
 /// Cursor info extracted from alacritty's RenderableCursor
@@ -488,6 +489,10 @@ pub struct Terminal {
     /// Actual cell dimensions from font metrics (set by TerminalElement during prepaint).
     pub(crate) cell_width: f32,
     pub(crate) cell_height: f32,
+    /// URL highlight ranges to render (set by TerminalView when Cmd+hover detects URLs)
+    pub(crate) url_highlights: Vec<(Point, Point)>, // Vec of (start_point, end_point) inclusive
+    /// The URL string currently being hovered (for Cmd+click to open)
+    pub(crate) hovered_url_text: Option<String>,
 }
 
 impl Terminal {
@@ -495,6 +500,9 @@ impl Terminal {
     /// cached snapshot, release lock. MUST be called from event handlers,
     /// NEVER from render/paint (per D-06).
     pub fn sync(&mut self) {
+        // TERM-02: Clear cached URL highlights -- terminal content may have changed
+        self.url_highlights.clear();
+
         let term = self.term.lock();
         let content = term.renderable_content();
 
@@ -516,12 +524,14 @@ impl Terminal {
                 } else {
                     ic.cell.c
                 };
+                let hyperlink = ic.cell.hyperlink().map(|h| h.uri().to_string());
                 TerminalCell {
                     point: ic.point,
                     c,
                     fg,
                     bg,
                     flags: ic.cell.flags,
+                    hyperlink,
                 }
             })
             .collect();
@@ -546,6 +556,12 @@ impl Terminal {
     /// Get the cached content snapshot (lock-free, safe to call from render).
     pub fn content(&self) -> &TerminalContent {
         &self.last_content
+    }
+
+    /// Clear URL highlight state (called when Cmd is released or terminal content changes)
+    pub(crate) fn clear_url_highlights(&mut self) {
+        self.url_highlights.clear();
+        self.hovered_url_text = None;
     }
 
     /// Take pending clipboard text from OSC 52 ClipboardStore events.
@@ -721,6 +737,8 @@ pub fn new_terminal(
         last_bounds: None,
         cell_width: 8.0,
         cell_height: 16.0,
+        url_highlights: Vec::new(),
+        hovered_url_text: None,
     };
 
     Ok((terminal, events_rx))

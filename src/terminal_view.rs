@@ -13,10 +13,11 @@ use gpui::{
     SharedString, TouchPhase, UTF16Selection, Window, div, point, prelude::*, px, size,
 };
 
-use alacritty_terminal::grid::Scroll;
-use alacritty_terminal::index::{Column, Line, Point, Side};
+use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::{Column, Direction, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
+use alacritty_terminal::term::search::{RegexIter, RegexSearch};
 
 use crate::input;
 use crate::key_encode;
@@ -29,6 +30,61 @@ use crate::terminal_element::TerminalElement;
 
 /// Maximum paste size in bytes (1MB). Prevents memory pressure from huge clipboard payloads.
 const MAX_PASTE_SIZE: usize = 1_048_576;
+
+/// Allowed URL schemes for opening (TERM-03 security).
+/// Rejects file://, javascript:, data: and other potentially dangerous schemes.
+const ALLOWED_URL_SCHEMES: &[&str] = &["http://", "https://", "ftp://", "ssh://", "mailto:"];
+
+/// Strip trailing punctuation from a regex-matched URL.
+/// Handles common cases: "https://example.com." or "(https://example.com)"
+/// Per RESEARCH.md Pitfall 1: strip trailing `.`, `,`, `)`, `]`, `>` when
+/// the corresponding opener is not present in the URL body.
+fn postprocess_url(url: &str) -> &str {
+    let mut end = url.len();
+    let bytes = url.as_bytes();
+    while end > 0 {
+        match bytes[end - 1] {
+            b'.' | b',' | b';' | b':' => end -= 1,
+            b')' => {
+                // Only strip if there's no matching '(' in the URL
+                let open_count = url[..end].matches('(').count();
+                let close_count = url[..end].matches(')').count();
+                if close_count > open_count {
+                    end -= 1;
+                } else {
+                    break;
+                }
+            }
+            b']' => {
+                let open_count = url[..end].matches('[').count();
+                let close_count = url[..end].matches(']').count();
+                if close_count > open_count {
+                    end -= 1;
+                } else {
+                    break;
+                }
+            }
+            b'>' => {
+                let open_count = url[..end].matches('<').count();
+                let close_count = url[..end].matches('>').count();
+                if close_count > open_count {
+                    end -= 1;
+                } else {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    &url[..end]
+}
+
+/// Check if a URL has an allowed scheme for opening.
+fn is_allowed_scheme(url: &str) -> bool {
+    ALLOWED_URL_SCHEMES
+        .iter()
+        .any(|scheme| url.starts_with(scheme))
+}
 
 /// Strip bracketed paste escape sequences from pasted text.
 /// Prevents paste injection by removing ALL occurrences of both start and end brackets.
@@ -308,6 +364,10 @@ pub struct TerminalView {
     scroll_accumulator: f32,
     /// Whether physical scroll touch has ended (for momentum filtering in TUI apps)
     scroll_ended: bool,
+    /// Whether the Cmd (platform) modifier is currently held
+    cmd_held: bool,
+    /// Compiled URL regex for detection (created once, reused)
+    url_regex: Option<RegexSearch>,
 }
 
 impl TerminalView {
@@ -324,6 +384,11 @@ impl TerminalView {
             pending_copy: None,
             scroll_accumulator: 0.0,
             scroll_ended: false,
+            cmd_held: false,
+            url_regex: RegexSearch::new(
+                r"(https?://|ftp://|ssh://|mailto:)[^\u{0000}-\u{001F}\u{007F}-\u{009F}<>\x22\s\{\}\^`]+",
+            )
+            .ok(),
         }
     }
 
@@ -465,6 +530,16 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         self.focus_handle.focus(window, cx);
+
+        // TERM-03: Cmd+click opens URL (takes priority over selection)
+        if event.button == MouseButton::Left && event.modifiers.platform {
+            if let Some(ref url) = self.terminal.read(cx).hovered_url_text.clone() {
+                if is_allowed_scheme(url) {
+                    cx.open_url(url);
+                }
+                return; // Don't start selection on Cmd+click
+            }
+        }
 
         let mode = self.terminal.read(cx).content().mode;
         let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
@@ -692,6 +767,47 @@ impl TerminalView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let cmd_now = event.modifiers.platform;
+
+        // TERM-02: Track Cmd state for URL detection
+        if cmd_now != self.cmd_held {
+            self.cmd_held = cmd_now;
+            if !cmd_now {
+                // Cmd released -- clear URL highlights
+                self.terminal.update(cx, |t, _| t.clear_url_highlights());
+                cx.notify();
+            }
+        }
+
+        // TERM-02: URL detection when Cmd is held (before mouse mode check)
+        if cmd_now && !self.selecting {
+            let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
+            let content = self.terminal.read(cx).content();
+            let cols = content.size.columns;
+            let rows = content.size.screen_lines;
+            let display_offset = content.display_offset;
+
+            let (point, _side) = mouse_position_to_point(
+                event.position,
+                bounds,
+                self.cell_width,
+                self.cell_height,
+                cols,
+                rows,
+                display_offset,
+            );
+
+            if let Some((url_text, start, end)) = self.url_at_point(point, cx) {
+                self.terminal.update(cx, |t, _| {
+                    t.url_highlights = vec![(start, end)];
+                    t.hovered_url_text = Some(url_text);
+                });
+            } else {
+                self.terminal.update(cx, |t, _| t.clear_url_highlights());
+            }
+            cx.notify();
+        }
+
         let mode = self.terminal.read(cx).content().mode;
         let bounds = self.terminal.read(cx).last_bounds.unwrap_or_default();
         let content = self.terminal.read(cx).content();
@@ -885,6 +1001,111 @@ impl TerminalView {
         }
         self.terminal.update(cx, |t, _| t.sync());
         cx.notify();
+    }
+
+    // ========================================================================
+    // URL detection (TERM-02/03/04)
+    // ========================================================================
+
+    /// Detect URL at the given grid point. Checks OSC 8 hyperlink first, then regex.
+    /// Returns the URL string if found, along with the match range for highlighting.
+    /// MUST be called while NOT holding the FairMutex lock (it acquires internally).
+    fn url_at_point(
+        &mut self,
+        grid_point: Point,
+        cx: &mut Context<Self>,
+    ) -> Option<(String, Point, Point)> {
+        let terminal = self.terminal.read(cx);
+        let content = terminal.content();
+
+        // TERM-04: Check OSC 8 hyperlink first (explicit hyperlinks take priority)
+        for cell in &content.cells {
+            if cell.point == grid_point {
+                if let Some(ref uri) = cell.hyperlink {
+                    // Find the full extent of this hyperlink on the current line
+                    let start = content
+                        .cells
+                        .iter()
+                        .filter(|c| {
+                            c.hyperlink.as_deref() == Some(uri.as_str())
+                                && c.point.line == grid_point.line
+                        })
+                        .map(|c| c.point)
+                        .min()?;
+                    let end = content
+                        .cells
+                        .iter()
+                        .filter(|c| {
+                            c.hyperlink.as_deref() == Some(uri.as_str())
+                                && c.point.line == grid_point.line
+                        })
+                        .map(|c| c.point)
+                        .max()?;
+                    return Some((uri.clone(), start, end));
+                }
+                break;
+            }
+        }
+
+        // TERM-02/03: Regex-based URL detection
+        let url_regex = self.url_regex.as_mut()?;
+        let term = terminal.term.lock();
+        let last_col = term.last_column();
+
+        // Search only the line containing the hover point for performance
+        let line_start = Point::new(grid_point.line, Column(0));
+        let line_end = Point::new(grid_point.line, last_col);
+
+        // Use RegexIter to find all URL matches on this line
+        let mut iter = RegexIter::new(line_start, line_end, Direction::Right, &term, url_regex);
+
+        while let Some(m) = iter.next() {
+            let match_start = *m.start();
+            let match_end = *m.end();
+
+            // Check if the hover point falls within this match
+            if grid_point >= match_start && grid_point <= match_end {
+                // Extract URL text from grid cells
+                let mut url_text = String::new();
+                let mut pt = match_start;
+                loop {
+                    let cell = &term.grid()[pt];
+                    if !cell
+                        .flags
+                        .contains(alacritty_terminal::term::cell::Flags::WIDE_CHAR_SPACER)
+                    {
+                        url_text.push(cell.c);
+                    }
+                    if pt == match_end {
+                        break;
+                    }
+                    if pt.column < last_col {
+                        pt.column += 1;
+                    } else {
+                        pt.column = Column(0);
+                        pt.line += 1;
+                    }
+                }
+
+                // Post-process to strip trailing punctuation
+                let processed = postprocess_url(&url_text);
+                if processed.is_empty() {
+                    return None;
+                }
+
+                // Adjust end point if post-processing shortened the URL
+                let chars_removed = url_text.len() - processed.len();
+                let adjusted_end = if chars_removed > 0 && match_end.column.0 >= chars_removed {
+                    Point::new(match_end.line, Column(match_end.column.0 - chars_removed))
+                } else {
+                    match_end
+                };
+
+                return Some((processed.to_string(), match_start, adjusted_end));
+            }
+        }
+
+        None
     }
 
     // ========================================================================
@@ -1436,5 +1657,97 @@ mod tests {
     fn test_alt_scroll_negative_delta_is_down_arrow() {
         assert_eq!(alt_scroll_arrow(-1), b"\x1b[B");
         assert_eq!(alt_scroll_arrow(-5), b"\x1b[B");
+    }
+
+    // --- TERM-02/03: URL post-processing and scheme validation tests ---
+
+    #[test]
+    fn test_postprocess_url_trailing_period() {
+        assert_eq!(
+            postprocess_url("https://example.com."),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn test_postprocess_url_trailing_comma() {
+        assert_eq!(
+            postprocess_url("https://example.com,"),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn test_postprocess_url_trailing_paren_unmatched() {
+        assert_eq!(
+            postprocess_url("https://example.com)"),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn test_postprocess_url_trailing_paren_matched() {
+        // URL contains matched parens -- don't strip
+        assert_eq!(
+            postprocess_url("https://en.wikipedia.org/wiki/Rust_(programming_language)"),
+            "https://en.wikipedia.org/wiki/Rust_(programming_language)"
+        );
+    }
+
+    #[test]
+    fn test_postprocess_url_no_trailing() {
+        assert_eq!(
+            postprocess_url("https://example.com/path"),
+            "https://example.com/path"
+        );
+    }
+
+    #[test]
+    fn test_postprocess_url_multiple_trailing() {
+        assert_eq!(
+            postprocess_url("https://example.com.,"),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn test_is_allowed_scheme_http() {
+        assert!(is_allowed_scheme("http://example.com"));
+        assert!(is_allowed_scheme("https://example.com"));
+    }
+
+    #[test]
+    fn test_is_allowed_scheme_ftp() {
+        assert!(is_allowed_scheme("ftp://files.example.com"));
+    }
+
+    #[test]
+    fn test_is_allowed_scheme_ssh() {
+        assert!(is_allowed_scheme("ssh://user@host"));
+    }
+
+    #[test]
+    fn test_is_allowed_scheme_mailto() {
+        assert!(is_allowed_scheme("mailto:user@example.com"));
+    }
+
+    #[test]
+    fn test_is_allowed_scheme_rejected() {
+        assert!(!is_allowed_scheme("file:///etc/passwd"));
+        assert!(!is_allowed_scheme("javascript:alert(1)"));
+        assert!(!is_allowed_scheme("data:text/html,<h1>Hi</h1>"));
+    }
+
+    #[test]
+    fn test_url_regex_compiles() {
+        // Verify the URL regex pattern compiles successfully
+        let regex = RegexSearch::new(
+            r"(https?://|ftp://|ssh://|mailto:)[^\u{0000}-\u{001F}\u{007F}-\u{009F}<>\x22\s\{\}\^`]+",
+        );
+        assert!(
+            regex.is_ok(),
+            "URL regex should compile: {:?}",
+            regex.err()
+        );
     }
 }
