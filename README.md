@@ -87,7 +87,7 @@ Reviewing code means context switching: a terminal here, a git GUI there, `git l
 
 ### Theme
 
-"Midnight Workshop" — a dark theme built on blue-tinted backgrounds with amber-gold accents, layered depth, and hover feedback throughout.
+"Midnight Workshop" — a dark theme built on blue-tinted backgrounds with deep blue accents, layered depth, and hover feedback throughout.
 
 ## Install
 
