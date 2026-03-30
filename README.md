@@ -15,6 +15,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/alexsds/ade/releases/latest/download/Ade.dmg">
+    <img src="assets/download-app-for-macos.png" alt="Download ADE for macOS" width="180" style="max-width: 100%;">
+  </a>
+</p>
+
+<p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/platform-macOS-lightgrey.svg" alt="macOS" />
   <img src="https://img.shields.io/badge/rust-edition%202024-orange.svg" alt="Rust Edition 2024" />
