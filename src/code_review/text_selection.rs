@@ -190,14 +190,18 @@ pub fn copy_selected_text(rows: &[DiffRow], start: (usize, usize), end: (usize, 
     lines.join("\n")
 }
 
-/// Measure the width of a single monospace character ("M") in Menlo at 12px.
+/// Measure the width of a single monospace character ("M") in Menlo at code size.
 /// Uses GPUI's text system for accurate measurement.
 /// Falls back to 7.2 if measurement fails.
 pub fn measure_char_width(window: &mut Window) -> f32 {
+    measure_char_width_at_size(window, crate::theme::theme().typography.code.size)
+}
+
+/// Measure the width of a single monospace character ("M") in Menlo at the given font size.
+pub fn measure_char_width_at_size(window: &mut Window, font_size: gpui::Pixels) -> f32 {
     let font = gpui::font("Menlo");
     let mut style = window.text_style();
     style.font_family = font.family.clone();
-    let font_size = crate::theme::theme().typography.code.size;
     let run = style.to_run(1);
     let lines = window
         .text_system()

@@ -316,17 +316,19 @@ fn render_description_row(
     if is_fully_selected {
         row_div = row_div.bg(sel_bg);
     } else if let Some((start_col, end_col)) = sel_range {
-        let start_px = start_col as f32 * char_width;
-        let width_px = (end_col - start_col) as f32 * char_width;
-        row_div = row_div.child(
-            div()
-                .absolute()
-                .top_0()
-                .left(px(start_px))
-                .w(px(width_px))
-                .h_full()
-                .bg(sel_bg),
-        );
+        if end_col > start_col {
+            let start_px = start_col as f32 * char_width;
+            let width_px = (end_col - start_col) as f32 * char_width;
+            row_div = row_div.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left(px(start_px))
+                    .w(px(width_px))
+                    .h_full()
+                    .bg(sel_bg),
+            );
+        }
     }
 
     row_div.child(text.to_string()).into_any_element()
@@ -341,7 +343,8 @@ pub fn render_commit_detail(
     on_desc_drag_start: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
     on_desc_drag_move: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
     on_desc_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
-    char_width: f32,
+    heading_char_width: f32,
+    body_char_width: f32,
 ) -> impl IntoElement {
     // Build description lines for selection mapping
     let desc_lines = build_description_lines(commit);
@@ -354,27 +357,29 @@ pub fn render_commit_detail(
     let bounds_for_down = container_bounds.clone();
     let bounds_for_move = container_bounds.clone();
 
-    let cw_down = char_width;
-    let cw_move = char_width;
+    let heading_cw_down = heading_char_width;
+    let body_cw_down = body_char_width;
+    let heading_cw_move = heading_char_width;
+    let body_cw_move = body_char_width;
 
     let t = theme::theme();
 
     // Build selectable text rows
     let mut text_rows: Vec<gpui::AnyElement> = Vec::new();
 
-    // Row 0: title
+    // Row 0: title (uses heading font size)
     text_rows.push(render_description_row(
         &commit.summary,
         0,
         true,
         t.colors.text_primary,
         text_selection,
-        char_width,
+        heading_char_width,
     ));
 
     let mut row_idx = 1;
 
-    // Body rows
+    // Body rows (use body font size)
     if let Some(body) = &commit.body {
         if !body.trim().is_empty() {
             for line in body.lines() {
@@ -384,7 +389,7 @@ pub fn render_commit_detail(
                     false,
                     t.colors.text_secondary,
                     text_selection,
-                    char_width,
+                    body_char_width,
                 ));
                 row_idx += 1;
             }
@@ -417,7 +422,12 @@ pub fn render_commit_detail(
                 let local_y = f32::from(event.position.y) - f32::from(b.origin.y);
                 let local_x = f32::from(event.position.x) - f32::from(b.origin.x);
                 let row = y_to_row(local_y, &desc_lines_for_mouse);
-                let col = (local_x / cw_down).max(0.0).floor() as usize;
+                let cw = if row == 0 {
+                    heading_cw_down
+                } else {
+                    body_cw_down
+                };
+                let col = (local_x / cw).max(0.0).floor() as usize;
                 on_drag_start(row, col, window, cx);
             }
         })
@@ -429,7 +439,12 @@ pub fn render_commit_detail(
                     let local_y = f32::from(event.position.y) - f32::from(b.origin.y);
                     let local_x = f32::from(event.position.x) - f32::from(b.origin.x);
                     let row = y_to_row(local_y, &desc_lines_for_move);
-                    let col = (local_x / cw_move).max(0.0).floor() as usize;
+                    let cw = if row == 0 {
+                        heading_cw_move
+                    } else {
+                        body_cw_move
+                    };
+                    let col = (local_x / cw).max(0.0).floor() as usize;
                     on_drag_move(row, col, window, cx);
                 }
             }
