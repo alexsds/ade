@@ -383,8 +383,8 @@ impl TerminalView {
         if raw_keystroke.is_ime_in_progress() {
             let dominated_by_modifier = raw_keystroke.modifiers.control;
             match raw_keystroke.key.as_str() {
-                "enter" | "return" => {} // Allow Enter during IME
-                "tab" => {}              // Allow Tab/Shift+Tab (terminal control, not IME input)
+                "enter" | "return" => {}         // Allow Enter during IME
+                "tab" => {} // Allow Tab/Shift+Tab (terminal control, not IME input)
                 _ if dominated_by_modifier => {} // FIX-05: Allow Ctrl+C etc. during IME
                 _ => return,
             }
