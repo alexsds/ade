@@ -294,7 +294,11 @@ fn render_description_row(
         BODY_ROW_HEIGHT
     };
     let t = theme::theme();
-    let text_size = if is_title { t.typography.heading.size } else { t.typography.body.size };
+    let text_size = if is_title {
+        t.typography.heading.size
+    } else {
+        t.typography.body.size
+    };
 
     let mut row_div = div()
         .w_full()
