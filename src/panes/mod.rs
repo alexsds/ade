@@ -554,3 +554,40 @@ fn render_tree_recursive(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify active_runtime_cwd exists with the correct signature.
+    /// Full integration testing requires a real PTY (covered by manual verification).
+    #[test]
+    fn test_active_runtime_cwd_signature_exists() {
+        // Compile-time check: the method exists on PaneContainer with correct return type.
+        // We verify the function pointer has the expected signature.
+        let _fn_ptr: fn(&PaneContainer) -> Option<std::path::PathBuf> =
+            PaneContainer::active_runtime_cwd;
+        // If this compiles, the method exists with the right signature.
+    }
+
+    /// Verify that active_runtime_cwd returns None when pane ID is missing
+    /// (same behavior as active_cwd for missing panes).
+    /// This test constructs a minimal PaneContainer with an empty panes map
+    /// to test the None-on-missing-pane path.
+    #[test]
+    fn test_active_runtime_cwd_returns_none_for_missing_pane() {
+        // Construct a PaneContainer with empty panes map (active_pane_id 99 doesn't exist)
+        let container = PaneContainer {
+            tree: PaneTree::Leaf(99),
+            panes: HashMap::new(),
+            active_pane_id: 99,
+            next_id: 100,
+            dragging_divider: None,
+            chrome_height: 32.0,
+        };
+        assert!(
+            container.active_runtime_cwd().is_none(),
+            "active_runtime_cwd should return None when active pane ID is not found"
+        );
+    }
+}
