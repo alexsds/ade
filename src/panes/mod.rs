@@ -227,6 +227,23 @@ impl PaneContainer {
         self.panes.get(&self.active_pane_id).map(|p| &p.cwd)
     }
 
+    /// Returns the runtime CWD of the active pane's foreground process.
+    /// Falls back to the static creation-time CWD if runtime detection fails
+    /// (e.g., process exited, permission denied).
+    /// Uses process_info::foreground_pgid + process_info::process_cwd for detection.
+    #[cfg(unix)]
+    pub fn active_runtime_cwd(&self) -> Option<std::path::PathBuf> {
+        let pane = self.panes.get(&self.active_pane_id)?;
+        // Try runtime CWD detection via process introspection
+        if let Some(pgid) = crate::tabs::process_info::foreground_pgid(pane.master_fd) {
+            if let Some(cwd) = crate::tabs::process_info::process_cwd(pgid) {
+                return Some(cwd);
+            }
+        }
+        // Fallback to static creation-time CWD
+        Some(pane.cwd.clone())
+    }
+
     /// Returns the raw FD of the active pane's PTY master (for process introspection).
     #[cfg(unix)]
     pub fn active_master_fd(&self) -> Option<i32> {
