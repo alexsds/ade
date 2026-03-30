@@ -379,11 +379,13 @@ impl TerminalView {
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let raw_keystroke = event.keystroke.clone();
 
-        // Skip key events that are IME-in-progress (except Enter)
+        // FIX-04/FIX-05: Allow Enter, Tab, and Ctrl+key through IME
         if raw_keystroke.is_ime_in_progress() {
+            let dominated_by_modifier = raw_keystroke.modifiers.control;
             match raw_keystroke.key.as_str() {
                 "enter" | "return" => {} // Allow Enter during IME
                 "tab" => {}              // Allow Tab/Shift+Tab (terminal control, not IME input)
+                _ if dominated_by_modifier => {} // FIX-05: Allow Ctrl+C etc. during IME
                 _ => return,
             }
         }
@@ -398,6 +400,18 @@ impl TerminalView {
         // Read terminal mode for app_cursor
         let mode = self.terminal.read(cx).content().mode;
         let app_cursor = mode.contains(TermMode::APP_CURSOR);
+
+        // FIX-04: Catch Enter when with_simulated_ime() clears the key name
+        // but preserves key_char as "\r" or "\n"
+        if !keystroke.modifiers.control && !keystroke.modifiers.alt {
+            match keystroke.key_char.as_deref() {
+                Some("\r") | Some("\n") => {
+                    self.terminal.update(cx, |t, _| t.write_to_pty(vec![0x0d]));
+                    return;
+                }
+                _ => {}
+            }
+        }
 
         // 1. Ctrl+key: map to control byte
         if keystroke.modifiers.control {
@@ -429,9 +443,14 @@ impl TerminalView {
         }
 
         // 4. Regular character input
+        // FIX-04: Normalize LF to CR for Enter key variants that reach here via IME
         if let Some(text) = keystroke.key_char.as_deref() {
-            self.terminal
-                .update(cx, |t, _| t.write_to_pty(text.as_bytes().to_vec()));
+            let bytes = if text == "\n" {
+                vec![0x0d] // CR -- interactive prompts expect CR, not LF
+            } else {
+                text.as_bytes().to_vec()
+            };
+            self.terminal.update(cx, |t, _| t.write_to_pty(bytes));
         }
     }
 
