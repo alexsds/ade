@@ -1214,6 +1214,9 @@ impl Render for TerminalView {
         self.cell_width = terminal.cell_width;
         self.cell_height = terminal.cell_height;
 
+        // Determine cursor style based on URL hover state
+        let has_hovered_url = self.cmd_held && terminal.hovered_url_text.is_some();
+
         // Propagate window title from Terminal entity (INPT-06)
         let title = terminal.title.clone();
         if let Some(title) = title {
@@ -1225,10 +1228,17 @@ impl Render for TerminalView {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
 
-        div()
+        let mut container = div()
             .key_context("Terminal")
             .track_focus(&self.focus_handle)
-            .size_full()
+            .size_full();
+
+        // TERM-02: Show pointer cursor when hovering a URL with Cmd held
+        if has_hovered_url {
+            container = container.cursor_pointer();
+        }
+
+        container
             .on_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Middle, cx.listener(Self::on_middle_mouse_down))
@@ -1744,10 +1754,6 @@ mod tests {
         let regex = RegexSearch::new(
             r"(https?://|ftp://|ssh://|mailto:)[^\u{0000}-\u{001F}\u{007F}-\u{009F}<>\x22\s\{\}\^`]+",
         );
-        assert!(
-            regex.is_ok(),
-            "URL regex should compile: {:?}",
-            regex.err()
-        );
+        assert!(regex.is_ok(), "URL regex should compile: {:?}", regex.err());
     }
 }

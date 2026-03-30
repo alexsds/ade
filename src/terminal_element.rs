@@ -433,6 +433,7 @@ pub struct TerminalPrepaintState {
     shaped_lines: Vec<gpui::ShapedLine>,
     background_quads: Vec<PaintQuad>,
     selection_quads: Vec<PaintQuad>,
+    url_underline_quads: Vec<PaintQuad>, // TERM-02: URL underlines when Cmd held
     box_drawing_quads: Vec<PaintQuad>,
     cursor: Option<PaintQuad>,
 }
@@ -598,6 +599,54 @@ impl Element for TerminalElement {
             }
         }
 
+        // 7e3. TERM-02: Build URL underline quads
+        let url_highlights = &self.terminal.read(cx).url_highlights;
+        let mut url_underline_quads: Vec<PaintQuad> = Vec::new();
+        if !url_highlights.is_empty() {
+            // Accent color for URL underlines: #4688c8 (per UI-SPEC)
+            let url_underline_color = gpui::Hsla {
+                h: 0.58,
+                s: 0.55,
+                l: 0.53,
+                a: 1.0,
+            };
+
+            // Build a lookup from line number to row index
+            let line_keys: Vec<i32> = lines_map.keys().copied().collect();
+
+            for (start, end) in url_highlights {
+                let start_line = start.line.0;
+                let end_line = end.line.0;
+
+                for line_num in start_line..=end_line {
+                    let row_idx = match line_keys.iter().position(|&k| k == line_num) {
+                        Some(idx) => idx,
+                        None => continue,
+                    };
+
+                    let col_start = if line_num == start_line {
+                        start.column.0 as f32
+                    } else {
+                        0.0
+                    };
+                    let col_end = if line_num == end_line {
+                        end.column.0 as f32 + 1.0
+                    } else {
+                        content.size.columns as f32
+                    };
+
+                    let x_start = bounds.left() + px(cell_width * col_start);
+                    let x_end = bounds.left() + px(cell_width * col_end);
+                    let y = bounds.top() + line_height * row_idx as f32 + line_height - px(1.0);
+
+                    url_underline_quads.push(fill(
+                        Bounds::new(point(x_start, y), size(x_end - x_start, px(1.0))),
+                        url_underline_color,
+                    ));
+                }
+            }
+        }
+
         // 8. Build cursor quad
         let cursor = build_cursor_quad(&content, bounds, cell_width, line_height);
 
@@ -607,6 +656,7 @@ impl Element for TerminalElement {
             shaped_lines,
             background_quads,
             selection_quads,
+            url_underline_quads,
             box_drawing_quads,
             cursor,
         }
@@ -633,6 +683,11 @@ impl Element for TerminalElement {
 
             // 2.5. Paint selection highlights (after backgrounds, before text)
             for quad in prepaint.selection_quads.drain(..) {
+                window.paint_quad(quad);
+            }
+
+            // 2.7. TERM-02: Paint URL underline quads (after selection, before text)
+            for quad in prepaint.url_underline_quads.drain(..) {
                 window.paint_quad(quad);
             }
 
