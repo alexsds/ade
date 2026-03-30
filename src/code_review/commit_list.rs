@@ -11,8 +11,9 @@ use std::sync::Arc;
 use crate::git::types::{CommitInfo, Decoration, format_relative_time};
 use crate::theme;
 use gpui::{
-    App, Bounds, FontWeight, Hsla, IntoElement, MouseButton, Pixels, Styled,
-    UniformListScrollHandle, Window, canvas, div, font, prelude::*, px, uniform_list,
+    App, Bounds, FontWeight, HighlightStyle, Hsla, IntoElement, MouseButton, Pixels, SharedString,
+    Styled, StyledText, UniformListScrollHandle, Window, canvas, div, font, prelude::*, px,
+    uniform_list,
 };
 
 use super::text_selection::TextSelection;
@@ -234,19 +235,33 @@ const BODY_ROW_HEIGHT: f32 = 18.0;
 /// Horizontal padding inside the commit detail container (snapped to 4px grid: md=16px)
 const DETAIL_PADDING: f32 = 16.0;
 
+/// Description line info for selection hit-testing.
+#[derive(Clone)]
+struct DescLine {
+    text: String,
+    row_height: f32,
+    /// Actual rendered pixel width of the text (for accurate char_width computation).
+    pixel_width: f32,
+}
+
 /// Build the logical text lines of the commit detail for selection purposes.
-/// Returns Vec of (text, row_height) pairs.
-fn build_description_lines(commit: &CommitInfo) -> Vec<(String, f32)> {
-    let mut lines: Vec<(String, f32)> = Vec::new();
+fn build_description_lines(commit: &CommitInfo) -> Vec<DescLine> {
+    let mut lines = Vec::new();
 
-    // Row 0: summary (title)
-    lines.push((commit.summary.clone(), TITLE_ROW_HEIGHT));
+    lines.push(DescLine {
+        text: commit.summary.clone(),
+        row_height: TITLE_ROW_HEIGHT,
+        pixel_width: 0.0, // filled in by caller with window access
+    });
 
-    // Row 1+: body lines (if present)
     if let Some(body) = &commit.body {
         if !body.trim().is_empty() {
             for line in body.lines() {
-                lines.push((line.to_string(), BODY_ROW_HEIGHT));
+                lines.push(DescLine {
+                    text: line.to_string(),
+                    row_height: BODY_ROW_HEIGHT,
+                    pixel_width: 0.0,
+                });
             }
         }
     }
@@ -254,18 +269,16 @@ fn build_description_lines(commit: &CommitInfo) -> Vec<(String, f32)> {
     lines
 }
 
-/// Map a Y position (relative to the description text area) to a row index
-/// using cumulative row heights.
-fn y_to_row(local_y: f32, row_heights: &[(String, f32)]) -> usize {
+/// Map a Y position (relative to the description text area) to a row index.
+fn y_to_row(local_y: f32, rows: &[DescLine]) -> usize {
     let mut y_acc = 0.0;
-    for (i, (_, h)) in row_heights.iter().enumerate() {
-        if local_y < y_acc + h {
+    for (i, row) in rows.iter().enumerate() {
+        if local_y < y_acc + row.row_height {
             return i;
         }
-        y_acc += h;
+        y_acc += row.row_height;
     }
-    // Past the end — clamp to last row
-    row_heights.len().saturating_sub(1)
+    rows.len().saturating_sub(1)
 }
 
 /// Render a single description row with optional selection overlay.
@@ -276,7 +289,6 @@ fn render_description_row(
     is_title: bool,
     text_color: Hsla,
     text_selection: &TextSelection,
-    char_width: f32,
 ) -> gpui::AnyElement {
     let char_count = text.chars().count();
     let sel_range = if text_selection.row_is_selected(row_index) {
@@ -305,8 +317,7 @@ fn render_description_row(
         .h(px(height))
         .font_family(font("Menlo").family)
         .text_size(text_size)
-        .text_color(text_color)
-        .relative();
+        .text_color(text_color);
 
     if is_title {
         row_div = row_div.font_weight(FontWeight::BOLD);
@@ -315,23 +326,30 @@ fn render_description_row(
     let sel_bg = theme::theme().colors.selection_bg;
     if is_fully_selected {
         row_div = row_div.bg(sel_bg);
+        row_div = row_div.child(text.to_string());
     } else if let Some((start_col, end_col)) = sel_range {
         if end_col > start_col {
-            let start_px = start_col as f32 * char_width;
-            let width_px = (end_col - start_col) as f32 * char_width;
+            // Convert char columns to byte offsets for StyledText highlight range
+            let byte_start: usize = text.chars().take(start_col).map(|c| c.len_utf8()).sum();
+            let byte_end: usize = text.chars().take(end_col).map(|c| c.len_utf8()).sum();
+            let highlights = vec![(
+                byte_start..byte_end,
+                HighlightStyle {
+                    background_color: Some(sel_bg),
+                    ..Default::default()
+                },
+            )];
             row_div = row_div.child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left(px(start_px))
-                    .w(px(width_px))
-                    .h_full()
-                    .bg(sel_bg),
+                StyledText::new(SharedString::from(text.to_string())).with_highlights(highlights),
             );
+        } else {
+            row_div = row_div.child(text.to_string());
         }
+    } else {
+        row_div = row_div.child(text.to_string());
     }
 
-    row_div.child(text.to_string()).into_any_element()
+    row_div.into_any_element()
 }
 
 /// Render a commit detail section (title and body text only).
@@ -343,13 +361,32 @@ pub fn render_commit_detail(
     on_desc_drag_start: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
     on_desc_drag_move: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
     on_desc_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
-    heading_char_width: f32,
-    body_char_width: f32,
+    fallback_char_width: f32,
+    summary_px_width: f32,
 ) -> impl IntoElement {
     // Build description lines for selection mapping
-    let desc_lines = build_description_lines(commit);
+    let mut desc_lines = build_description_lines(commit);
+    // Set measured pixel width for the summary (row 0)
+    if !desc_lines.is_empty() {
+        desc_lines[0].pixel_width = summary_px_width;
+    }
     let desc_lines_for_mouse = desc_lines.clone();
     let desc_lines_for_move = desc_lines.clone();
+
+    // Effective char width per row: actual text width / char count, or fallback
+    let row_char_widths: Vec<f32> = desc_lines
+        .iter()
+        .map(|line| {
+            let chars = line.text.chars().count();
+            if chars > 0 && line.pixel_width > 0.0 {
+                line.pixel_width / chars as f32
+            } else {
+                fallback_char_width
+            }
+        })
+        .collect();
+    let row_cw_down = row_char_widths.clone();
+    let row_cw_move = row_char_widths;
 
     // Container bounds for mouse position mapping (same pattern as diff_view)
     let container_bounds: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
@@ -357,29 +394,23 @@ pub fn render_commit_detail(
     let bounds_for_down = container_bounds.clone();
     let bounds_for_move = container_bounds.clone();
 
-    let heading_cw_down = heading_char_width;
-    let body_cw_down = body_char_width;
-    let heading_cw_move = heading_char_width;
-    let body_cw_move = body_char_width;
-
     let t = theme::theme();
 
     // Build selectable text rows
     let mut text_rows: Vec<gpui::AnyElement> = Vec::new();
 
-    // Row 0: title (uses heading font size)
+    // Row 0: title
     text_rows.push(render_description_row(
         &commit.summary,
         0,
         true,
         t.colors.text_primary,
         text_selection,
-        heading_char_width,
     ));
 
     let mut row_idx = 1;
 
-    // Body rows (use body font size)
+    // Body rows
     if let Some(body) = &commit.body {
         if !body.trim().is_empty() {
             for line in body.lines() {
@@ -389,7 +420,6 @@ pub fn render_commit_detail(
                     false,
                     t.colors.text_secondary,
                     text_selection,
-                    body_char_width,
                 ));
                 row_idx += 1;
             }
@@ -422,12 +452,8 @@ pub fn render_commit_detail(
                 let local_y = f32::from(event.position.y) - f32::from(b.origin.y);
                 let local_x = f32::from(event.position.x) - f32::from(b.origin.x);
                 let row = y_to_row(local_y, &desc_lines_for_mouse);
-                let cw = if row == 0 {
-                    heading_cw_down
-                } else {
-                    body_cw_down
-                };
-                let col = (local_x / cw).max(0.0).floor() as usize;
+                let cw = row_cw_down.get(row).copied().unwrap_or(7.2);
+                let col = (local_x / cw).max(0.0).round() as usize;
                 on_drag_start(row, col, window, cx);
             }
         })
@@ -439,12 +465,8 @@ pub fn render_commit_detail(
                     let local_y = f32::from(event.position.y) - f32::from(b.origin.y);
                     let local_x = f32::from(event.position.x) - f32::from(b.origin.x);
                     let row = y_to_row(local_y, &desc_lines_for_move);
-                    let cw = if row == 0 {
-                        heading_cw_move
-                    } else {
-                        body_cw_move
-                    };
-                    let col = (local_x / cw).max(0.0).floor() as usize;
+                    let cw = row_cw_move.get(row).copied().unwrap_or(7.2);
+                    let col = (local_x / cw).max(0.0).round() as usize;
                     on_drag_move(row, col, window, cx);
                 }
             }
@@ -596,7 +618,7 @@ mod tests {
         };
         let lines = build_description_lines(&commit);
         assert_eq!(lines.len(), 1); // summary only (metadata bar is separate)
-        assert_eq!(lines[0].0, "Test commit");
+        assert_eq!(lines[0].text, "Test commit");
     }
 
     #[test]
@@ -613,8 +635,8 @@ mod tests {
         };
         let lines = build_description_lines(&commit);
         assert_eq!(lines.len(), 3); // summary + 2 body (metadata bar is separate)
-        assert_eq!(lines[0].0, "Test commit");
-        assert_eq!(lines[1].0, "Line one");
-        assert_eq!(lines[2].0, "Line two");
+        assert_eq!(lines[0].text, "Test commit");
+        assert_eq!(lines[1].text, "Line one");
+        assert_eq!(lines[2].text, "Line two");
     }
 }

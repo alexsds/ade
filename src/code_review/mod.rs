@@ -1145,13 +1145,19 @@ impl Render for CodeReviewPanel {
             } else {
                 let copy_weak = weak.clone();
                 let desc_selection = self.description_text_selection.clone();
-                let t_desc = theme::theme();
-                let desc_heading_cw = text_selection::measure_char_width_at_size(
-                    window,
-                    t_desc.typography.heading.size,
-                );
-                let desc_body_cw =
-                    text_selection::measure_char_width_at_size(window, t_desc.typography.body.size);
+                let desc_char_width = text_selection::measure_char_width(window);
+                // Measure actual summary text width for precise hit-testing
+                let summary_px_width = self
+                    .selected_commit()
+                    .map(|c| {
+                        text_selection::measure_text_width(
+                            window,
+                            &c.summary,
+                            t.typography.heading.size,
+                            Some(gpui::FontWeight::BOLD),
+                        )
+                    })
+                    .unwrap_or(0.0);
 
                 let on_desc_drag_start: Arc<
                     dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static,
@@ -1201,8 +1207,8 @@ impl Render for CodeReviewPanel {
                         on_desc_drag_start,
                         on_desc_drag_move,
                         on_desc_drag_end,
-                        desc_heading_cw,
-                        desc_body_cw,
+                        desc_char_width,
+                        summary_px_width,
                     )
                     .into_any_element()
                 });

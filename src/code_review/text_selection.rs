@@ -199,17 +199,39 @@ pub fn measure_char_width(window: &mut Window) -> f32 {
 
 /// Measure the width of a single monospace character ("M") in Menlo at the given font size.
 pub fn measure_char_width_at_size(window: &mut Window, font_size: gpui::Pixels) -> f32 {
+    measure_text_width(window, "M", font_size, None)
+}
+
+/// Measure the rendered pixel width of a text string in Menlo at the given size and weight.
+pub fn measure_text_width(
+    window: &mut Window,
+    text: &str,
+    font_size: gpui::Pixels,
+    weight: Option<gpui::FontWeight>,
+) -> f32 {
+    if text.is_empty() {
+        return 0.0;
+    }
     let font = gpui::font("Menlo");
     let mut style = window.text_style();
     style.font_family = font.family.clone();
-    let run = style.to_run(1);
+    if let Some(w) = weight {
+        style.font_weight = w;
+    }
+    let run = style.to_run(text.len());
     let lines = window
         .text_system()
-        .shape_text(SharedString::from("M"), font_size, &[run], None, Some(1))
+        .shape_text(
+            SharedString::from(text.to_string()),
+            font_size,
+            &[run],
+            None,
+            None,
+        )
         .ok();
     lines
-        .and_then(|l| l.first().map(|line| f32::from(line.width()).max(1.0)))
-        .unwrap_or(7.2)
+        .and_then(|l| l.first().map(|line| f32::from(line.width())))
+        .unwrap_or(0.0)
 }
 
 #[cfg(test)]
