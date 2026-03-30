@@ -900,4 +900,25 @@ mod tests {
             &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end,
         );
     }
+
+    #[test]
+    fn test_diff_layout_constants_match_theme() {
+        let t = crate::theme::theme();
+        // Line height used for hit-testing must equal theme rendering height
+        assert_eq!(
+            diff_line_height(),
+            f32::from(t.sizes.diff_line_height),
+            "diff_line_height() must match theme"
+        );
+        // Content offset must equal 2*gutter + sm padding
+        let expected_offset = f32::from(t.sizes.gutter_width) * 2.0 + f32::from(t.spacing.sm);
+        assert_eq!(
+            content_x_offset(),
+            expected_offset,
+            "content_x_offset() must match 2*gutter_width + sm"
+        );
+        // Sanity check current values to catch accidental theme drift
+        assert_eq!(diff_line_height(), 20.0, "expected 20.0 with current theme");
+        assert_eq!(content_x_offset(), 88.0, "expected 88.0 with current theme");
+    }
 }
