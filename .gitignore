@@ -5,6 +5,7 @@
 *.swo
 .DS_Store
 .opencode/
+.remember/
 
 # Claude Code - GSD managed tooling (installed/updated by /gsd:update)
 .claude/get-shit-done/
