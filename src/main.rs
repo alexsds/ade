@@ -115,9 +115,13 @@ impl AdeWindow {
             return;
         }
         let cwd = match self.active_pane_container() {
-            Some(container) => container.read(cx).active_cwd().cloned().unwrap_or_else(|| {
-                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
-            }),
+            Some(container) => {
+                let pc = container.read(cx);
+                // TERM-01: Prefer runtime CWD (shell's actual directory) over static creation-time CWD
+                pc.active_runtime_cwd().unwrap_or_else(|| {
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
+                })
+            }
             None => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")),
         };
         let size = TerminalSize::new(80, 24);
@@ -364,9 +368,13 @@ impl AdeWindow {
     /// Perform a pane split: create a new terminal in the active tab's PaneContainer.
     fn do_split(&mut self, direction: SplitDirection, window: &mut Window, cx: &mut Context<Self>) {
         let cwd = match self.active_pane_container() {
-            Some(container) => container.read(cx).active_cwd().cloned().unwrap_or_else(|| {
-                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
-            }),
+            Some(container) => {
+                let pc = container.read(cx);
+                // TERM-01: Prefer runtime CWD (shell's actual directory) over static creation-time CWD
+                pc.active_runtime_cwd().unwrap_or_else(|| {
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
+                })
+            }
             None => return,
         };
 
