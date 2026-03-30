@@ -649,4 +649,31 @@ mod tests {
             Some(b"\x1b[24;2~".to_vec())
         );
     }
+
+    // ========================================================================
+    // FIX-04/FIX-05: Enter and Ctrl+C regression tests
+    // ========================================================================
+
+    #[test]
+    fn test_key_encode_return_variant() {
+        // "return" is an alternate name for Enter on some platforms/IME paths
+        assert_eq!(
+            encode_key("return", no_mods(), false),
+            Some(b"\x0d".to_vec())
+        );
+    }
+
+    #[test]
+    fn test_ctrl_byte_c_key_only_no_char() {
+        // When key_char is None (IME scenario), falls back to key field
+        let ks = make_keystroke("c", None);
+        assert_eq!(ctrl_byte_for_keystroke(&ks), Some(3));
+    }
+
+    #[test]
+    fn test_ctrl_byte_c_standard() {
+        // Standard Ctrl+C with key_char present
+        let ks = make_keystroke("c", Some("c"));
+        assert_eq!(ctrl_byte_for_keystroke(&ks), Some(3));
+    }
 }
