@@ -5,13 +5,13 @@
 <h1 align="center">Advanced Developer Environment (ADE)</h1>
 
 <p align="center">
-  <strong>The terminal that reviews code.</strong>
+  <strong>Your terminal. Your diffs. One window.</strong>
 </p>
 
 <p align="center">
-  A GPU-accelerated macOS terminal with a built-in git code review panel.<br>
-  Press <kbd>Cmd</kbd>+<kbd>G</kbd> to toggle a 3-panel code review view with commit history, file changes,<br>
-  and syntax-highlighted diffs — right next to the code you're writing.
+  ADE is a GPU-accelerated macOS terminal with a built-in code review panel.<br>
+  Hit <kbd>Cmd</kbd>+<kbd>G</kbd> to open a 3-panel view of commit history, changed files,<br>
+  and syntax-highlighted diffs — without ever leaving your terminal.
 </p>
 
 <p align="center">
@@ -30,11 +30,11 @@
 
 ## Why ADE?
 
-Most developers flip between a terminal and a separate git GUI — or run `git log` and `git diff` manually. ADE puts a full code review panel inside your terminal, one keystroke away.
+Reviewing code means context switching: a terminal here, a git GUI there, `git log` and `git diff` in between. ADE eliminates that friction by embedding a full code review panel directly inside your terminal, one keystroke away.
 
-- **No window switching.** Your terminal and your diffs live in the same window.
-- **No setup.** ADE reads your repo automatically. No config files, no plugins.
-- **No compromise.** Full terminal emulation (alacritty_terminal) with splits, tabs, and mouse support — it replaces your terminal, not just supplements it.
+- **Stay in flow.** Diffs and terminal output share the same window. No app switching, no lost context.
+- **Zero configuration.** ADE detects your repository automatically. No dotfiles, no plugins, no setup wizard.
+- **Full-featured terminal.** Powered by alacritty_terminal with split panes, tabs, and mouse support. ADE replaces your terminal entirely — it does not just sit alongside it.
 
 ## Features
 
@@ -48,13 +48,13 @@ Most developers flip between a terminal and a separate git GUI — or run `git l
 
 | | |
 |---|---|
-| **History tab** | Browse commits, select files, read syntax-highlighted unified diffs — all in a 3-panel layout |
-| **Changes tab** | See uncommitted working tree diffs with staged/unstaged indicators and status badges (M/A/D/?) |
-| **Multi-commit select** | Shift+Click or Shift+Arrow to select a range of commits and view a combined diff |
-| **Syntax highlighting** | 16 languages — Rust, JS/TS, Python, Go, C/C++, Java, Ruby, Shell, HTML, CSS, JSON, YAML, Markdown |
-| **Word-level diffs** | Inline highlights show exactly what changed within each modified line |
-| **Virtual scrolling** | Handles repos with 100K+ commits without lag |
-| **Auto-refresh** | Working tree changes update every ~2s; selections persist across refreshes |
+| **History tab** | Browse commits, select files, and read syntax-highlighted unified diffs across a full 3-panel layout |
+| **Changes tab** | View uncommitted working tree diffs with staged/unstaged indicators and status badges (M/A/D/?) |
+| **Multi-commit select** | Shift+Click or Shift+Arrow to select a range of commits and view their combined diff |
+| **Syntax highlighting** | 16 languages supported: Rust, JS/TS, Python, Go, C/C++, Java, Ruby, Shell, HTML, CSS, JSON, YAML, Markdown |
+| **Word-level diffs** | Inline highlights pinpoint exactly what changed within each modified line |
+| **Virtual scrolling** | Navigates repositories with 100K+ commits without lag |
+| **Auto-refresh** | Working tree changes appear within ~2s; your selections persist across refreshes |
 
 ### Terminal
 
@@ -66,12 +66,12 @@ Most developers flip between a terminal and a separate git GUI — or run `git l
 
 | | |
 |---|---|
-| **Full emulation** | xterm-256color via alacritty_terminal — your shell, your tools, your escape sequences |
-| **Split panes** | Vertical (<kbd>Cmd</kbd>+<kbd>D</kbd>) and horizontal (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>) with draggable dividers |
-| **Tabs** | Open, close, and switch tabs with process name titles |
-| **Mouse support** | Click, drag, and scroll in TUI apps (vim, htop, etc.) with macOS natural scrolling |
-| **Selection** | Double-click word, triple-click line, drag to select, clipboard copy/paste |
-| **GPU-accelerated** | Rendered with GPUI (Zed's framework) — smooth scrolling, no tearing |
+| **Full emulation** | xterm-256color via alacritty_terminal — your shell, your tools, your escape sequences, all working as expected |
+| **Split panes** | Vertical (<kbd>Cmd</kbd>+<kbd>D</kbd>) and horizontal (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>) splits with draggable dividers |
+| **Tabs** | Open, close, and switch between tabs with automatic process name titles |
+| **Mouse support** | Click, drag, and scroll inside TUI apps (vim, htop, etc.) with native macOS natural scrolling |
+| **Selection** | Double-click for words, triple-click for lines, drag to select, and full clipboard integration |
+| **GPU-accelerated** | Rendered by GPUI (Zed's framework) for smooth scrolling and tear-free output |
 
 ### Toolbar
 
@@ -81,7 +81,7 @@ Most developers flip between a terminal and a separate git GUI — or run `git l
 
 ### Theme
 
-"Midnight Workshop" — a dark theme with blue-tinted backgrounds, amber-gold accents, layered depth, and hover feedback throughout.
+"Midnight Workshop" — a dark theme built on blue-tinted backgrounds with amber-gold accents, layered depth, and hover feedback throughout.
 
 ## Install
 
@@ -195,7 +195,7 @@ cargo build --release
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 If you find a bug or have a feature request, please [open an issue](https://github.com/alexsds/ade/issues).
 
