@@ -167,11 +167,16 @@ pub fn flatten_and_highlight_diff(
     rows
 }
 
-/// Line height for diff rows (compact)
-const DIFF_LINE_HEIGHT: f32 = 20.0;
+/// Line height for diff rows, derived from theme to stay in sync with rendering.
+fn diff_line_height() -> f32 {
+    f32::from(theme::theme().sizes.diff_line_height)
+}
 
-/// Content x offset: 2x line number gutters (40px each) + content padding (8px)
-const CONTENT_X_OFFSET: f32 = 88.0;
+/// Content x offset: 2x gutter widths + sm padding, derived from theme.
+fn content_x_offset() -> f32 {
+    let t = theme::theme();
+    f32::from(t.sizes.gutter_width) * 2.0 + f32::from(t.spacing.sm)
+}
 
 /// Render a virtualized diff view using uniform_list.
 /// Only visible lines are rendered — smooth scrolling for any diff size.
@@ -249,6 +254,8 @@ pub fn render_diff_view(
                                 super::text_selection::measure_char_width(window)
                             }
                         };
+                        let line_height = diff_line_height();
+                        let x_offset = content_x_offset();
                         let (row, col) = super::text_selection::pixel_to_diff_position(
                             f32::from(event.position.y),
                             f32::from(event.position.x),
@@ -256,8 +263,8 @@ pub fn render_diff_view(
                             f32::from(b.origin.x),
                             st,
                             cw,
-                            CONTENT_X_OFFSET,
-                            DIFF_LINE_HEIGHT,
+                            x_offset,
+                            line_height,
                             total,
                         );
                         on_drag_start(row, col, window, cx);
@@ -277,6 +284,8 @@ pub fn render_diff_view(
                                     super::text_selection::measure_char_width(window)
                                 }
                             };
+                            let line_height = diff_line_height();
+                            let x_offset = content_x_offset();
                             let (row, col) = super::text_selection::pixel_to_diff_position(
                                 f32::from(event.position.y),
                                 f32::from(event.position.x),
@@ -284,8 +293,8 @@ pub fn render_diff_view(
                                 f32::from(b.origin.x),
                                 st,
                                 cw,
-                                CONTENT_X_OFFSET,
-                                DIFF_LINE_HEIGHT,
+                                x_offset,
+                                line_height,
                                 total,
                             );
                             on_drag_move(row, col, window, cx);
@@ -340,7 +349,7 @@ pub fn render_diff_view(
 /// clipping the selection when it overlaps with syntax color ranges.
 ///
 /// The overlay is positioned from the row's left edge using known layout offsets:
-/// - Diff lines: CONTENT_X_OFFSET (88px = 40+40+8) + char_col * char_width
+/// - Diff lines: content_x_offset() (2*gutter_width + sm) + char_col * char_width
 /// - Hunk headers: 12px (horizontal padding) + char_col * char_width
 fn render_diff_row(
     row: &DiffRow,
@@ -396,10 +405,11 @@ fn render_diff_row(
                 // Content area with header text (D-12)
                 .child(div().flex_1().pl(t.spacing.sm).child(header.clone()));
 
-            // Selection overlay (updated offset: text now starts at CONTENT_X_OFFSET)
+            // Selection overlay (updated offset: text now starts at content_x_offset())
             if !is_fully_selected {
                 if let Some((start_col, end_col)) = sel_range {
-                    let start_px = CONTENT_X_OFFSET + start_col as f32 * char_width;
+                    let x_offset = content_x_offset();
+                    let start_px = x_offset + start_col as f32 * char_width;
                     let width_px = (end_col - start_col) as f32 * char_width;
                     row_div = row_div.child(
                         div()
@@ -511,8 +521,9 @@ fn render_diff_row(
             if is_fully_selected {
                 row_div = row_div.bg(t.colors.selection_bg);
             } else if let Some((start_col, end_col)) = sel_range {
-                // Overlay from row edge: gutters(80) + padding(8) + char offset
-                let start_px = CONTENT_X_OFFSET + start_col as f32 * char_width;
+                // Overlay from row edge: gutters + padding + char offset
+                let x_offset = content_x_offset();
+                let start_px = x_offset + start_col as f32 * char_width;
                 let width_px = (end_col - start_col) as f32 * char_width;
                 row_div = row_div.child(
                     div()
