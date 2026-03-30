@@ -204,16 +204,17 @@ pub fn render_diff_view(
     // Shared cells between uniform_list render callback and mouse handlers.
     // Set during render (request_layout phase), read during mouse events.
     let container_bounds: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
-    let scroll_start: Rc<Cell<usize>> = Rc::new(Cell::new(0));
     let char_width_cell: Rc<Cell<f32>> = Rc::new(Cell::new(0.0));
 
     let bounds_for_canvas = container_bounds.clone();
     let bounds_for_down = container_bounds.clone();
     let bounds_for_move = container_bounds.clone();
-    let scroll_for_down = scroll_start.clone();
-    let scroll_for_move = scroll_start.clone();
     let cw_for_down = char_width_cell.clone();
     let cw_for_move = char_width_cell.clone();
+
+    // Clone scroll handle for mouse handlers — use pixel-accurate scroll offset
+    let scroll_handle_for_down = scroll_handle.clone();
+    let scroll_handle_for_move = scroll_handle.clone();
 
     let total = row_count;
 
@@ -243,9 +244,9 @@ pub fn render_diff_view(
                 )
                 .on_mouse_down(MouseButton::Left, {
                     let on_drag_start = on_drag_start.clone();
+                    let sh = scroll_handle_for_down.clone();
                     move |event, window, cx| {
                         let b = bounds_for_down.get();
-                        let st = scroll_for_down.get();
                         let cw = {
                             let c = cw_for_down.get();
                             if c > 0.0 {
@@ -256,12 +257,15 @@ pub fn render_diff_view(
                         };
                         let line_height = diff_line_height();
                         let x_offset = content_x_offset();
+                        // Use pixel-accurate scroll offset from the scroll handle
+                        // to avoid off-by-one when trackpad scrolling creates sub-item offsets
+                        let scroll_px = -f32::from(sh.0.borrow().base_handle.offset().y);
                         let (row, col) = super::text_selection::pixel_to_diff_position(
                             f32::from(event.position.y),
                             f32::from(event.position.x),
                             f32::from(b.origin.y),
                             f32::from(b.origin.x),
-                            st,
+                            scroll_px,
                             cw,
                             x_offset,
                             line_height,
@@ -272,10 +276,10 @@ pub fn render_diff_view(
                 })
                 .on_mouse_move({
                     let on_drag_move = on_drag_move.clone();
+                    let sh = scroll_handle_for_move.clone();
                     move |event, window, cx| {
                         if event.dragging() {
                             let b = bounds_for_move.get();
-                            let st = scroll_for_move.get();
                             let cw = {
                                 let c = cw_for_move.get();
                                 if c > 0.0 {
@@ -286,12 +290,13 @@ pub fn render_diff_view(
                             };
                             let line_height = diff_line_height();
                             let x_offset = content_x_offset();
+                            let scroll_px = -f32::from(sh.0.borrow().base_handle.offset().y);
                             let (row, col) = super::text_selection::pixel_to_diff_position(
                                 f32::from(event.position.y),
                                 f32::from(event.position.x),
                                 f32::from(b.origin.y),
                                 f32::from(b.origin.x),
-                                st,
+                                scroll_px,
                                 cw,
                                 x_offset,
                                 line_height,
@@ -309,11 +314,8 @@ pub fn render_diff_view(
                 })
                 .child(
                     uniform_list("diff-lines", row_count, {
-                        let scroll_cell = scroll_start.clone();
                         let cw_cell = char_width_cell.clone();
                         move |range, window, cx| {
-                            // Capture actual scroll position from the uniform_list's visible range
-                            scroll_cell.set(range.start);
                             let visible = range.end - range.start;
                             on_visible_count(visible, window, cx);
                             // Measure char width once per render cycle

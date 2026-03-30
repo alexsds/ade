@@ -108,20 +108,13 @@ impl TextSelection {
 }
 
 /// Convert pixel position to (row_index, char_col) in the diff view.
-///
-/// - `mouse_y` / `mouse_x`: mouse position in window coordinates
-/// - `container_top` / `container_left`: top-left of the diff content area
-/// - `scroll_offset`: number of rows scrolled past (from uniform_list)
-/// - `char_width`: measured monospace character width in pixels
-/// - `content_x_offset`: horizontal offset to text content area (88.0 = 40+40+8)
-/// - `line_height`: height of each diff row in pixels (20.0)
-/// - `total_rows`: total number of diff rows for clamping
+/// Avoids off-by-one when trackpad scrolling creates sub-item offsets.
 pub fn pixel_to_diff_position(
     mouse_y: f32,
     mouse_x: f32,
     container_top: f32,
     container_left: f32,
-    scroll_offset: usize,
+    scroll_offset_px: f32,
     char_width: f32,
     content_x_offset: f32,
     line_height: f32,
@@ -130,11 +123,14 @@ pub fn pixel_to_diff_position(
     let local_y = mouse_y - container_top;
     let local_x = mouse_x - container_left;
 
-    let row_f = local_y / line_height;
-    let row = if row_f < 0.0 {
+    // Convert viewport-relative y to content-space y using pixel scroll offset
+    let content_y = local_y + scroll_offset_px;
+    let row = if content_y < 0.0 {
         0usize
+    } else if line_height > 0.0 {
+        (content_y / line_height).floor() as usize
     } else {
-        (row_f as usize).saturating_add(scroll_offset)
+        0
     };
     let row = if total_rows > 0 {
         row.min(total_rows - 1)
@@ -350,7 +346,7 @@ mod tests {
             198.8, // mouse_x: 100 + 88 + 1.5*7.2 = 198.8 -> col 1
             200.0, // container_top
             100.0, // container_left
-            0,     // scroll_offset
+            0.0,   // scroll_offset_px
             7.2,   // char_width
             88.0,  // content_x_offset
             20.0,  // line_height
@@ -362,19 +358,39 @@ mod tests {
 
     #[test]
     fn test_pixel_to_diff_position_with_scroll() {
+        // scroll_offset_px = 5 * 20.0 = 100.0 (scrolled past 5 rows)
         let (row, col) = pixel_to_diff_position(
-            210.0, // mouse_y: 200 + 0.5*20 = row 0 visible, but scroll_offset=5 -> row 5
+            210.0, // mouse_y: 200 + 10px into viewport
             200.0, // mouse_x
             200.0, // container_top
             100.0, // container_left
-            5,     // scroll_offset
+            100.0, // scroll_offset_px: 5 rows * 20px
             7.2,   // char_width
             88.0,  // content_x_offset
             20.0,  // line_height
             100,   // total_rows
         );
+        // content_y = 10 + 100 = 110, row = floor(110/20) = 5
         assert_eq!(row, 5);
         assert_eq!(col, 1); // (200-100-88)/7.2 = 12/7.2 = 1.66 -> floor = 1
+    }
+
+    #[test]
+    fn test_pixel_to_diff_position_fractional_scroll() {
+        // Scrolled 10.5 items (sub-pixel offset from trackpad)
+        let (row, _) = pixel_to_diff_position(
+            215.0, // mouse_y: 200 + 15px into viewport
+            200.0, // mouse_x
+            200.0, // container_top
+            100.0, // container_left
+            210.0, // scroll_offset_px: 10.5 * 20 = 210px
+            7.2,   // char_width
+            88.0,  // content_x_offset
+            20.0,  // line_height
+            100,   // total_rows
+        );
+        // content_y = 15 + 210 = 225, row = floor(225/20) = 11
+        assert_eq!(row, 11);
     }
 
     #[test]
@@ -384,7 +400,7 @@ mod tests {
             50.0,  // mouse_x: left of content
             200.0, // container_top
             100.0, // container_left
-            0,     // scroll_offset
+            0.0,   // scroll_offset_px
             7.2,   // char_width
             88.0,  // content_x_offset
             20.0,  // line_height
@@ -401,7 +417,7 @@ mod tests {
             200.0,  // mouse_x
             200.0,  // container_top
             100.0,  // container_left
-            0,      // scroll_offset
+            0.0,    // scroll_offset_px
             7.2,    // char_width
             88.0,   // content_x_offset
             20.0,   // line_height
