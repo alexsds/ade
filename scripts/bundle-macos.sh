@@ -82,7 +82,10 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Step 7: Validate the bundle
+# Step 7: Strip quarantine attribute so unsigned app isn't flagged as "damaged"
+xattr -cr "$APP_DIR"
+
+# Step 8: Validate the bundle
 echo "Validating bundle..."
 plutil -lint "$APP_DIR/Contents/Info.plist"
 test -x "$APP_DIR/Contents/MacOS/ade" || { echo "ERROR: Binary is not executable"; exit 1; }
