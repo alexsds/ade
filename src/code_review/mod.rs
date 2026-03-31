@@ -495,7 +495,7 @@ impl CodeReviewPanel {
             return;
         }
         let new_index = index - 1;
-        self.selected_file_index = Some(new_index);
+        self.select_file(new_index);
         self.file_scroll_handle
             .scroll_to_item(new_index, ScrollStrategy::Nearest);
     }
@@ -509,7 +509,7 @@ impl CodeReviewPanel {
             return;
         }
         let new_index = index + 1;
-        self.selected_file_index = Some(new_index);
+        self.select_file(new_index);
         self.file_scroll_handle
             .scroll_to_item(new_index, ScrollStrategy::Nearest);
     }
@@ -1591,6 +1591,7 @@ impl Render for CodeReviewPanel {
                                                 path,
                                                 self.image_preview.as_ref(),
                                                 self.image_preview_state.as_deref(),
+                                                window.viewport_size(),
                                                 &file_path_text_selection,
                                                 file_path_on_drag_start.clone(),
                                                 file_path_on_drag_move.clone(),
@@ -1803,6 +1804,7 @@ impl Render for CodeReviewPanel {
                         path,
                         self.changes_image_preview.as_ref(),
                         self.changes_image_preview_state.as_deref(),
+                        window.viewport_size(),
                         &changes_file_path_text_selection,
                         changes_file_path_on_drag_start.clone(),
                         changes_file_path_on_drag_move.clone(),

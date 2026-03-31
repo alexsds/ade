@@ -14,7 +14,7 @@ use crate::git::types::{DiffLineType, FileDiff};
 use crate::syntax::SyntaxHighlighter;
 use crate::theme;
 use gpui::{
-    Bounds, FontWeight, HighlightStyle, ImageSource, IntoElement, MouseButton, ObjectFit, Pixels,
+    Bounds, FontWeight, HighlightStyle, ImageSource, IntoElement, MouseButton, Pixels,
     RenderImage, SharedString, Styled, StyledText, TextAlign, UniformListScrollHandle, Window,
     canvas, div, font, img, prelude::*, px, uniform_list,
 };
@@ -708,22 +708,42 @@ pub fn is_image_file(path: &str) -> bool {
     )
 }
 
+/// Compute image display size that fits within `max_w` x `max_h` while preserving aspect ratio.
+/// Images smaller than the max are not scaled up.
+fn fit_image_size(img_w: f32, img_h: f32, max_w: f32, max_h: f32) -> (f32, f32) {
+    if img_w <= 0.0 || img_h <= 0.0 || max_w <= 0.0 || max_h <= 0.0 {
+        return (img_w.max(1.0), img_h.max(1.0));
+    }
+    let scale_w = (max_w / img_w).min(1.0);
+    let scale_h = (max_h / img_h).min(1.0);
+    let scale = scale_w.min(scale_h);
+    (img_w * scale, img_h * scale)
+}
+
 /// Render an image preview in the diff area (replaces diff lines for image files).
-/// Shows centered image with ObjectFit::Contain to preserve aspect ratio.
+/// Uses absolute pixel sizing computed from the image's intrinsic dimensions
+/// and the viewport size to guarantee the image fits without overflow.
 pub fn render_image_preview(
     path: &str,
     image_preview: Option<&Arc<RenderImage>>,
     image_state: Option<&str>,
+    viewport_size: gpui::Size<Pixels>,
     file_path_text_selection: &TextSelection,
     on_file_path_drag_start: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>,
     on_file_path_drag_move: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>,
     on_file_path_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
 ) -> impl IntoElement {
     let t = theme::theme();
+
+    // Estimate available space for the image: roughly half the viewport width
+    // (diff panel is right side of 3-panel layout) minus padding, and most of viewport height
+    // minus toolbar/header/tabs.
+    let available_w = f32::from(viewport_size.width) * 0.5 - 40.0;
+    let available_h = f32::from(viewport_size.height) - 160.0;
+
     let content = match image_state {
         Some("loading") => div()
             .flex_1()
-            .size_full()
             .flex()
             .items_center()
             .justify_center()
@@ -736,7 +756,6 @@ pub fn render_image_preview(
             .into_any_element(),
         Some("too_large") => div()
             .flex_1()
-            .size_full()
             .flex()
             .items_center()
             .justify_center()
@@ -749,7 +768,6 @@ pub fn render_image_preview(
             .into_any_element(),
         Some("error") => div()
             .flex_1()
-            .size_full()
             .flex()
             .items_center()
             .justify_center()
@@ -762,25 +780,26 @@ pub fn render_image_preview(
             .into_any_element(),
         Some("loaded") => {
             if let Some(render_image) = image_preview {
+                let img_size = render_image.size(0);
+                let img_w = i32::from(img_size.width) as f32;
+                let img_h = i32::from(img_size.height) as f32;
+                let (display_w, display_h) =
+                    fit_image_size(img_w, img_h, available_w, available_h);
+
                 div()
                     .flex_1()
-                    .size_full()
                     .flex()
                     .items_center()
                     .justify_center()
-                    .p(t.spacing.md)
                     .child(
                         img(ImageSource::Render(render_image.clone()))
-                            .object_fit(ObjectFit::Contain)
-                            .max_w_full()
-                            .max_h_full(),
+                            .w(px(display_w))
+                            .h(px(display_h)),
                     )
                     .into_any_element()
             } else {
-                // Shouldn't happen: state is "loaded" but no image
                 div()
                     .flex_1()
-                    .size_full()
                     .flex()
                     .items_center()
                     .justify_center()
@@ -794,13 +813,11 @@ pub fn render_image_preview(
             }
         }
         _ => {
-            // No state set, shouldn't reach here for image files
-            div().flex_1().size_full().into_any_element()
+            div().flex_1().into_any_element()
         }
     };
 
     div()
-        .w_full()
         .size_full()
         .flex()
         .flex_col()
