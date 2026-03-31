@@ -14,9 +14,9 @@ use crate::git::types::{DiffLineType, FileDiff};
 use crate::syntax::SyntaxHighlighter;
 use crate::theme;
 use gpui::{
-    Bounds, FontWeight, HighlightStyle, IntoElement, MouseButton, Pixels, SharedString, Styled,
-    StyledText, TextAlign, UniformListScrollHandle, Window, canvas, div, font, prelude::*, px,
-    uniform_list,
+    Bounds, FontWeight, HighlightStyle, ImageSource, IntoElement, MouseButton, ObjectFit, Pixels,
+    RenderImage, SharedString, Styled, StyledText, TextAlign, UniformListScrollHandle, Window,
+    canvas, div, font, img, prelude::*, px, uniform_list,
 };
 
 /// Prepare highlight ranges for GPUI's StyledText.
@@ -706,6 +706,112 @@ pub fn is_image_file(path: &str) -> bool {
         ext.as_str(),
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "tiff" | "tif" | "avif"
     )
+}
+
+/// Render an image preview in the diff area (replaces diff lines for image files).
+/// Shows centered image with ObjectFit::Contain to preserve aspect ratio.
+pub fn render_image_preview(
+    path: &str,
+    image_preview: Option<&Arc<RenderImage>>,
+    image_state: Option<&str>,
+    file_path_text_selection: &TextSelection,
+    on_file_path_drag_start: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>,
+    on_file_path_drag_move: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>,
+    on_file_path_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
+) -> impl IntoElement {
+    let t = theme::theme();
+    let content = match image_state {
+        Some("loading") => div()
+            .flex_1()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(t.colors.text_muted)
+                    .child("Loading image..."),
+            )
+            .into_any_element(),
+        Some("too_large") => div()
+            .flex_1()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(t.colors.text_secondary)
+                    .child("Image too large to preview (>10MB)"),
+            )
+            .into_any_element(),
+        Some("error") => div()
+            .flex_1()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(t.colors.text_secondary)
+                    .child("Unable to decode image"),
+            )
+            .into_any_element(),
+        Some("loaded") => {
+            if let Some(render_image) = image_preview {
+                div()
+                    .flex_1()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .p(t.spacing.md)
+                    .child(
+                        img(ImageSource::Render(render_image.clone()))
+                            .object_fit(ObjectFit::Contain)
+                            .max_w_full()
+                            .max_h_full(),
+                    )
+                    .into_any_element()
+            } else {
+                // Shouldn't happen: state is "loaded" but no image
+                div()
+                    .flex_1()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(t.colors.text_secondary)
+                            .child("Unable to decode image"),
+                    )
+                    .into_any_element()
+            }
+        }
+        _ => {
+            // No state set, shouldn't reach here for image files
+            div().flex_1().size_full().into_any_element()
+        }
+    };
+
+    div()
+        .w_full()
+        .size_full()
+        .flex()
+        .flex_col()
+        .child(render_file_header(
+            path,
+            file_path_text_selection,
+            on_file_path_drag_start,
+            on_file_path_drag_move,
+            on_file_path_drag_end,
+        ))
+        .child(content)
 }
 
 /// Render the empty state placeholder when no file is selected.

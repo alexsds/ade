@@ -1576,26 +1576,48 @@ impl Render for CodeReviewPanel {
                                         ),
                                 )
                                 .child({
-                                    let diff_content = if let Some(file_diff) =
-                                        self.selected_file_diff().cloned()
-                                    {
-                                        diff_view::render_diff_view(
-                                            &file_diff,
-                                            &mut self.syntax_highlighter,
-                                            &self.diff_scroll_handle,
-                                            on_diff_visible_count.clone(),
-                                            &diff_text_selection,
-                                            diff_on_drag_start.clone(),
-                                            diff_on_drag_move.clone(),
-                                            diff_on_drag_end.clone(),
-                                            &file_path_text_selection,
-                                            file_path_on_drag_start.clone(),
-                                            file_path_on_drag_move.clone(),
-                                            file_path_on_drag_end.clone(),
-                                        )
-                                        .into_any_element()
-                                    } else {
-                                        diff_view::render_diff_empty().into_any_element()
+                                    let diff_content = {
+                                        let selected_path = self
+                                            .selected_file_index
+                                            .and_then(|i| self.files.get(i))
+                                            .map(|f| f.path.as_str());
+                                        let is_image = selected_path
+                                            .map(|p| diff_view::is_image_file(p))
+                                            .unwrap_or(false);
+
+                                        if is_image {
+                                            let path = selected_path.unwrap_or("");
+                                            diff_view::render_image_preview(
+                                                path,
+                                                self.image_preview.as_ref(),
+                                                self.image_preview_state.as_deref(),
+                                                &file_path_text_selection,
+                                                file_path_on_drag_start.clone(),
+                                                file_path_on_drag_move.clone(),
+                                                file_path_on_drag_end.clone(),
+                                            )
+                                            .into_any_element()
+                                        } else if let Some(file_diff) =
+                                            self.selected_file_diff().cloned()
+                                        {
+                                            diff_view::render_diff_view(
+                                                &file_diff,
+                                                &mut self.syntax_highlighter,
+                                                &self.diff_scroll_handle,
+                                                on_diff_visible_count.clone(),
+                                                &diff_text_selection,
+                                                diff_on_drag_start.clone(),
+                                                diff_on_drag_move.clone(),
+                                                diff_on_drag_end.clone(),
+                                                &file_path_text_selection,
+                                                file_path_on_drag_start.clone(),
+                                                file_path_on_drag_move.clone(),
+                                                file_path_on_drag_end.clone(),
+                                            )
+                                            .into_any_element()
+                                        } else {
+                                            diff_view::render_diff_empty().into_any_element()
+                                        }
                                     };
                                     div()
                                         .flex_1()
@@ -1766,8 +1788,28 @@ impl Render for CodeReviewPanel {
                 );
 
             // Diff panel (D-09: full remaining width)
-            let changes_diff_content =
-                if let Some(file_diff) = self.selected_changes_file_diff().cloned() {
+            let changes_diff_content = {
+                let selected_path = self
+                    .selected_changes_file_index
+                    .and_then(|i| self.changes_files.get(i))
+                    .map(|f| f.path.as_str());
+                let is_image = selected_path
+                    .map(|p| diff_view::is_image_file(p))
+                    .unwrap_or(false);
+
+                if is_image {
+                    let path = selected_path.unwrap_or("");
+                    diff_view::render_image_preview(
+                        path,
+                        self.changes_image_preview.as_ref(),
+                        self.changes_image_preview_state.as_deref(),
+                        &changes_file_path_text_selection,
+                        changes_file_path_on_drag_start.clone(),
+                        changes_file_path_on_drag_move.clone(),
+                        changes_file_path_on_drag_end.clone(),
+                    )
+                    .into_any_element()
+                } else if let Some(file_diff) = self.selected_changes_file_diff().cloned() {
                     diff_view::render_diff_view(
                         &file_diff,
                         &mut self.syntax_highlighter,
@@ -1785,7 +1827,8 @@ impl Render for CodeReviewPanel {
                     .into_any_element()
                 } else {
                     diff_view::render_diff_empty().into_any_element()
-                };
+                }
+            };
 
             let diff_focus_color = t.colors.border_strong;
             let transparent_color = t.colors.transparent;
