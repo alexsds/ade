@@ -194,6 +194,10 @@ pub fn render_diff_view(
     on_drag_start: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
     on_drag_move: Arc<dyn Fn(usize, usize, &mut Window, &mut gpui::App) + 'static>,
     on_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
+    file_path_text_selection: &TextSelection,
+    on_file_path_drag_start: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>,
+    on_file_path_drag_move: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>,
+    on_file_path_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
 ) -> impl IntoElement {
     let rows = flatten_and_highlight_diff(file_diff, highlighter);
     let row_count = rows.len();
@@ -223,7 +227,13 @@ pub fn render_diff_view(
         .size_full()
         .flex()
         .flex_col()
-        .child(render_file_header(&path))
+        .child(render_file_header(
+            &path,
+            file_path_text_selection,
+            on_file_path_drag_start,
+            on_file_path_drag_move,
+            on_file_path_drag_end,
+        ))
         .child(
             div()
                 .id("diff-selection-area")
@@ -553,9 +563,35 @@ fn render_diff_row(
 }
 
 /// Render the file header bar at the top of the diff view (filename only, no stats).
-fn render_file_header(path: &str) -> impl IntoElement {
+/// Supports text selection via mouse drag with selection overlay rendering.
+fn render_file_header(
+    path: &str,
+    text_selection: &TextSelection,
+    on_drag_start: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>,
+    on_drag_move: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>,
+    on_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
+) -> impl IntoElement {
     let t = theme::theme();
-    div()
+    let path_string = path.to_string();
+    let path_len = path.chars().count();
+
+    // Get selection range for this single-line text (row 0)
+    let sel_range = if text_selection.row_is_selected(0) {
+        text_selection.selection_for_row(0, path_len)
+    } else {
+        None
+    };
+
+    let padding_px = f32::from(t.spacing.md); // 16px left padding
+
+    // Bounds tracking for pixel-to-character conversion
+    let header_bounds: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
+    let bounds_for_canvas = header_bounds.clone();
+    let bounds_for_down = header_bounds.clone();
+    let bounds_for_move = header_bounds.clone();
+
+    let mut header_div = div()
+        .id("file-header")
         .w_full()
         .h(t.sizes.file_row_height)
         .flex_shrink_0()
@@ -566,13 +602,101 @@ fn render_file_header(path: &str) -> impl IntoElement {
         .flex()
         .flex_row()
         .items_center()
+        .cursor_text()
+        .relative()
+        .child(
+            canvas(
+                {
+                    let b = bounds_for_canvas;
+                    move |bounds, _window, _cx| {
+                        b.set(bounds);
+                    }
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        )
+        .on_mouse_down(MouseButton::Left, {
+            let on_start = on_drag_start.clone();
+            move |event, window, cx| {
+                let b = bounds_for_down.get();
+                let local_x = f32::from(event.position.x) - f32::from(b.origin.x) - padding_px;
+                let t_inner = theme::theme();
+                let char_w = super::text_selection::measure_text_width(
+                    window,
+                    "M",
+                    t_inner.typography.heading.size,
+                    Some(FontWeight::BOLD),
+                );
+                let col = if local_x < 0.0 || char_w <= 0.0 {
+                    0
+                } else {
+                    (local_x / char_w) as usize
+                };
+                on_start(col, window, cx);
+            }
+        })
+        .on_mouse_move({
+            let on_move = on_drag_move.clone();
+            move |event, window, cx| {
+                if event.dragging() {
+                    let b = bounds_for_move.get();
+                    let local_x = f32::from(event.position.x) - f32::from(b.origin.x) - padding_px;
+                    let t_inner = theme::theme();
+                    let char_w = super::text_selection::measure_text_width(
+                        window,
+                        "M",
+                        t_inner.typography.heading.size,
+                        Some(FontWeight::BOLD),
+                    );
+                    let col = if local_x < 0.0 || char_w <= 0.0 {
+                        0
+                    } else {
+                        (local_x / char_w) as usize
+                    };
+                    on_move(col, window, cx);
+                }
+            }
+        })
+        .on_mouse_up(MouseButton::Left, {
+            let on_end = on_drag_end.clone();
+            move |_event, window, cx| {
+                on_end(window, cx);
+            }
+        })
         .child(
             div()
                 .text_xs()
                 .font_weight(FontWeight::BOLD)
                 .text_color(t.colors.text_primary)
-                .child(path.to_string()),
-        )
+                .child(path_string),
+        );
+
+    // Selection overlay
+    if let Some((start_col, end_col)) = sel_range {
+        if end_col > start_col {
+            // Use a fixed monospace char width estimate for overlay positioning.
+            // The exact char_w from measure_text_width requires a Window reference
+            // which isn't available in this pure render path. Since the header uses
+            // text_xs (12px) + BOLD Menlo, a good estimate is ~7.2px per char.
+            // This aligns with the same approach used in diff row rendering.
+            let char_w_estimate = 7.2_f32;
+            let start_px = start_col as f32 * char_w_estimate;
+            let width_px = (end_col - start_col) as f32 * char_w_estimate;
+            header_div = header_div.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left(px(padding_px + start_px))
+                    .w(px(width_px))
+                    .h_full()
+                    .bg(t.colors.selection_bg),
+            );
+        }
+    }
+
+    header_div
 }
 
 /// Render the empty state placeholder when no file is selected.
@@ -660,8 +784,25 @@ mod tests {
             Arc::new(|_, _, _, _| {});
         let noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
         let sel = TextSelection::default();
+        let fp_sel = TextSelection::default();
+        let fp_noop_start: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _| {});
+        let fp_noop_move: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _| {});
+        let fp_noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
         let _element = render_diff_view(
-            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end,
+            &file_diff,
+            &mut hl,
+            &sh,
+            noop,
+            &sel,
+            noop_start,
+            noop_move,
+            noop_end,
+            &fp_sel,
+            fp_noop_start,
+            fp_noop_move,
+            fp_noop_end,
         );
     }
 
@@ -688,8 +829,25 @@ mod tests {
             Arc::new(|_, _, _, _| {});
         let noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
         let sel = TextSelection::default();
+        let fp_sel = TextSelection::default();
+        let fp_noop_start: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _| {});
+        let fp_noop_move: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _| {});
+        let fp_noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
         let _element = render_diff_view(
-            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end,
+            &file_diff,
+            &mut hl,
+            &sh,
+            noop,
+            &sel,
+            noop_start,
+            noop_move,
+            noop_end,
+            &fp_sel,
+            fp_noop_start,
+            fp_noop_move,
+            fp_noop_end,
         );
     }
 
@@ -719,8 +877,25 @@ mod tests {
             Arc::new(|_, _, _, _| {});
         let noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
         let sel = TextSelection::default();
+        let fp_sel = TextSelection::default();
+        let fp_noop_start: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _| {});
+        let fp_noop_move: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _| {});
+        let fp_noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
         let _element = render_diff_view(
-            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end,
+            &file_diff,
+            &mut hl,
+            &sh,
+            noop,
+            &sel,
+            noop_start,
+            noop_move,
+            noop_end,
+            &fp_sel,
+            fp_noop_start,
+            fp_noop_move,
+            fp_noop_end,
         );
     }
 
@@ -902,8 +1077,25 @@ mod tests {
         let mut sel = TextSelection::default();
         sel.anchor = Some((1, 0));
         sel.cursor = Some((3, 5));
+        let fp_sel = TextSelection::default();
+        let fp_noop_start: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _| {});
+        let fp_noop_move: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> =
+            Arc::new(|_, _, _| {});
+        let fp_noop_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = Arc::new(|_, _| {});
         let _element = render_diff_view(
-            &file_diff, &mut hl, &sh, noop, &sel, noop_start, noop_move, noop_end,
+            &file_diff,
+            &mut hl,
+            &sh,
+            noop,
+            &sel,
+            noop_start,
+            noop_move,
+            noop_end,
+            &fp_sel,
+            fp_noop_start,
+            fp_noop_move,
+            fp_noop_end,
         );
     }
 

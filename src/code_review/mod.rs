@@ -1125,6 +1125,46 @@ impl Render for CodeReviewPanel {
                 })
             };
 
+            // File path text selection callbacks (Phase 44, Plan 02)
+            let file_path_text_selection = self.file_path_text_selection.clone();
+
+            let file_path_on_drag_start: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
+                let weak = weak.clone();
+                Arc::new(
+                    move |col: usize, _window: &mut Window, cx: &mut gpui::App| {
+                        weak.update(cx, |this, cx| {
+                            this.start_file_path_drag(col);
+                            cx.notify();
+                        })
+                        .ok();
+                    },
+                )
+            };
+
+            let file_path_on_drag_move: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
+                let weak = weak.clone();
+                Arc::new(
+                    move |col: usize, _window: &mut Window, cx: &mut gpui::App| {
+                        weak.update(cx, |this, cx| {
+                            this.update_file_path_drag(col);
+                            cx.notify();
+                        })
+                        .ok();
+                    },
+                )
+            };
+
+            let file_path_on_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = {
+                let weak = weak.clone();
+                Arc::new(move |_window: &mut Window, cx: &mut gpui::App| {
+                    weak.update(cx, |this, cx| {
+                        this.end_file_path_drag();
+                        cx.notify();
+                    })
+                    .ok();
+                })
+            };
+
             // char_width and scroll_top are now read live inside diff_view closures
             // via measure_char_width(window) and scroll_handle.logical_scroll_top_index()
 
@@ -1434,6 +1474,10 @@ impl Render for CodeReviewPanel {
                                             diff_on_drag_start.clone(),
                                             diff_on_drag_move.clone(),
                                             diff_on_drag_end.clone(),
+                                            &file_path_text_selection,
+                                            file_path_on_drag_start.clone(),
+                                            file_path_on_drag_move.clone(),
+                                            file_path_on_drag_end.clone(),
                                         )
                                         .into_any_element()
                                     } else {
@@ -1527,6 +1571,50 @@ impl Render for CodeReviewPanel {
                 })
             };
 
+            // Changes tab file path text selection callbacks (Phase 44, Plan 02)
+            let changes_file_path_text_selection = self.changes_file_path_text_selection.clone();
+
+            let changes_file_path_on_drag_start: Arc<
+                dyn Fn(usize, &mut Window, &mut gpui::App) + 'static,
+            > = {
+                let weak = weak.clone();
+                Arc::new(
+                    move |col: usize, _window: &mut Window, cx: &mut gpui::App| {
+                        weak.update(cx, |this, cx| {
+                            this.start_file_path_drag(col);
+                            cx.notify();
+                        })
+                        .ok();
+                    },
+                )
+            };
+
+            let changes_file_path_on_drag_move: Arc<
+                dyn Fn(usize, &mut Window, &mut gpui::App) + 'static,
+            > = {
+                let weak = weak.clone();
+                Arc::new(
+                    move |col: usize, _window: &mut Window, cx: &mut gpui::App| {
+                        weak.update(cx, |this, cx| {
+                            this.update_file_path_drag(col);
+                            cx.notify();
+                        })
+                        .ok();
+                    },
+                )
+            };
+
+            let changes_file_path_on_drag_end: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static> = {
+                let weak = weak.clone();
+                Arc::new(move |_window: &mut Window, cx: &mut gpui::App| {
+                    weak.update(cx, |this, cx| {
+                        this.end_file_path_drag();
+                        cx.notify();
+                    })
+                    .ok();
+                })
+            };
+
             // char_width and scroll_top are now read live inside diff_view closures
 
             let changes_file_list_content = file_list::render_file_list_with_empty_msg(
@@ -1575,6 +1663,10 @@ impl Render for CodeReviewPanel {
                         changes_diff_on_drag_start.clone(),
                         changes_diff_on_drag_move.clone(),
                         changes_diff_on_drag_end.clone(),
+                        &changes_file_path_text_selection,
+                        changes_file_path_on_drag_start.clone(),
+                        changes_file_path_on_drag_move.clone(),
+                        changes_file_path_on_drag_end.clone(),
                     )
                     .into_any_element()
                 } else {
