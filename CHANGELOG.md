@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [v2.1] - Fixes & Refinements
+
+### Added
+- Image preview in diff view for image files (PNG, JPEG, etc.) in both History and Changes tabs
+- Unpushed commit indicator (up-arrow badge) in history tab with upstream tracking
+- File path text selection in diff panel headers with Cmd+C copy
+- Clickable URLs in terminal with Cmd+hover underline and Cmd+click to open
+- OSC 8 hyperlink support for CLI tools that emit explicit links
+- URL scheme allowlist (http, https, ftp, ssh, mailto) blocking dangerous schemes
+- Toggle button label now shows destination mode ("Terminal" or "Code Review")
+
+### Fixed
+- Diff selection coordinates now match between rendering and click targeting
+- Terminal panes properly resize to fill available space after closing a pane
+- Terminal panes resize correctly when toggling Code Review mode off
+- Enter and Ctrl+C reliably sent to PTY in interactive prompts (IME hardening)
+
+### Changed
+- New panes and tabs open in the same directory as the active terminal
+
 ## [v2.0] - UI Levelup
 
 ### Added
