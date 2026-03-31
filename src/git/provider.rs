@@ -246,24 +246,13 @@ impl GitProvider {
                                                 path,
                                                 image,
                                             },
-                                            Err(_) => GitResponse::BlobError {
-                                                commit_oid,
-                                                path,
-                                            },
+                                            Err(_) => GitResponse::BlobError { commit_oid, path },
                                         }
                                     }
                                 }
-                                Err(_) => GitResponse::BlobError {
-                                    commit_oid,
-                                    path,
-                                },
+                                Err(_) => GitResponse::BlobError { commit_oid, path },
                             },
-                            Err(_) => {
-                                GitResponse::BlobError {
-                                    commit_oid,
-                                    path,
-                                }
-                            }
+                            Err(_) => GitResponse::BlobError { commit_oid, path },
                         }
                     }
                 };
@@ -425,7 +414,8 @@ fn collect_batch(
 }
 
 /// Look up the OID of the upstream tracking branch for the current HEAD.
-/// Returns None if HEAD is detached, no upstream is configured, or any lookup fails.
+/// Returns None if HEAD is detached or no remote counterpart exists.
+/// Falls back to origin/<branch> when no explicit upstream is configured.
 fn get_upstream_oid(repo: &Repository) -> Option<Oid> {
     let head = repo.head().ok()?;
     if !head.is_branch() {
@@ -435,8 +425,13 @@ fn get_upstream_oid(repo: &Repository) -> Option<Oid> {
     let branch = repo
         .find_branch(branch_name, git2::BranchType::Local)
         .ok()?;
-    let upstream = branch.upstream().ok()?;
-    upstream.get().target()
+    // Try explicit upstream first
+    if let Ok(upstream) = branch.upstream() {
+        return upstream.get().target();
+    }
+    // Fall back to origin/<branch_name>
+    let fallback_ref = format!("refs/remotes/origin/{}", branch_name);
+    repo.find_reference(&fallback_ref).ok()?.target()
 }
 
 /// Mark commits that are ahead of the upstream tracking branch.
@@ -1944,10 +1939,7 @@ mod tests {
         let mut got_response = false;
         while let Some(response) = provider.try_recv() {
             match response {
-                GitResponse::BlobError {
-                    commit_oid,
-                    path,
-                } => {
+                GitResponse::BlobError { commit_oid, path } => {
                     // For text files, decode_image_bytes will fail. This is expected.
                     got_response = true;
                     assert_eq!(commit_oid, head_oid);
@@ -2030,6 +2022,47 @@ mod tests {
         let ahead = mark_ahead_commits(&repo, &mut commits);
         assert_eq!(ahead, 1, "Should have 1 commit ahead");
         assert_eq!(commits.len(), 2, "Should have 2 commits total");
+        assert!(commits[0].is_ahead, "First (newest) commit should be ahead");
+        assert!(
+            !commits[1].is_ahead,
+            "Second (oldest) commit should NOT be ahead"
+        );
+    }
+
+    #[test]
+    fn test_mark_ahead_commits_fallback_to_origin() {
+        // When no explicit upstream is configured but origin/<branch> exists,
+        // get_upstream_oid should fall back to the remote ref
+        let (_dir, repo) = create_test_repo(); // Has 2 commits on default branch
+
+        let mut revwalk = repo.revwalk().unwrap();
+        revwalk.push_head().unwrap();
+        revwalk.set_sorting(Sort::TIME | Sort::REVERSE).unwrap();
+        let initial_oid = revwalk.next().unwrap().unwrap();
+
+        let head = repo.head().unwrap();
+        let branch_name = head.shorthand().unwrap().to_string();
+
+        // Create origin remote and refs/remotes/origin/<branch> but do NOT set upstream
+        repo.remote("origin", ".").unwrap();
+        repo.reference(
+            &format!("refs/remotes/origin/{}", branch_name),
+            initial_oid,
+            true,
+            "test",
+        )
+        .unwrap();
+
+        // No set_upstream call — this is the key difference from test_mark_ahead_commits_with_upstream
+
+        let decorations = build_decoration_map(&repo);
+        let mut rw = repo.revwalk().unwrap();
+        rw.push_head().unwrap();
+        rw.set_sorting(Sort::TIME).unwrap();
+        let mut commits = collect_batch(&repo, &mut rw, 10, &decorations);
+
+        let ahead = mark_ahead_commits(&repo, &mut commits);
+        assert_eq!(ahead, 1, "Should have 1 commit ahead via origin fallback");
         assert!(commits[0].is_ahead, "First (newest) commit should be ahead");
         assert!(
             !commits[1].is_ahead,

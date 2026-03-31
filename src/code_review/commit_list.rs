@@ -101,9 +101,9 @@ fn render_commit_row(
         .px(t.spacing.sm)
         .cursor_pointer()
         .flex()
-        .flex_col()
-        .justify_center()
-        .gap(t.spacing.line_gap)
+        .flex_row()
+        .items_center()
+        .gap(t.spacing.xs)
         .border_l_3()
         .border_color(if is_selected {
             t.colors.accent
@@ -126,7 +126,7 @@ fn render_commit_row(
         row = row.hover(|style| style.bg(hover_bg));
     }
 
-    // Summary line with inline unpushed indicator and decoration badges
+    // Summary line with decoration badges
     let mut summary_row = div()
         .flex()
         .flex_row()
@@ -137,6 +137,7 @@ fn render_commit_row(
         .child(
             div()
                 .flex_shrink()
+                .min_w(px(0.0))
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .text_xs()
@@ -144,17 +145,6 @@ fn render_commit_row(
                 .text_color(t.colors.text_primary)
                 .child(commit.summary.clone()),
         );
-
-    // Unpushed commit indicator (CR-03): up-arrow in accent color
-    if commit.is_ahead {
-        summary_row = summary_row.child(
-            div()
-                .flex_shrink_0()
-                .text_xs()
-                .text_color(t.colors.accent)
-                .child("\u{2191}"), // Unicode up arrow
-        );
-    }
 
     // Decoration badges (all of them, not just the first)
     summary_row = summary_row.children(
@@ -164,25 +154,52 @@ fn render_commit_row(
             .map(|dec| render_decoration_badge(dec).into_any_element()),
     );
 
-    row = row.child(summary_row);
+    // Text content column (summary + author/time)
+    let text_content = div()
+        .flex_1()
+        .min_w(px(0.0))
+        .flex()
+        .flex_col()
+        .justify_center()
+        .gap(t.spacing.line_gap)
+        .child(summary_row)
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .overflow_hidden()
+                .child(
+                    div()
+                        .flex_shrink()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_xs()
+                        .text_color(t.colors.text_commit_time)
+                        .child(author_time),
+                ),
+        );
 
-    // Author + relative time line
-    row = row.child(
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .overflow_hidden()
-            .child(
-                div()
-                    .flex_shrink()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_xs()
-                    .text_color(t.colors.text_commit_time)
-                    .child(author_time),
-            ),
-    );
+    // Row is now flex_row: [text_content] [ahead badge]
+    row = row.child(text_content);
+
+    // Unpushed commit indicator (CR-03): circle badge, vertically centered in row
+    if commit.is_ahead {
+        row = row.child(
+            div()
+                .flex_shrink_0()
+                .ml(t.spacing.sm)
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(16.0))
+                .rounded(px(8.0))
+                .bg(t.colors.accent.opacity(0.15))
+                .text_xs()
+                .text_color(t.colors.accent)
+                .child("\u{2191}"),
+        );
+    }
 
     // Inset separator
     row = row.child(

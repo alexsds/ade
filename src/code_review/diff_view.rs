@@ -14,9 +14,9 @@ use crate::git::types::{DiffLineType, FileDiff};
 use crate::syntax::SyntaxHighlighter;
 use crate::theme;
 use gpui::{
-    Bounds, FontWeight, HighlightStyle, ImageSource, IntoElement, MouseButton, Pixels,
-    RenderImage, SharedString, Styled, StyledText, TextAlign, UniformListScrollHandle, Window,
-    canvas, div, font, img, prelude::*, px, uniform_list,
+    Bounds, FontWeight, HighlightStyle, ImageSource, IntoElement, MouseButton, Pixels, RenderImage,
+    SharedString, Styled, StyledText, TextAlign, UniformListScrollHandle, Window, canvas, div,
+    font, img, prelude::*, px, uniform_list,
 };
 
 /// Prepare highlight ranges for GPUI's StyledText.
@@ -665,18 +665,23 @@ fn render_file_header(
             move |_event, window, cx| {
                 on_end(window, cx);
             }
-        })
-;
+        });
 
     if is_fully_selected {
         header_div = header_div.bg(sel_bg);
         header_div = header_div.child(path_string);
     } else if let Some((start_col, end_col)) = sel_range {
         if end_col > start_col {
-            let byte_start: usize =
-                path_string.chars().take(start_col).map(|c| c.len_utf8()).sum();
-            let byte_end: usize =
-                path_string.chars().take(end_col).map(|c| c.len_utf8()).sum();
+            let byte_start: usize = path_string
+                .chars()
+                .take(start_col)
+                .map(|c| c.len_utf8())
+                .sum();
+            let byte_end: usize = path_string
+                .chars()
+                .take(end_col)
+                .map(|c| c.len_utf8())
+                .sum();
             let highlights = vec![(
                 byte_start..byte_end,
                 HighlightStyle {
@@ -685,8 +690,7 @@ fn render_file_header(
                 },
             )];
             header_div = header_div.child(
-                StyledText::new(SharedString::from(path_string))
-                    .with_highlights(highlights),
+                StyledText::new(SharedString::from(path_string)).with_highlights(highlights),
             );
         } else {
             header_div = header_div.child(path_string);
@@ -782,8 +786,7 @@ pub fn render_image_preview(
                 let img_size = render_image.size(0);
                 let img_w = i32::from(img_size.width) as f32;
                 let img_h = i32::from(img_size.height) as f32;
-                let (display_w, display_h) =
-                    fit_image_size(img_w, img_h, available_w, available_h);
+                let (display_w, display_h) = fit_image_size(img_w, img_h, available_w, available_h);
 
                 div()
                     .flex_1()
@@ -811,9 +814,7 @@ pub fn render_image_preview(
                     .into_any_element()
             }
         }
-        _ => {
-            div().flex_1().into_any_element()
-        }
+        _ => div().flex_1().into_any_element(),
     };
 
     div()
