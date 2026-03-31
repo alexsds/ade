@@ -96,6 +96,7 @@ impl GitProvider {
             let mut active_revwalk: Option<git2::Revwalk<'_>> = None;
             let mut revwalk_exhausted = false;
             let mut total_loaded: usize = 0;
+            let mut ahead_count: usize = 0;
 
             while let Ok(request) = request_rx.recv() {
                 let response = match request {
@@ -104,6 +105,7 @@ impl GitProvider {
                         active_revwalk = None;
                         revwalk_exhausted = false;
                         total_loaded = 0;
+                        ahead_count = 0;
                         let decorations = build_decoration_map(&repo);
                         match repo.revwalk() {
                             Ok(mut revwalk) => {
@@ -118,11 +120,12 @@ impl GitProvider {
                                     tracing::warn!("Failed to set revwalk sorting: {}", e);
                                 }
                                 let capped_count = count.min(MAX_COMMITS);
-                                let commits =
+                                let mut commits =
                                     collect_batch(&repo, &mut revwalk, capped_count, &decorations);
                                 total_loaded = commits.len();
                                 revwalk_exhausted =
                                     commits.len() < capped_count || total_loaded >= MAX_COMMITS;
+                                ahead_count = mark_ahead_commits(&repo, &mut commits);
                                 active_revwalk = Some(revwalk);
                                 GitResponse::Log(commits)
                             }
@@ -141,13 +144,22 @@ impl GitProvider {
                             match active_revwalk.as_mut() {
                                 Some(revwalk) => {
                                     let effective_batch = batch_size.min(remaining);
-                                    let commits = collect_batch(
+                                    let mut commits = collect_batch(
                                         &repo,
                                         revwalk,
                                         effective_batch,
                                         &decorations,
                                     );
                                     total_loaded += commits.len();
+                                    // Mark ahead commits in this batch if any are still
+                                    // within the ahead window (computed during FetchLog)
+                                    let previously_loaded = total_loaded - commits.len();
+                                    if previously_loaded < ahead_count {
+                                        let to_mark = ahead_count - previously_loaded;
+                                        for commit in commits.iter_mut().take(to_mark) {
+                                            commit.is_ahead = true;
+                                        }
+                                    }
                                     let exhausted = commits.len() < effective_batch
                                         || total_loaded >= MAX_COMMITS;
                                     revwalk_exhausted = exhausted;
@@ -344,16 +356,38 @@ fn collect_batch(
 /// Look up the OID of the upstream tracking branch for the current HEAD.
 /// Returns None if HEAD is detached, no upstream is configured, or any lookup fails.
 fn get_upstream_oid(repo: &Repository) -> Option<Oid> {
-    // Stub -- to be implemented in GREEN phase
-    None
+    let head = repo.head().ok()?;
+    if !head.is_branch() {
+        return None; // detached HEAD has no upstream
+    }
+    let branch_name = head.shorthand()?;
+    let branch = repo
+        .find_branch(branch_name, git2::BranchType::Local)
+        .ok()?;
+    let upstream = branch.upstream().ok()?;
+    upstream.get().target()
 }
 
 /// Mark commits that are ahead of the upstream tracking branch.
 /// Returns the number of commits ahead (for use in FetchMoreLog batching).
 /// If no upstream exists, returns 0 and leaves all commits unchanged.
 fn mark_ahead_commits(repo: &Repository, commits: &mut [CommitInfo]) -> usize {
-    // Stub -- to be implemented in GREEN phase
-    0
+    let Some(upstream_oid) = get_upstream_oid(repo) else {
+        return 0;
+    };
+    let head_oid = match repo.head().ok().and_then(|h| h.target()) {
+        Some(oid) => oid,
+        None => return 0,
+    };
+    let (ahead, _behind) = match repo.graph_ahead_behind(head_oid, upstream_oid) {
+        Ok(counts) => counts,
+        Err(_) => return 0,
+    };
+    // The first `ahead` commits in time-sorted order are unpushed
+    for commit in commits.iter_mut().take(ahead) {
+        commit.is_ahead = true;
+    }
+    ahead
 }
 
 /// Build a map from commit OID to branch/tag decorations.
@@ -1678,7 +1712,10 @@ mod tests {
         // Repo with no upstream configured should return None
         let (_dir, repo) = create_test_repo();
         let result = get_upstream_oid(&repo);
-        assert!(result.is_none(), "Should return None when no upstream configured");
+        assert!(
+            result.is_none(),
+            "Should return None when no upstream configured"
+        );
     }
 
     #[test]
@@ -1705,7 +1742,10 @@ mod tests {
         let ahead = mark_ahead_commits(&repo, &mut commits);
         assert_eq!(ahead, 0, "Should return 0 when no upstream");
         for commit in &commits {
-            assert!(!commit.is_ahead, "No commits should be marked ahead without upstream");
+            assert!(
+                !commit.is_ahead,
+                "No commits should be marked ahead without upstream"
+            );
         }
     }
 
@@ -1725,7 +1765,10 @@ mod tests {
         let ahead = mark_ahead_commits(&repo, &mut commits);
         assert_eq!(ahead, 0, "Should return 0 for detached HEAD");
         for commit in &commits {
-            assert!(!commit.is_ahead, "No commits should be marked ahead with detached HEAD");
+            assert!(
+                !commit.is_ahead,
+                "No commits should be marked ahead with detached HEAD"
+            );
         }
     }
 
@@ -1775,6 +1818,9 @@ mod tests {
         assert_eq!(ahead, 1, "Should have 1 commit ahead");
         assert_eq!(commits.len(), 2, "Should have 2 commits total");
         assert!(commits[0].is_ahead, "First (newest) commit should be ahead");
-        assert!(!commits[1].is_ahead, "Second (oldest) commit should NOT be ahead");
+        assert!(
+            !commits[1].is_ahead,
+            "Second (oldest) commit should NOT be ahead"
+        );
     }
 }
