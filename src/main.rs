@@ -936,7 +936,6 @@ fn main() {
                                             git::GitResponse::BlobError {
                                                 commit_oid,
                                                 path,
-                                                error: _,
                                             } => {
                                                 this.code_review_panel.update(cx, |panel, _cx| {
                                                     panel.set_image_blob_error(

@@ -77,7 +77,6 @@ pub enum GitResponse {
     BlobError {
         commit_oid: String,
         path: String,
-        error: String,
     },
     /// Blob exceeded the 10MB size limit.
     BlobTooLarge {
@@ -247,26 +246,22 @@ impl GitProvider {
                                                 path,
                                                 image,
                                             },
-                                            Err(e) => GitResponse::BlobError {
+                                            Err(_) => GitResponse::BlobError {
                                                 commit_oid,
                                                 path,
-                                                error: e,
                                             },
                                         }
                                     }
                                 }
-                                Err(e) => GitResponse::BlobError {
-                                    error: format!("Failed to read blob: {}", e),
+                                Err(_) => GitResponse::BlobError {
                                     commit_oid,
                                     path,
                                 },
                             },
-                            Err(e) => {
-                                let error = format!("Invalid OID '{}': {}", commit_oid, e);
+                            Err(_) => {
                                 GitResponse::BlobError {
                                     commit_oid,
                                     path,
-                                    error,
                                 }
                             }
                         }
@@ -1952,7 +1947,6 @@ mod tests {
                 GitResponse::BlobError {
                     commit_oid,
                     path,
-                    error: _,
                 } => {
                     // For text files, decode_image_bytes will fail. This is expected.
                     got_response = true;
@@ -1982,13 +1976,8 @@ mod tests {
                 GitResponse::BlobError {
                     commit_oid: _,
                     path: _,
-                    error,
                 } => {
                     got_error = true;
-                    assert!(
-                        error.contains("Failed to read blob"),
-                        "Error should mention blob read failure"
-                    );
                 }
                 _ => {}
             }
