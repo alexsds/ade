@@ -85,6 +85,7 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
     cwd_display: &str,
     branch_status: Option<&BranchStatus>,
     diff_stats: Option<(usize, usize, usize)>,
+    is_code_review: bool,
     cx: &mut Context<V>,
     on_toggle: T,
 ) -> impl IntoElement + use<V, T> {
@@ -212,7 +213,11 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                     .on_click(cx.listener(move |this, _event, window, cx| {
                         on_toggle(this, window, cx);
                     }))
-                    .child("Code Review"),
+                    .child(if is_code_review {
+                        "Terminal"
+                    } else {
+                        "Code Review"
+                    }),
             )
         })
 }

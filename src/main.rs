@@ -680,6 +680,7 @@ impl Render for AdeWindow {
                     &cwd_display,
                     self.branch_status.as_ref(),
                     diff_stats,
+                    self.mode == Mode::CodeReview,
                     cx,
                     |this: &mut Self, _window, cx| {
                         this.mode = match this.mode {
