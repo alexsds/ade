@@ -329,6 +329,7 @@ fn collect_batch(
                         time_seconds: time.seconds(),
                         time_offset: time.offset_minutes(),
                         decorations: commit_decorations,
+                        is_ahead: false,
                     });
                     collected += 1;
                 }
@@ -338,6 +339,21 @@ fn collect_batch(
         }
     }
     commits
+}
+
+/// Look up the OID of the upstream tracking branch for the current HEAD.
+/// Returns None if HEAD is detached, no upstream is configured, or any lookup fails.
+fn get_upstream_oid(repo: &Repository) -> Option<Oid> {
+    // Stub -- to be implemented in GREEN phase
+    None
+}
+
+/// Mark commits that are ahead of the upstream tracking branch.
+/// Returns the number of commits ahead (for use in FetchMoreLog batching).
+/// If no upstream exists, returns 0 and leaves all commits unchanged.
+fn mark_ahead_commits(repo: &Repository, commits: &mut [CommitInfo]) -> usize {
+    // Stub -- to be implemented in GREEN phase
+    0
 }
 
 /// Build a map from commit OID to branch/tag decorations.
@@ -1623,5 +1639,142 @@ mod tests {
         let diff = compute_range_diff(&repo, oldest_oid, newest_oid)
             .expect("compute range diff with initial commit");
         assert!(!diff.files.is_empty(), "Range diff should have files");
+    }
+
+    // --- Upstream tracking / ahead-count tests (Phase 44, Plan 01) ---
+
+    #[test]
+    fn test_commit_info_construction_with_is_ahead() {
+        // Verify CommitInfo can be constructed with is_ahead = true and false
+        let ahead_commit = CommitInfo {
+            oid: "abc".to_string(),
+            summary: "ahead".to_string(),
+            body: None,
+            author_name: "A".to_string(),
+            author_email: "a@b".to_string(),
+            time_seconds: 1000,
+            time_offset: 0,
+            decorations: vec![],
+            is_ahead: true,
+        };
+        assert!(ahead_commit.is_ahead);
+
+        let behind_commit = CommitInfo {
+            oid: "def".to_string(),
+            summary: "behind".to_string(),
+            body: None,
+            author_name: "A".to_string(),
+            author_email: "a@b".to_string(),
+            time_seconds: 999,
+            time_offset: 0,
+            decorations: vec![],
+            is_ahead: false,
+        };
+        assert!(!behind_commit.is_ahead);
+    }
+
+    #[test]
+    fn test_get_upstream_oid_no_upstream() {
+        // Repo with no upstream configured should return None
+        let (_dir, repo) = create_test_repo();
+        let result = get_upstream_oid(&repo);
+        assert!(result.is_none(), "Should return None when no upstream configured");
+    }
+
+    #[test]
+    fn test_get_upstream_oid_detached_head() {
+        // Detached HEAD should return None
+        let (_dir, repo) = create_test_repo();
+        // Detach HEAD by checking out a commit directly
+        let head_oid = repo.head().unwrap().target().unwrap();
+        repo.set_head_detached(head_oid).unwrap();
+        let result = get_upstream_oid(&repo);
+        assert!(result.is_none(), "Should return None for detached HEAD");
+    }
+
+    #[test]
+    fn test_mark_ahead_commits_no_upstream() {
+        // When no upstream exists, all commits should remain is_ahead=false
+        let (_dir, repo) = create_test_repo();
+        let decorations = build_decoration_map(&repo);
+        let mut revwalk = repo.revwalk().unwrap();
+        revwalk.push_head().unwrap();
+        revwalk.set_sorting(Sort::TIME).unwrap();
+        let mut commits = collect_batch(&repo, &mut revwalk, 10, &decorations);
+
+        let ahead = mark_ahead_commits(&repo, &mut commits);
+        assert_eq!(ahead, 0, "Should return 0 when no upstream");
+        for commit in &commits {
+            assert!(!commit.is_ahead, "No commits should be marked ahead without upstream");
+        }
+    }
+
+    #[test]
+    fn test_mark_ahead_commits_detached_head() {
+        // When HEAD is detached, mark_ahead_commits should be a no-op
+        let (_dir, repo) = create_test_repo();
+        let head_oid = repo.head().unwrap().target().unwrap();
+        repo.set_head_detached(head_oid).unwrap();
+
+        let decorations = build_decoration_map(&repo);
+        let mut revwalk = repo.revwalk().unwrap();
+        revwalk.push(head_oid).unwrap();
+        revwalk.set_sorting(Sort::TIME).unwrap();
+        let mut commits = collect_batch(&repo, &mut revwalk, 10, &decorations);
+
+        let ahead = mark_ahead_commits(&repo, &mut commits);
+        assert_eq!(ahead, 0, "Should return 0 for detached HEAD");
+        for commit in &commits {
+            assert!(!commit.is_ahead, "No commits should be marked ahead with detached HEAD");
+        }
+    }
+
+    #[test]
+    fn test_mark_ahead_commits_with_upstream() {
+        // Create repo, set up a remote tracking ref, make commits ahead of it
+        let (_dir, repo) = create_test_repo(); // Has 2 commits on default branch
+
+        // Get the initial commit OID (the oldest one)
+        let mut revwalk = repo.revwalk().unwrap();
+        revwalk.push_head().unwrap();
+        revwalk.set_sorting(Sort::TIME | Sort::REVERSE).unwrap();
+        let initial_oid = revwalk.next().unwrap().unwrap();
+
+        // Get current branch name
+        let head = repo.head().unwrap();
+        let branch_name = head.shorthand().unwrap().to_string();
+
+        // Create a remote "origin" pointing at the repo itself (self-referential for testing)
+        repo.remote("origin", ".").unwrap();
+
+        // Create refs/remotes/origin/<branch> pointing at initial commit
+        repo.reference(
+            &format!("refs/remotes/origin/{}", branch_name),
+            initial_oid,
+            true,
+            "test",
+        )
+        .unwrap();
+
+        // Set upstream for the current branch
+        let mut local_branch = repo
+            .find_branch(&branch_name, git2::BranchType::Local)
+            .unwrap();
+        local_branch
+            .set_upstream(Some(&format!("origin/{}", branch_name)))
+            .unwrap();
+
+        // Now HEAD has 1 commit ahead of origin/<branch>
+        let decorations = build_decoration_map(&repo);
+        let mut rw = repo.revwalk().unwrap();
+        rw.push_head().unwrap();
+        rw.set_sorting(Sort::TIME).unwrap();
+        let mut commits = collect_batch(&repo, &mut rw, 10, &decorations);
+
+        let ahead = mark_ahead_commits(&repo, &mut commits);
+        assert_eq!(ahead, 1, "Should have 1 commit ahead");
+        assert_eq!(commits.len(), 2, "Should have 2 commits total");
+        assert!(commits[0].is_ahead, "First (newest) commit should be ahead");
+        assert!(!commits[1].is_ahead, "Second (oldest) commit should NOT be ahead");
     }
 }

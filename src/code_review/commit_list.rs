@@ -615,6 +615,7 @@ mod tests {
             time_seconds: 1000,
             time_offset: 0,
             decorations: vec![],
+            is_ahead: false,
         };
         let lines = build_description_lines(&commit);
         assert_eq!(lines.len(), 1); // summary only (metadata bar is separate)
@@ -632,6 +633,7 @@ mod tests {
             time_seconds: 1000,
             time_offset: 0,
             decorations: vec![],
+            is_ahead: false,
         };
         let lines = build_description_lines(&commit);
         assert_eq!(lines.len(), 3); // summary + 2 body (metadata bar is separate)

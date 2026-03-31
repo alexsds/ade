@@ -57,6 +57,7 @@ pub struct CommitInfo {
     pub time_seconds: i64, // seconds since epoch (from git2::Time)
     pub time_offset: i32,  // UTC offset in minutes (from git2::Time)
     pub decorations: Vec<Decoration>,
+    pub is_ahead: bool, // true if commit is ahead of upstream tracking branch
 }
 
 /// Status of the current branch
@@ -197,6 +198,7 @@ mod tests {
                     name: "v1.0".to_string(),
                 },
             ],
+            is_ahead: false,
         };
 
         assert_eq!(commit.oid, "abc1234");

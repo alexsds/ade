@@ -1592,6 +1592,7 @@ mod tests {
             time_seconds: 1000 - i as i64,
             time_offset: 0,
             decorations: vec![],
+            is_ahead: false,
         }
     }
 
