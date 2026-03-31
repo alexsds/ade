@@ -126,33 +126,45 @@ fn render_commit_row(
         row = row.hover(|style| style.bg(hover_bg));
     }
 
-    // Summary line with inline decoration badges
-    row = row.child(
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(t.spacing.xs)
-            .overflow_hidden()
-            // Summary text (truncated, takes remaining space)
-            .child(
-                div()
-                    .flex_shrink()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_xs()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(t.colors.text_primary)
-                    .child(commit.summary.clone()),
-            )
-            // Decoration badges (all of them, not just the first)
-            .children(
-                commit
-                    .decorations
-                    .iter()
-                    .map(|dec| render_decoration_badge(dec).into_any_element()),
-            ),
+    // Summary line with inline unpushed indicator and decoration badges
+    let mut summary_row = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(t.spacing.xs)
+        .overflow_hidden()
+        // Summary text (truncated, takes remaining space)
+        .child(
+            div()
+                .flex_shrink()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_xs()
+                .font_weight(FontWeight::BOLD)
+                .text_color(t.colors.text_primary)
+                .child(commit.summary.clone()),
+        );
+
+    // Unpushed commit indicator (CR-03): up-arrow in accent color
+    if commit.is_ahead {
+        summary_row = summary_row.child(
+            div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(t.colors.accent)
+                .child("\u{2191}"), // Unicode up arrow
+        );
+    }
+
+    // Decoration badges (all of them, not just the first)
+    summary_row = summary_row.children(
+        commit
+            .decorations
+            .iter()
+            .map(|dec| render_decoration_badge(dec).into_any_element()),
     );
+
+    row = row.child(summary_row);
 
     // Author + relative time line
     row = row.child(
