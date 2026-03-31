@@ -16,7 +16,7 @@ use crate::git::types::{CommitInfo, DiffData, FileChange, FileDiff};
 use crate::theme;
 use crate::toolbar::format_changes_label;
 use gpui::{
-    Context, FontWeight, IntoElement, ScrollStrategy, SharedString, Styled,
+    Context, FontWeight, IntoElement, RenderImage, ScrollStrategy, SharedString, Styled,
     UniformListScrollHandle, Window, div, prelude::*, px,
 };
 
@@ -136,6 +136,22 @@ pub struct CodeReviewPanel {
     /// oldest = commits[max(anchor,cursor)].oid, newest = commits[min(anchor,cursor)].oid.
     /// Polled by AdeWindow to request combined diff from GitProvider.
     pub pending_range_diff_request: Option<(String, String)>,
+
+    /// Decoded image for the currently selected file in History tab (if it's an image file).
+    /// Stored as Arc<RenderImage> ready for GPUI's img() element.
+    /// Image decode already happened on the background thread.
+    pub image_preview: Option<Arc<RenderImage>>,
+    /// State of image preview loading: None = not loading/not image, Some("loading") = in progress,
+    /// Some("loaded") = ready, Some("error") = decode error, Some("too_large") = exceeded 10MB.
+    pub image_preview_state: Option<String>,
+    /// Commit OID + path for pending blob request (History tab).
+    /// Polled by main.rs to dispatch FetchBlob to GitProvider.
+    pub pending_blob_request: Option<(String, String)>,
+
+    /// Decoded image for Changes tab selected file.
+    pub changes_image_preview: Option<Arc<RenderImage>>,
+    /// State of Changes tab image preview.
+    pub changes_image_preview_state: Option<String>,
 }
 
 impl CodeReviewPanel {
@@ -177,6 +193,11 @@ impl CodeReviewPanel {
             description_text_selection: text_selection::TextSelection::default(),
             file_path_text_selection: text_selection::TextSelection::default(),
             changes_file_path_text_selection: text_selection::TextSelection::default(),
+            image_preview: None,
+            image_preview_state: None,
+            pending_blob_request: None,
+            changes_image_preview: None,
+            changes_image_preview_state: None,
         }
     }
 
@@ -277,6 +298,9 @@ impl CodeReviewPanel {
         self.description_text_selection.clear();
         // Clear file path text selection on new diff load
         self.file_path_text_selection.clear();
+        // Clear image preview state on new diff load
+        self.image_preview = None;
+        self.image_preview_state = None;
 
         // Restore file selection by path (D-08), fall back to first if not found
         if let Some(ref path) = prev_file_path {
@@ -293,23 +317,64 @@ impl CodeReviewPanel {
 
     /// Set the image preview from a decoded RenderImage (History tab).
     /// Validates commit OID matches current selection to avoid stale data (Pitfall 5).
-    pub fn set_image_blob(
-        &mut self,
-        _commit_oid: &str,
-        _path: &str,
-        _image: Arc<gpui::RenderImage>,
-    ) {
-        // Stub: will be fully implemented in Task 2
+    pub fn set_image_blob(&mut self, commit_oid: &str, path: &str, image: Arc<RenderImage>) {
+        // Verify this blob matches the currently selected commit + file
+        let current_oid = self.selected_commit().map(|c| c.oid.as_str());
+        let current_path = self
+            .selected_file_index
+            .and_then(|i| self.files.get(i))
+            .map(|f| f.path.as_str());
+        if current_oid != Some(commit_oid) || current_path != Some(path) {
+            return; // Stale response, discard
+        }
+        self.image_preview = Some(image);
+        self.image_preview_state = Some("loaded".to_string());
     }
 
     /// Set error state for image blob (History tab).
-    pub fn set_image_blob_error(&mut self, _commit_oid: &str, _path: &str) {
-        // Stub: will be fully implemented in Task 2
+    pub fn set_image_blob_error(&mut self, commit_oid: &str, path: &str) {
+        let current_oid = self.selected_commit().map(|c| c.oid.as_str());
+        let current_path = self
+            .selected_file_index
+            .and_then(|i| self.files.get(i))
+            .map(|f| f.path.as_str());
+        if current_oid != Some(commit_oid) || current_path != Some(path) {
+            return;
+        }
+        self.image_preview = None;
+        self.image_preview_state = Some("error".to_string());
     }
 
     /// Set too-large state for image blob (History tab).
-    pub fn set_image_blob_too_large(&mut self, _commit_oid: &str, _path: &str) {
-        // Stub: will be fully implemented in Task 2
+    pub fn set_image_blob_too_large(&mut self, commit_oid: &str, path: &str) {
+        let current_oid = self.selected_commit().map(|c| c.oid.as_str());
+        let current_path = self
+            .selected_file_index
+            .and_then(|i| self.files.get(i))
+            .map(|f| f.path.as_str());
+        if current_oid != Some(commit_oid) || current_path != Some(path) {
+            return;
+        }
+        self.image_preview = None;
+        self.image_preview_state = Some("too_large".to_string());
+    }
+
+    /// Set the Changes tab image preview from a decoded RenderImage.
+    pub fn set_changes_image(&mut self, image: Arc<RenderImage>) {
+        self.changes_image_preview = Some(image);
+        self.changes_image_preview_state = Some("loaded".to_string());
+    }
+
+    /// Set Changes tab image preview error state.
+    pub fn set_changes_image_error(&mut self) {
+        self.changes_image_preview = None;
+        self.changes_image_preview_state = Some("error".to_string());
+    }
+
+    /// Set Changes tab image preview too-large state.
+    pub fn set_changes_image_too_large(&mut self) {
+        self.changes_image_preview = None;
+        self.changes_image_preview_state = Some("too_large".to_string());
     }
 
     /// Maximum commits the panel will hold (defense-in-depth, independent of provider cap).
@@ -351,6 +416,10 @@ impl CodeReviewPanel {
             self.diff_text_selection.clear();
             // Clear description text selection on commit switch
             self.description_text_selection.clear();
+            // Clear image preview state on commit switch
+            self.image_preview = None;
+            self.image_preview_state = None;
+            self.pending_blob_request = None;
         }
     }
 
@@ -360,6 +429,20 @@ impl CodeReviewPanel {
             self.clear_diff_selection();
             self.file_path_text_selection.clear();
             self.selected_file_index = Some(index);
+            // Check if image file -- request blob instead of showing diff
+            let path = &self.files[index].path;
+            if diff_view::is_image_file(path) {
+                self.image_preview = None;
+                self.image_preview_state = Some("loading".to_string());
+                // Need the commit OID for the blob request
+                if let Some(commit) = self.selected_commit() {
+                    self.pending_blob_request = Some((commit.oid.clone(), path.clone()));
+                }
+            } else {
+                self.image_preview = None;
+                self.image_preview_state = None;
+                self.pending_blob_request = None;
+            }
         }
     }
 
@@ -628,6 +711,16 @@ impl CodeReviewPanel {
             self.selected_changes_file_index = Some(index);
             self.pending_changes_diff_request = Some(self.changes_files[index].path.clone());
             self.changes_diff_scroll_top = 0;
+            // Check if image file for Changes tab
+            let path = &self.changes_files[index].path;
+            if diff_view::is_image_file(path) {
+                self.changes_image_preview = None;
+                self.changes_image_preview_state = Some("loading".to_string());
+                // Actual image loading happens in main.rs when pending_changes_diff_request is processed
+            } else {
+                self.changes_image_preview = None;
+                self.changes_image_preview_state = None;
+            }
         }
     }
 

@@ -976,6 +976,19 @@ fn main() {
                                         });
                                     }
 
+                                    // Poll for pending blob requests (CR-01 image preview)
+                                    let pending_blob = this
+                                        .code_review_panel
+                                        .read(cx)
+                                        .pending_blob_request
+                                        .clone();
+                                    if let Some((commit_oid, path)) = pending_blob {
+                                        this.git_provider.request_blob(&commit_oid, &path);
+                                        this.code_review_panel.update(cx, |panel, _cx| {
+                                            panel.pending_blob_request = None;
+                                        });
+                                    }
+
                                     // Check if CodeReviewPanel wants a range diff fetched
                                     let pending_range = this
                                         .code_review_panel
@@ -1016,6 +1029,53 @@ fn main() {
                                         this.code_review_panel.update(cx, |panel, _cx| {
                                             panel.pending_changes_diff_request = None;
                                         });
+                                        // If the file is an image, read from filesystem and decode
+                                        if crate::code_review::diff_view::is_image_file(&path) {
+                                            let full_path = this.current_git_cwd.join(&path);
+                                            match std::fs::read(&full_path) {
+                                                Ok(data) => {
+                                                    if data.len() > 10 * 1024 * 1024 {
+                                                        this.code_review_panel.update(
+                                                            cx,
+                                                            |panel, _cx| {
+                                                                panel.set_changes_image_too_large();
+                                                            },
+                                                        );
+                                                        cx.notify();
+                                                    } else {
+                                                        match crate::git::provider::decode_image_bytes(&data) {
+                                                            Ok(img) => {
+                                                                this.code_review_panel.update(
+                                                                    cx,
+                                                                    |panel, _cx| {
+                                                                        panel.set_changes_image(img);
+                                                                    },
+                                                                );
+                                                                cx.notify();
+                                                            }
+                                                            Err(_) => {
+                                                                this.code_review_panel.update(
+                                                                    cx,
+                                                                    |panel, _cx| {
+                                                                        panel.set_changes_image_error();
+                                                                    },
+                                                                );
+                                                                cx.notify();
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                Err(_) => {
+                                                    this.code_review_panel.update(
+                                                        cx,
+                                                        |panel, _cx| {
+                                                            panel.set_changes_image_error();
+                                                        },
+                                                    );
+                                                    cx.notify();
+                                                }
+                                            }
+                                        }
                                     }
 
                                     // Check if CodeReviewPanel wants a working tree file list fetched
