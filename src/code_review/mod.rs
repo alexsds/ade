@@ -124,6 +124,10 @@ pub struct CodeReviewPanel {
     pub changes_diff_text_selection: text_selection::TextSelection,
     /// Character-level text selection state for commit description area.
     pub description_text_selection: text_selection::TextSelection,
+    /// Character-level text selection state for History tab file path header.
+    pub file_path_text_selection: text_selection::TextSelection,
+    /// Character-level text selection state for Changes tab file path header.
+    pub changes_file_path_text_selection: text_selection::TextSelection,
 
     /// Anchor index for range selection (fixed end). When anchor == selected_commit_index,
     /// it is a single selection. Set on every select_commit call (D-02, Pitfall 1).
@@ -171,6 +175,8 @@ impl CodeReviewPanel {
             diff_text_selection: text_selection::TextSelection::default(),
             changes_diff_text_selection: text_selection::TextSelection::default(),
             description_text_selection: text_selection::TextSelection::default(),
+            file_path_text_selection: text_selection::TextSelection::default(),
+            changes_file_path_text_selection: text_selection::TextSelection::default(),
         }
     }
 
@@ -269,6 +275,8 @@ impl CodeReviewPanel {
         self.diff_text_selection.clear();
         // Clear description text selection on new diff load
         self.description_text_selection.clear();
+        // Clear file path text selection on new diff load
+        self.file_path_text_selection.clear();
 
         // Restore file selection by path (D-08), fall back to first if not found
         if let Some(ref path) = prev_file_path {
@@ -329,6 +337,7 @@ impl CodeReviewPanel {
     pub fn select_file(&mut self, index: usize) {
         if index < self.files.len() {
             self.clear_diff_selection();
+            self.file_path_text_selection.clear();
             self.selected_file_index = Some(index);
         }
     }
@@ -585,6 +594,8 @@ impl CodeReviewPanel {
         self.changes_diff_scroll_top = 0;
         // Clear diff text selection on new diff load (D-07)
         self.changes_diff_text_selection.clear();
+        // Clear file path text selection on new diff load
+        self.changes_file_path_text_selection.clear();
     }
 
     /// Select a Changes file by index. Triggers pending diff request for the selected file.
@@ -592,6 +603,7 @@ impl CodeReviewPanel {
     pub fn select_changes_file(&mut self, index: usize) {
         if index < self.changes_files.len() {
             self.clear_diff_selection();
+            self.changes_file_path_text_selection.clear();
             self.selected_changes_file_index = Some(index);
             self.pending_changes_diff_request = Some(self.changes_files[index].path.clone());
             self.changes_diff_scroll_top = 0;
@@ -604,6 +616,8 @@ impl CodeReviewPanel {
     /// Clears description selection (mutual exclusion per D-10).
     pub fn start_diff_drag(&mut self, row: usize, col: usize) {
         self.description_text_selection.clear();
+        self.file_path_text_selection.clear();
+        self.changes_file_path_text_selection.clear();
         match self.active_tab {
             ReviewTab::History => self.diff_text_selection.start_drag(row, col),
             ReviewTab::Changes => self.changes_diff_text_selection.start_drag(row, col),
@@ -663,6 +677,8 @@ impl CodeReviewPanel {
     /// Clears diff selection (mutual exclusion per D-10).
     pub fn start_description_drag(&mut self, row: usize, col: usize) {
         self.clear_diff_selection();
+        self.file_path_text_selection.clear();
+        self.changes_file_path_text_selection.clear();
         self.description_text_selection.start_drag(row, col);
     }
 
@@ -682,12 +698,54 @@ impl CodeReviewPanel {
         self.description_text_selection.clear();
     }
 
-    /// Copy text from whichever area has an active selection (description or diff).
+    // --- File path text selection methods (Phase 44, Plan 02) ---
+
+    /// Start a drag in the file path header area.
+    /// Clears diff and description selections (mutual exclusion).
+    pub fn start_file_path_drag(&mut self, col: usize) {
+        self.clear_diff_selection();
+        self.description_text_selection.clear();
+        match self.active_tab {
+            ReviewTab::History => self.file_path_text_selection.start_drag(0, col),
+            ReviewTab::Changes => self.changes_file_path_text_selection.start_drag(0, col),
+        }
+    }
+
+    /// Update the drag position in the file path header.
+    pub fn update_file_path_drag(&mut self, col: usize) {
+        match self.active_tab {
+            ReviewTab::History => self.file_path_text_selection.update_drag(0, col),
+            ReviewTab::Changes => self.changes_file_path_text_selection.update_drag(0, col),
+        }
+    }
+
+    /// End the current drag in the file path header.
+    pub fn end_file_path_drag(&mut self) {
+        match self.active_tab {
+            ReviewTab::History => self.file_path_text_selection.end_drag(),
+            ReviewTab::Changes => self.changes_file_path_text_selection.end_drag(),
+        }
+    }
+
+    /// Return a reference to the active tab's file path text selection state.
+    pub fn active_file_path_text_selection(&self) -> &text_selection::TextSelection {
+        match self.active_tab {
+            ReviewTab::History => &self.file_path_text_selection,
+            ReviewTab::Changes => &self.changes_file_path_text_selection,
+        }
+    }
+
+    /// Copy text from whichever area has an active selection (description, file path, or diff).
     /// Returns None if no selection exists in either area (D-13).
     pub fn copy_active_selection(&self) -> Option<String> {
         // Check description selection first (it's smaller, quick check)
         if !self.description_text_selection.is_empty() {
             return self.copy_selected_description_text();
+        }
+        // Check file path selection
+        let file_path_sel = self.active_file_path_text_selection();
+        if !file_path_sel.is_empty() {
+            return self.copy_selected_file_path_text();
         }
         // Then check diff selection
         self.copy_selected_diff_text()
@@ -743,6 +801,35 @@ impl CodeReviewPanel {
         } else {
             Some(result_lines.join("\n"))
         }
+    }
+
+    /// Extract selected text from the file path header.
+    fn copy_selected_file_path_text(&self) -> Option<String> {
+        let sel = self.active_file_path_text_selection();
+        let (start, end) = sel.normalized_range()?;
+        let (_start_row, start_col) = start;
+        let (_end_row, end_col) = end;
+
+        // Get the file path string
+        let path = match self.active_tab {
+            ReviewTab::History => {
+                let file_index = self.selected_file_index?;
+                let diff_data = self.diff_data.as_ref()?;
+                diff_data.file_diffs.get(file_index)?.path.clone()
+            }
+            ReviewTab::Changes => {
+                let diff_data = self.changes_diff_data.as_ref()?;
+                diff_data.file_diffs.first()?.path.clone()
+            }
+        };
+
+        let chars: Vec<char> = path.chars().collect();
+        let col_start = start_col.min(chars.len());
+        let col_end = end_col.min(chars.len());
+        if col_start >= col_end {
+            return None;
+        }
+        Some(chars[col_start..col_end].iter().collect())
     }
 
     // --- Range selection methods (Phase 27) ---
@@ -3538,5 +3625,186 @@ mod tests {
         };
         panel.set_diff(diff);
         assert!(panel.description_text_selection.is_empty());
+    }
+
+    // --- File path text selection tests (Phase 44, Plan 02) ---
+
+    #[test]
+    fn test_start_file_path_drag_clears_diff_selection() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.diff_text_selection.start_drag(2, 0);
+        panel.diff_text_selection.update_drag(5, 10);
+        assert!(!panel.diff_text_selection.is_empty());
+        panel.start_file_path_drag(3);
+        assert!(panel.diff_text_selection.is_empty());
+        assert!(!panel.file_path_text_selection.is_empty());
+    }
+
+    #[test]
+    fn test_start_file_path_drag_clears_description_selection() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.description_text_selection.start_drag(0, 0);
+        panel.description_text_selection.update_drag(1, 5);
+        assert!(!panel.description_text_selection.is_empty());
+        panel.start_file_path_drag(3);
+        assert!(panel.description_text_selection.is_empty());
+    }
+
+    #[test]
+    fn test_start_diff_drag_clears_file_path_selection() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.file_path_text_selection.start_drag(0, 0);
+        panel.file_path_text_selection.update_drag(0, 10);
+        assert!(!panel.file_path_text_selection.is_empty());
+        panel.start_diff_drag(2, 3);
+        assert!(panel.file_path_text_selection.is_empty());
+    }
+
+    #[test]
+    fn test_start_description_drag_clears_file_path_selection() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.file_path_text_selection.start_drag(0, 0);
+        panel.file_path_text_selection.update_drag(0, 10);
+        assert!(!panel.file_path_text_selection.is_empty());
+        panel.start_description_drag(0, 0);
+        assert!(panel.file_path_text_selection.is_empty());
+    }
+
+    #[test]
+    fn test_select_file_clears_file_path_selection() {
+        let mut panel = CodeReviewPanel::new();
+        panel.files = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            },
+        ];
+        panel.active_tab = ReviewTab::History;
+        panel.file_path_text_selection.start_drag(0, 0);
+        panel.file_path_text_selection.update_drag(0, 5);
+        panel.select_file(1);
+        assert!(panel.file_path_text_selection.is_empty());
+    }
+
+    #[test]
+    fn test_select_changes_file_clears_file_path_selection() {
+        let mut panel = CodeReviewPanel::new();
+        panel.changes_files = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            },
+        ];
+        panel.active_tab = ReviewTab::Changes;
+        panel.changes_file_path_text_selection.start_drag(0, 0);
+        panel.changes_file_path_text_selection.update_drag(0, 5);
+        panel.select_changes_file(1);
+        assert!(panel.changes_file_path_text_selection.is_empty());
+    }
+
+    #[test]
+    fn test_copy_file_path_text() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.selected_file_index = Some(0);
+        panel.diff_data = Some(DiffData {
+            files: vec![FileChange {
+                path: "src/main.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            }],
+            file_diffs: vec![FileDiff {
+                path: "src/main.rs".to_string(),
+                additions: 1,
+                deletions: 0,
+                hunks: vec![],
+            }],
+        });
+        // Select "src/" (chars 0..4)
+        panel.file_path_text_selection.anchor = Some((0, 0));
+        panel.file_path_text_selection.cursor = Some((0, 4));
+        let result = panel.copy_active_selection();
+        assert_eq!(result, Some("src/".to_string()));
+    }
+
+    #[test]
+    fn test_copy_file_path_text_full_path() {
+        let mut panel = CodeReviewPanel::new();
+        panel.active_tab = ReviewTab::History;
+        panel.selected_file_index = Some(0);
+        panel.diff_data = Some(DiffData {
+            files: vec![FileChange {
+                path: "src/main.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            }],
+            file_diffs: vec![FileDiff {
+                path: "src/main.rs".to_string(),
+                additions: 1,
+                deletions: 0,
+                hunks: vec![],
+            }],
+        });
+        // Select full path (chars 0..11)
+        panel.file_path_text_selection.anchor = Some((0, 0));
+        panel.file_path_text_selection.cursor = Some((0, 11));
+        let result = panel.copy_active_selection();
+        assert_eq!(result, Some("src/main.rs".to_string()));
+    }
+
+    #[test]
+    fn test_file_path_selection_clears_on_set_diff() {
+        let mut panel = CodeReviewPanel::new();
+        panel.file_path_text_selection.start_drag(0, 0);
+        panel.file_path_text_selection.update_drag(0, 5);
+        assert!(!panel.file_path_text_selection.is_empty());
+        let diff = DiffData {
+            files: vec![],
+            file_diffs: vec![],
+        };
+        panel.set_diff(diff);
+        assert!(panel.file_path_text_selection.is_empty());
+    }
+
+    #[test]
+    fn test_file_path_selection_clears_on_set_changes_diff() {
+        let mut panel = CodeReviewPanel::new();
+        panel.changes_file_path_text_selection.start_drag(0, 0);
+        panel.changes_file_path_text_selection.update_drag(0, 5);
+        assert!(!panel.changes_file_path_text_selection.is_empty());
+        let diff = DiffData {
+            files: vec![],
+            file_diffs: vec![],
+        };
+        panel.set_changes_diff(diff);
+        assert!(panel.changes_file_path_text_selection.is_empty());
     }
 }
