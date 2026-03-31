@@ -582,13 +582,16 @@ fn render_file_header(
         None
     };
 
-    let padding_px = f32::from(t.spacing.md); // 16px left padding
-
     // Bounds tracking for pixel-to-character conversion
     let header_bounds: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
     let bounds_for_canvas = header_bounds.clone();
     let bounds_for_down = header_bounds.clone();
     let bounds_for_move = header_bounds.clone();
+
+    let sel_bg = t.colors.selection_bg;
+    let is_fully_selected = sel_range
+        .map(|(s, e)| s == 0 && e >= path_len)
+        .unwrap_or(false);
 
     let mut header_div = div()
         .id("file-header")
@@ -604,6 +607,10 @@ fn render_file_header(
         .items_center()
         .cursor_text()
         .relative()
+        .font_family(font("Menlo").family)
+        .text_size(t.typography.body.size)
+        .font_weight(FontWeight::BOLD)
+        .text_color(t.colors.text_primary)
         .child(
             canvas(
                 {
@@ -621,19 +628,16 @@ fn render_file_header(
             let on_start = on_drag_start.clone();
             move |event, window, cx| {
                 let b = bounds_for_down.get();
-                let local_x = f32::from(event.position.x) - f32::from(b.origin.x) - padding_px;
+                let local_x = f32::from(event.position.x) - f32::from(b.origin.x);
                 let t_inner = theme::theme();
                 let char_w = super::text_selection::measure_text_width(
                     window,
                     "M",
-                    t_inner.typography.heading.size,
+                    t_inner.typography.body.size,
                     Some(FontWeight::BOLD),
                 );
-                let col = if local_x < 0.0 || char_w <= 0.0 {
-                    0
-                } else {
-                    (local_x / char_w) as usize
-                };
+                // Truncate to get the character index under the cursor
+                let col = (local_x / char_w).max(0.0) as usize;
                 on_start(col, window, cx);
             }
         })
@@ -642,19 +646,16 @@ fn render_file_header(
             move |event, window, cx| {
                 if event.dragging() {
                     let b = bounds_for_move.get();
-                    let local_x = f32::from(event.position.x) - f32::from(b.origin.x) - padding_px;
+                    let local_x = f32::from(event.position.x) - f32::from(b.origin.x);
                     let t_inner = theme::theme();
                     let char_w = super::text_selection::measure_text_width(
                         window,
                         "M",
-                        t_inner.typography.heading.size,
+                        t_inner.typography.body.size,
                         Some(FontWeight::BOLD),
                     );
-                    let col = if local_x < 0.0 || char_w <= 0.0 {
-                        0
-                    } else {
-                        (local_x / char_w) as usize
-                    };
+                    // Round to snap to nearest character boundary
+                    let col = (local_x / char_w).max(0.0).round() as usize;
                     on_move(col, window, cx);
                 }
             }
@@ -665,35 +666,33 @@ fn render_file_header(
                 on_end(window, cx);
             }
         })
-        .child(
-            div()
-                .text_xs()
-                .font_weight(FontWeight::BOLD)
-                .text_color(t.colors.text_primary)
-                .child(path_string),
-        );
+;
 
-    // Selection overlay
-    if let Some((start_col, end_col)) = sel_range {
+    if is_fully_selected {
+        header_div = header_div.bg(sel_bg);
+        header_div = header_div.child(path_string);
+    } else if let Some((start_col, end_col)) = sel_range {
         if end_col > start_col {
-            // Use a fixed monospace char width estimate for overlay positioning.
-            // The exact char_w from measure_text_width requires a Window reference
-            // which isn't available in this pure render path. Since the header uses
-            // text_xs (12px) + BOLD Menlo, a good estimate is ~7.2px per char.
-            // This aligns with the same approach used in diff row rendering.
-            let char_w_estimate = 7.2_f32;
-            let start_px = start_col as f32 * char_w_estimate;
-            let width_px = (end_col - start_col) as f32 * char_w_estimate;
+            let byte_start: usize =
+                path_string.chars().take(start_col).map(|c| c.len_utf8()).sum();
+            let byte_end: usize =
+                path_string.chars().take(end_col).map(|c| c.len_utf8()).sum();
+            let highlights = vec![(
+                byte_start..byte_end,
+                HighlightStyle {
+                    background_color: Some(sel_bg),
+                    ..Default::default()
+                },
+            )];
             header_div = header_div.child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left(px(padding_px + start_px))
-                    .w(px(width_px))
-                    .h_full()
-                    .bg(t.colors.selection_bg),
+                StyledText::new(SharedString::from(path_string))
+                    .with_highlights(highlights),
             );
+        } else {
+            header_div = header_div.child(path_string);
         }
+    } else {
+        header_div = header_div.child(path_string);
     }
 
     header_div
