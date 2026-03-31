@@ -291,6 +291,27 @@ impl CodeReviewPanel {
         }
     }
 
+    /// Set the image preview from a decoded RenderImage (History tab).
+    /// Validates commit OID matches current selection to avoid stale data (Pitfall 5).
+    pub fn set_image_blob(
+        &mut self,
+        _commit_oid: &str,
+        _path: &str,
+        _image: Arc<gpui::RenderImage>,
+    ) {
+        // Stub: will be fully implemented in Task 2
+    }
+
+    /// Set error state for image blob (History tab).
+    pub fn set_image_blob_error(&mut self, _commit_oid: &str, _path: &str) {
+        // Stub: will be fully implemented in Task 2
+    }
+
+    /// Set too-large state for image blob (History tab).
+    pub fn set_image_blob_too_large(&mut self, _commit_oid: &str, _path: &str) {
+        // Stub: will be fully implemented in Task 2
+    }
+
     /// Maximum commits the panel will hold (defense-in-depth, independent of provider cap).
     const MAX_PANEL_COMMITS: usize = 50_000;
 

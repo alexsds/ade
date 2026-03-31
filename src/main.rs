@@ -923,6 +923,41 @@ fn main() {
                                             git::GitResponse::Error(msg) => {
                                                 eprintln!("Git error: {}", msg);
                                             }
+                                            git::GitResponse::BlobData {
+                                                commit_oid,
+                                                path,
+                                                image,
+                                            } => {
+                                                this.code_review_panel.update(cx, |panel, _cx| {
+                                                    panel.set_image_blob(&commit_oid, &path, image);
+                                                });
+                                                cx.notify();
+                                            }
+                                            git::GitResponse::BlobError {
+                                                commit_oid,
+                                                path,
+                                                error: _,
+                                            } => {
+                                                this.code_review_panel.update(cx, |panel, _cx| {
+                                                    panel.set_image_blob_error(
+                                                        &commit_oid,
+                                                        &path,
+                                                    );
+                                                });
+                                                cx.notify();
+                                            }
+                                            git::GitResponse::BlobTooLarge {
+                                                commit_oid,
+                                                path,
+                                            } => {
+                                                this.code_review_panel.update(cx, |panel, _cx| {
+                                                    panel.set_image_blob_too_large(
+                                                        &commit_oid,
+                                                        &path,
+                                                    );
+                                                });
+                                                cx.notify();
+                                            }
                                         }
                                     }
 

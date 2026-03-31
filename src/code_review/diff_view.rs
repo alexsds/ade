@@ -699,6 +699,15 @@ fn render_file_header(
     header_div
 }
 
+/// Check if a file path has an image extension (case-insensitive).
+pub fn is_image_file(path: &str) -> bool {
+    let ext = path.rsplit('.').next().unwrap_or("").to_lowercase();
+    matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "tiff" | "tif" | "avif"
+    )
+}
+
 /// Render the empty state placeholder when no file is selected.
 pub fn render_diff_empty() -> impl IntoElement {
     let t = theme::theme();
@@ -1097,6 +1106,36 @@ mod tests {
             fp_noop_move,
             fp_noop_end,
         );
+    }
+
+    #[test]
+    fn test_is_image_file_png() {
+        assert!(is_image_file("photo.png"));
+        assert!(is_image_file("photo.PNG"));
+        assert!(is_image_file("dir/sub/photo.png"));
+    }
+
+    #[test]
+    fn test_is_image_file_various_extensions() {
+        assert!(is_image_file("a.jpg"));
+        assert!(is_image_file("a.jpeg"));
+        assert!(is_image_file("a.gif"));
+        assert!(is_image_file("a.webp"));
+        assert!(is_image_file("a.svg"));
+        assert!(is_image_file("a.bmp"));
+        assert!(is_image_file("a.ico"));
+        assert!(is_image_file("a.tiff"));
+        assert!(is_image_file("a.tif"));
+        assert!(is_image_file("a.avif"));
+    }
+
+    #[test]
+    fn test_is_image_file_non_image() {
+        assert!(!is_image_file("code.rs"));
+        assert!(!is_image_file("readme.md"));
+        assert!(!is_image_file("noext"));
+        assert!(!is_image_file("Makefile"));
+        assert!(!is_image_file("data.json"));
     }
 
     #[test]

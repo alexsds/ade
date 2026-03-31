@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
 
@@ -24,6 +25,9 @@ const MAX_DIFF_LINES: usize = 500_000;
 /// Lines exceeding this are truncated with a marker.
 const MAX_LINE_LENGTH: usize = 10_000;
 
+/// Maximum blob size for image preview (10MB).
+const MAX_IMAGE_BLOB_SIZE: usize = 10 * 1024 * 1024;
+
 /// Requests that can be sent to the git background thread.
 pub enum GitRequest {
     FetchLog {
@@ -44,6 +48,10 @@ pub enum GitRequest {
     FetchWorkingTreeDiff {
         path: String,
     },
+    FetchBlob {
+        commit_oid: String,
+        path: String,
+    },
 }
 
 /// Responses from the git background thread.
@@ -59,6 +67,23 @@ pub enum GitResponse {
     Error(String),
     WorkingTreeFiles(Vec<FileChange>),
     WorkingTreeDiff(DiffData),
+    /// Decoded image blob, ready to render. Decode happened on background thread.
+    BlobData {
+        commit_oid: String,
+        path: String,
+        image: Arc<gpui::RenderImage>,
+    },
+    /// Blob fetch or decode error.
+    BlobError {
+        commit_oid: String,
+        path: String,
+        error: String,
+    },
+    /// Blob exceeded the 10MB size limit.
+    BlobTooLarge {
+        commit_oid: String,
+        path: String,
+    },
 }
 
 /// Git data provider that runs operations on a background thread.
@@ -209,6 +234,43 @@ impl GitProvider {
                             Err(e) => GitResponse::Error(format!("Working tree diff: {}", e)),
                         }
                     }
+                    GitRequest::FetchBlob { commit_oid, path } => {
+                        match Oid::from_str(&commit_oid) {
+                            Ok(oid) => match read_blob_from_commit(&repo, oid, &path) {
+                                Ok(data) => {
+                                    if data.len() > MAX_IMAGE_BLOB_SIZE {
+                                        GitResponse::BlobTooLarge { commit_oid, path }
+                                    } else {
+                                        match decode_image_bytes(&data) {
+                                            Ok(image) => GitResponse::BlobData {
+                                                commit_oid,
+                                                path,
+                                                image,
+                                            },
+                                            Err(e) => GitResponse::BlobError {
+                                                commit_oid,
+                                                path,
+                                                error: e,
+                                            },
+                                        }
+                                    }
+                                }
+                                Err(e) => GitResponse::BlobError {
+                                    error: format!("Failed to read blob: {}", e),
+                                    commit_oid,
+                                    path,
+                                },
+                            },
+                            Err(e) => {
+                                let error = format!("Invalid OID '{}': {}", commit_oid, e);
+                                GitResponse::BlobError {
+                                    commit_oid,
+                                    path,
+                                    error,
+                                }
+                            }
+                        }
+                    }
                 };
                 if response_tx.send(response).is_err() {
                     break;
@@ -302,6 +364,20 @@ impl GitProvider {
         }
     }
 
+    /// Request a file blob from a specific commit tree.
+    pub fn request_blob(&self, commit_oid: &str, path: &str) {
+        if self
+            .request_tx
+            .send(GitRequest::FetchBlob {
+                commit_oid: commit_oid.to_string(),
+                path: path.to_string(),
+            })
+            .is_err()
+        {
+            tracing::warn!("Git background thread disconnected (FetchBlob)");
+        }
+    }
+
     /// Non-blocking poll for responses from the background thread.
     pub fn try_recv(&self) -> Option<GitResponse> {
         self.response_rx.try_recv().ok()
@@ -388,6 +464,40 @@ fn mark_ahead_commits(repo: &Repository, commits: &mut [CommitInfo]) -> usize {
         commit.is_ahead = true;
     }
     ahead
+}
+
+/// Read a blob (file content) from a specific commit's tree.
+fn read_blob_from_commit(
+    repo: &Repository,
+    commit_oid: Oid,
+    file_path: &str,
+) -> Result<Vec<u8>, git2::Error> {
+    let commit = repo.find_commit(commit_oid)?;
+    let tree = commit.tree()?;
+    let entry = tree.get_path(std::path::Path::new(file_path))?;
+    let blob = repo.find_blob(entry.id())?;
+    Ok(blob.content().to_vec())
+}
+
+/// Decode image bytes into a GPUI RenderImage.
+/// Converts from RGBA to BGRA pixel format as required by GPUI/Metal.
+/// Called on the background thread to avoid blocking the UI.
+pub fn decode_image_bytes(bytes: &[u8]) -> Result<Arc<gpui::RenderImage>, String> {
+    use image::Frame;
+    use smallvec::SmallVec;
+    let dynamic =
+        image::load_from_memory(bytes).map_err(|e| format!("Image decode error: {}", e))?;
+    let mut rgba = dynamic.into_rgba8();
+    // GPUI expects BGRA, not RGBA (Pitfall 1 from RESEARCH.md)
+    for pixel in rgba.pixels_mut() {
+        let r = pixel.0[0];
+        pixel.0[0] = pixel.0[2];
+        pixel.0[2] = r;
+    }
+    let frame = Frame::new(rgba);
+    Ok(Arc::new(gpui::RenderImage::new(SmallVec::from_elem(
+        frame, 1,
+    ))))
 }
 
 /// Build a map from commit OID to branch/tag decorations.
@@ -1770,6 +1880,120 @@ mod tests {
                 "No commits should be marked ahead with detached HEAD"
             );
         }
+    }
+
+    #[test]
+    fn test_read_blob_from_commit() {
+        let (_dir, repo) = create_test_repo();
+        let head_oid = repo.head().unwrap().target().unwrap();
+        let data = read_blob_from_commit(&repo, head_oid, "hello.txt").unwrap();
+        assert_eq!(std::str::from_utf8(&data).unwrap(), "hello world\nline 2\n");
+    }
+
+    #[test]
+    fn test_read_blob_nonexistent_path() {
+        let (_dir, repo) = create_test_repo();
+        let head_oid = repo.head().unwrap().target().unwrap();
+        let result = read_blob_from_commit(&repo, head_oid, "nonexistent.txt");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_image_bytes_valid_png() {
+        // Create a minimal 2x2 RGBA PNG image in memory
+        use image::{ImageBuffer, Rgba};
+        let mut img_buf: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(2, 2);
+        img_buf.put_pixel(0, 0, Rgba([255, 0, 0, 255]));
+        img_buf.put_pixel(1, 0, Rgba([0, 255, 0, 255]));
+        img_buf.put_pixel(0, 1, Rgba([0, 0, 255, 255]));
+        img_buf.put_pixel(1, 1, Rgba([255, 255, 255, 255]));
+
+        // Encode as PNG bytes
+        let mut png_bytes: Vec<u8> = Vec::new();
+        let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
+        image::ImageEncoder::write_image(
+            encoder,
+            img_buf.as_raw(),
+            2,
+            2,
+            image::ExtendedColorType::Rgba8,
+        )
+        .unwrap();
+
+        // Decode and verify it succeeds
+        let render_image = decode_image_bytes(&png_bytes);
+        assert!(
+            render_image.is_ok(),
+            "decode_image_bytes should succeed for valid PNG"
+        );
+    }
+
+    #[test]
+    fn test_decode_image_bytes_invalid_data() {
+        let garbage = b"this is not an image";
+        let result = decode_image_bytes(garbage);
+        assert!(
+            result.is_err(),
+            "decode_image_bytes should fail for non-image data"
+        );
+    }
+
+    #[test]
+    fn test_fetch_blob_via_provider() {
+        let (_dir, repo) = create_test_repo();
+        let repo_path = repo.workdir().expect("workdir").to_path_buf();
+        let head_oid = repo.head().unwrap().target().unwrap().to_string();
+        let provider = GitProvider::new(repo_path);
+        provider.request_blob(&head_oid, "hello.txt");
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let mut got_response = false;
+        while let Some(response) = provider.try_recv() {
+            match response {
+                GitResponse::BlobError {
+                    commit_oid,
+                    path,
+                    error: _,
+                } => {
+                    // For text files, decode_image_bytes will fail. This is expected.
+                    got_response = true;
+                    assert_eq!(commit_oid, head_oid);
+                    assert_eq!(path, "hello.txt");
+                }
+                _ => {}
+            }
+        }
+        assert!(
+            got_response,
+            "Should receive a BlobError response (text file can't decode as image)"
+        );
+    }
+
+    #[test]
+    fn test_fetch_blob_nonexistent_file() {
+        let (_dir, repo) = create_test_repo();
+        let repo_path = repo.workdir().expect("workdir").to_path_buf();
+        let head_oid = repo.head().unwrap().target().unwrap().to_string();
+        let provider = GitProvider::new(repo_path);
+        provider.request_blob(&head_oid, "nonexistent_file.png");
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let mut got_error = false;
+        while let Some(response) = provider.try_recv() {
+            match response {
+                GitResponse::BlobError {
+                    commit_oid: _,
+                    path: _,
+                    error,
+                } => {
+                    got_error = true;
+                    assert!(
+                        error.contains("Failed to read blob"),
+                        "Error should mention blob read failure"
+                    );
+                }
+                _ => {}
+            }
+        }
+        assert!(got_error, "Should receive a BlobError for nonexistent file");
     }
 
     #[test]
