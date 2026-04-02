@@ -5,7 +5,7 @@
 //! dirty/clean indicator on the left, and a "Code Review" toggle button
 //! on the right.
 
-use gpui::{Context, FontWeight, IntoElement, Styled, div, prelude::*};
+use gpui::{Context, FontWeight, IntoElement, Styled, div, prelude::*, px};
 
 use crate::git::types::{BranchStatus, FileChange};
 use crate::theme;
@@ -202,12 +202,18 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
             el.child(
                 div()
                     .id("code-review-btn")
-                    .px(t.spacing.sm)
-                    .py(t.spacing.xs)
-                    .rounded(t.spacing.xs)
-                    .bg(t.colors.button_bg)
+                    .h(px(28.0))
+                    .px(px(10.0))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(6.0))
+                    .rounded(px(8.0))
+                    .bg(t.colors.bg_surface)
+                    .border_1()
+                    .border_color(t.colors.border_default)
                     .text_xs()
-                    .text_color(t.colors.text_primary)
+                    .text_color(t.colors.text_secondary)
                     .cursor_pointer()
                     .hover(|style| style.bg(t.colors.button_accent_hover))
                     .on_click(cx.listener(move |this, _event, window, cx| {
