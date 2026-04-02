@@ -1272,9 +1272,9 @@ mod tests {
         assert!(has_feature, "Should find 'feature' branch decoration");
 
         // HEAD decoration should be present
-        let has_head = map.values().any(|decorations| {
-            decorations.iter().any(|d| matches!(d, Decoration::Head))
-        });
+        let has_head = map
+            .values()
+            .any(|decorations| decorations.iter().any(|d| matches!(d, Decoration::Head)));
         assert!(has_head, "Should find HEAD decoration");
     }
 

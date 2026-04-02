@@ -226,11 +226,7 @@ fn render_decoration_badge(decoration: &Decoration) -> impl IntoElement {
             t.colors.badge_branch_bg,
             t.colors.badge_branch_text,
         ),
-        Decoration::Tag { name } => (
-            name.clone(),
-            t.colors.badge_tag_bg,
-            t.colors.badge_tag_text,
-        ),
+        Decoration::Tag { name } => (name.clone(), t.colors.badge_tag_bg, t.colors.badge_tag_text),
         Decoration::Head => (
             "HEAD".to_string(),
             t.colors.badge_head_bg,
