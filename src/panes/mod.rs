@@ -373,8 +373,20 @@ impl Render for PaneContainer {
         let weak_move = weak.clone();
         let weak_up = weak;
 
-        div()
-            .size_full()
+        // PANE-02: Lock resize cursor on full container during active drag
+        // to prevent flickering when mouse moves off the 8px divider hit area.
+        let mut container = div().size_full();
+        match self.dragging_divider.as_ref().map(|d| d.direction) {
+            Some(SplitDirection::Vertical) => {
+                container = container.cursor_col_resize();
+            }
+            Some(SplitDirection::Horizontal) => {
+                container = container.cursor_row_resize();
+            }
+            None => {}
+        }
+
+        container
             .on_mouse_move(
                 move |event: &gpui::MouseMoveEvent,
                       window: &mut gpui::Window,
