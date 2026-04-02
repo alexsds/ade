@@ -34,7 +34,7 @@ pub fn render_tab_bar<V: 'static>(
         let tab_bg = if is_active {
             t.colors.bg_elevated
         } else {
-            t.colors.bg_surface
+            t.colors.bg_panel
         };
 
         let tab_text_color = if is_active {
@@ -113,7 +113,7 @@ pub fn render_tab_bar<V: 'static>(
         .flex()
         .flex_row()
         .items_center()
-        .bg(t.colors.bg_surface)
+        .bg(t.colors.bg_panel)
         .border_b_1()
         .border_color(t.colors.border_default)
         // Tabs container: flex-1 with overflow hidden for squeeze behavior (D-07)
