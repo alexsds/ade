@@ -70,7 +70,6 @@ pub struct ThemeColors {
     pub badge_head_text: Hsla,
     pub badge_remote_bg: Hsla,
     pub badge_remote_text: Hsla,
-
 }
 
 impl ThemeColors {
