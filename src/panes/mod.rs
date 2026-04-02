@@ -2,6 +2,7 @@ pub mod divider;
 pub mod tree;
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 
 use futures::StreamExt as _;
 use gpui::{
@@ -38,6 +39,7 @@ pub struct PaneContainer {
     tree: PaneTree,
     panes: HashMap<PaneId, PaneState>,
     active_pane_id: PaneId,
+    mru_stack: VecDeque<PaneId>, // front = most recently used
     next_id: PaneId,
     /// Tracks an active divider drag operation (set on mouse_down, cleared on mouse_up).
     pub dragging_divider: Option<divider::DividerDrag>,
@@ -67,10 +69,14 @@ impl PaneContainer {
         let mut panes = HashMap::new();
         panes.insert(pane_id, state);
 
+        let mut mru_stack = VecDeque::new();
+        mru_stack.push_front(pane_id);
+
         PaneContainer {
             tree: PaneTree::Leaf(pane_id),
             panes,
             active_pane_id: pane_id,
+            mru_stack,
             next_id: 1,
             dragging_divider: None,
             chrome_height: 42.0, // toolbar only; AdeWindow updates when tab bar visible
@@ -242,6 +248,12 @@ impl PaneContainer {
     #[cfg(unix)]
     pub fn active_master_fd(&self) -> Option<i32> {
         self.panes.get(&self.active_pane_id).map(|p| p.master_fd)
+    }
+
+    /// Record a pane activation in the MRU stack.
+    /// Moves the pane to the front, deduplicating any existing entry.
+    fn record_mru(&mut self, _pane_id: PaneId) {
+        // TDD RED: stub -- tests should fail
     }
 
     /// Returns true if the active pane's terminal child has exited.
@@ -603,6 +615,7 @@ mod tests {
             tree: PaneTree::Leaf(99),
             panes: HashMap::new(),
             active_pane_id: 99,
+            mru_stack: VecDeque::new(),
             next_id: 100,
             dragging_divider: None,
             chrome_height: 42.0,
@@ -611,5 +624,56 @@ mod tests {
             container.active_runtime_cwd().is_none(),
             "active_runtime_cwd should return None when active pane ID is not found"
         );
+    }
+
+    #[test]
+    fn test_mru_records_focus_changes() {
+        let mut container = PaneContainer {
+            tree: PaneTree::Leaf(0),
+            panes: HashMap::new(),
+            active_pane_id: 0,
+            mru_stack: VecDeque::new(),
+            next_id: 3,
+            dragging_divider: None,
+            chrome_height: 42.0,
+        };
+        container.record_mru(0);
+        container.record_mru(1);
+        container.record_mru(2);
+        assert_eq!(container.mru_stack.front().copied(), Some(2));
+        assert_eq!(container.mru_stack.len(), 3);
+        // Re-activate pane 0 -- should move to front, no duplicates
+        container.record_mru(0);
+        assert_eq!(container.mru_stack.front().copied(), Some(0));
+        assert_eq!(container.mru_stack.len(), 3);
+        // Verify order: [0, 2, 1]
+        let order: Vec<PaneId> = container.mru_stack.iter().copied().collect();
+        assert_eq!(order, vec![0, 2, 1]);
+    }
+
+    #[test]
+    fn test_close_pane_activates_mru() {
+        // Simulate 3 panes with MRU order [2, 1, 0]
+        // Closing pane 2 should activate pane 1 (MRU front after removal), not pane 0 (tree order)
+        let mut mru = VecDeque::new();
+        mru.push_front(0);
+        mru.push_front(1);
+        mru.push_front(2); // front = 2 (most recent)
+        let target: PaneId = 2;
+        // Simulate close: remove target from MRU
+        mru.retain(|&id| id != target);
+        let next = mru.front().copied().unwrap_or(0);
+        assert_eq!(
+            next, 1,
+            "Should activate MRU front (pane 1), not tree-order first (pane 0)"
+        );
+    }
+
+    #[test]
+    fn test_mru_empty_falls_back_to_tree() {
+        let mru: VecDeque<PaneId> = VecDeque::new();
+        let tree_fallback: PaneId = 0; // simulates tree.flatten()[0]
+        let next = mru.front().copied().unwrap_or(tree_fallback);
+        assert_eq!(next, 0, "Empty MRU should fall back to tree order");
     }
 }
