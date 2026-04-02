@@ -83,11 +83,8 @@ fn render_commit_row(
     on_select: Arc<dyn Fn(usize, bool, &mut Window, &mut App) + 'static>,
     is_active: bool,
 ) -> impl IntoElement {
-    let author_time = format!(
-        "{} -- {}",
-        commit.author_name,
-        format_relative_time(commit.time_seconds, commit.time_offset)
-    );
+    let author_name = commit.author_name.clone();
+    let relative_time = format_relative_time(commit.time_seconds, commit.time_offset);
 
     let t = theme::theme();
 
@@ -168,15 +165,28 @@ fn render_commit_row(
                 .flex()
                 .flex_row()
                 .items_center()
+                .justify_between()
                 .overflow_hidden()
+                .gap(t.spacing.xs)
                 .child(
+                    // Author: left-aligned, truncates when panel is narrow
                     div()
                         .flex_shrink()
+                        .min_w(px(0.0))
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_xs()
+                        .text_color(t.colors.text_secondary)
+                        .child(author_name),
+                )
+                .child(
+                    // Time: right-aligned, never truncates (always visible)
+                    div()
+                        .flex_shrink_0()
+                        .whitespace_nowrap()
+                        .text_xs()
                         .text_color(t.colors.text_commit_time)
-                        .child(author_time),
+                        .child(relative_time),
                 ),
         );
 
