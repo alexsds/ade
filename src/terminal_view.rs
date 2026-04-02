@@ -471,7 +471,8 @@ impl TerminalView {
         if !keystroke.modifiers.control && !keystroke.modifiers.alt {
             match keystroke.key_char.as_deref() {
                 Some("\r") | Some("\n") => {
-                    self.terminal.update(cx, |t, _| t.write_to_pty(vec![0x0d]));
+                    let byte = if keystroke.modifiers.shift { 0x0a } else { 0x0d };
+                    self.terminal.update(cx, |t, _| t.write_to_pty(vec![byte]));
                     return;
                 }
                 _ => {}
@@ -511,7 +512,11 @@ impl TerminalView {
         // FIX-04: Normalize LF to CR for Enter key variants that reach here via IME
         if let Some(text) = keystroke.key_char.as_deref() {
             let bytes = if text == "\n" {
-                vec![0x0d] // CR -- interactive prompts expect CR, not LF
+                if keystroke.modifiers.shift {
+                    vec![0x0a] // LF -- Shift+Enter
+                } else {
+                    vec![0x0d] // CR -- interactive prompts expect CR, not LF
+                }
             } else {
                 text.as_bytes().to_vec()
             };
