@@ -93,14 +93,9 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
     let has_git = branch_status.is_some();
 
     // Build branch display and dot color only when in a git repo
+    // Dirty status is conveyed by the dot color inside the pill badge, not a " *" suffix
     let branch_display = branch_status
-        .map(|s| {
-            if s.is_dirty {
-                format!("{} *", s.branch_name)
-            } else {
-                s.branch_name.clone()
-            }
-        })
+        .map(|s| s.branch_name.clone())
         .unwrap_or_default();
 
     let dot_color = branch_status
@@ -140,24 +135,34 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                         .text_color(t.colors.text_secondary)
                         .child(cwd_owned),
                 )
-                // Status dot (only when in a git repo)
+                // Branch badge (green-tinted pill with status dot inside)
                 .when(has_git, |el| {
                     el.child(
                         div()
-                            .w(t.spacing.sm)
-                            .h(t.spacing.sm)
-                            .rounded(t.spacing.xs)
-                            .bg(dot_color),
-                    )
-                })
-                // Branch name (only when in a git repo)
-                .when(has_git, |el| {
-                    el.child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(t.colors.accent)
-                            .child(branch_display),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(6.0))
+                            .h(px(24.0))
+                            .px(px(10.0))
+                            .py(t.spacing.xs)
+                            .rounded(px(9999.0))
+                            .bg(t.colors.badge_branch_bg)
+                            .child(
+                                // Status dot: 8px circle inside the pill
+                                div()
+                                    .w(t.spacing.sm)
+                                    .h(t.spacing.sm)
+                                    .rounded(t.spacing.xs)
+                                    .bg(dot_color),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(t.colors.badge_branch_text)
+                                    .child(branch_display.clone()),
+                            ),
                     )
                 })
                 // Colored diff stats: only when in a git repo and non-zero
