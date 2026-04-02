@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [v2.2] - Redesign
+
+### Added
+- Zinc/Indigo color palette replacing Midnight Workshop amber/blue theme
+- 4-tier background hierarchy (base, panel, surface, elevated) with new bg_panel token
+- Color-coded decoration badges: green (branch), indigo (HEAD), yellow (tag), blue (remote)
+- SVG icon system via compile-time AssetSource with 6 Lucide icons
+- Icons in tab labels (file-diff, clock), toggle button (terminal, columns-2), and branch badge (git-branch)
+- Shift+Enter sends newline (LF) in terminal, matching iTerm2 behavior
+
+### Changed
+- Accent color changed from amber-gold (#e5a100) to indigo (#818CF8)
+- Text colors updated to zinc gray hierarchy (#FAFAFA / #A1A1AA / #52525B)
+- Diff colors updated to emerald green (#34D399) and rose (#FB7185)
+- Border colors updated to zinc tones (#27272A default, #1E1E22 subtle)
+- Selected items use purple-tinted background (#1E1B2E) with indigo left accent
+- Toolbar branch indicator restyled as green-tinted pill with status dot
+- Toolbar toggle button restyled with darker fill, visible border, and 8px radius
+
+### Removed
+- Commit search field (search is not a supported feature)
+
 ## [v2.1] - Fixes & Refinements
 
 ### Added
