@@ -101,8 +101,8 @@ impl ThemeColors {
             element_hover: rgba(0x1F1F23ff).into(),
             tab_hover: rgba(0x1F1F23ff).into(),
             button_accent_hover: rgba(0x818CF84D).into(),
-            element_selected: rgba(0x1E1B2Eff).into(),
-            element_selected_inactive: rgba(0x1A1828ff).into(),
+            element_selected: rgba(0x818CF828).into(),
+            element_selected_inactive: rgba(0x818CF814).into(),
             selection_bg: rgba(0x3B3A6Ea0).into(),
 
             // -- Git status (D-09: rd-* palette utility colors) --
