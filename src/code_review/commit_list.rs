@@ -8,15 +8,48 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::assets;
 use crate::git::types::{CommitInfo, Decoration, format_relative_time};
 use crate::theme;
 use gpui::{
     App, Bounds, FontWeight, HighlightStyle, Hsla, IntoElement, MouseButton, Pixels, SharedString,
-    Styled, StyledText, UniformListScrollHandle, Window, canvas, div, font, prelude::*, px,
+    Styled, StyledText, UniformListScrollHandle, Window, canvas, div, font, prelude::*, px, svg,
     uniform_list,
 };
 
 use super::text_selection::TextSelection;
+
+/// Render a static (non-interactive) search field placeholder with search icon.
+pub fn render_search_field() -> impl IntoElement {
+    let t = theme::theme();
+    div()
+        .w_full()
+        .h(px(28.0))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(t.spacing.sm)
+        .px(t.spacing.sm)
+        .bg(t.colors.bg_surface)
+        .border_1()
+        .border_color(t.colors.border_default)
+        .rounded(px(6.0))
+        .mx(t.spacing.sm)
+        .my(t.spacing.xs)
+        .child(
+            svg()
+                .path(assets::ICON_SEARCH)
+                .size(px(14.0))
+                .text_color(t.colors.text_muted)
+                .flex_shrink_0(),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(t.colors.text_muted)
+                .child("Search commits..."),
+        )
+}
 
 /// Render a scrollable commit list using GPUI's uniform_list.
 ///

@@ -12,12 +12,13 @@ pub mod text_selection;
 
 use std::sync::Arc;
 
+use crate::assets;
 use crate::git::types::{CommitInfo, DiffData, FileChange, FileDiff};
 use crate::theme;
 use crate::toolbar::format_changes_label;
 use gpui::{
     Context, FontWeight, IntoElement, RenderImage, ScrollStrategy, SharedString, Styled,
-    UniformListScrollHandle, Window, div, prelude::*, px,
+    UniformListScrollHandle, Window, div, prelude::*, px, svg,
 };
 
 /// Which tab is active in the Code Review panel.
@@ -1060,6 +1061,7 @@ fn render_review_tab_bar(
         .border_b_1()
         .border_color(t.colors.border_default)
         .child(render_tab_label(
+            assets::ICON_FILE_DIFF,
             &changes_label,
             active_tab == ReviewTab::Changes,
             {
@@ -1070,6 +1072,7 @@ fn render_review_tab_bar(
             },
         ))
         .child(render_tab_label(
+            assets::ICON_CLOCK,
             "History",
             active_tab == ReviewTab::History,
             {
@@ -1082,6 +1085,7 @@ fn render_review_tab_bar(
 }
 
 fn render_tab_label(
+    icon_path: &'static str,
     label: &str,
     is_active: bool,
     on_click: Arc<dyn Fn(&mut Window, &mut gpui::App) + 'static>,
@@ -1099,8 +1103,10 @@ fn render_tab_label(
             t.colors.text_muted
         })
         .flex()
+        .flex_row()
         .items_center()
         .justify_center()
+        .gap(px(4.0))
         .when(!is_active, |el| {
             el.hover(|s| {
                 s.text_color(t.colors.text_secondary)
@@ -1118,6 +1124,7 @@ fn render_tab_label(
         .on_click(move |_event, window, cx| {
             on_click(window, cx);
         })
+        .child(svg().path(icon_path).size(px(14.0)).flex_shrink_0())
         .child(label.to_string())
 }
 
@@ -1502,6 +1509,7 @@ impl Render for CodeReviewPanel {
                     self.changes_file_count(),
                     tab_on_switch,
                 ))
+                .child(commit_list::render_search_field())
                 // Scrollable commit list
                 .child(div().flex_1().overflow_hidden().child(commit_list_content));
 
@@ -1780,6 +1788,7 @@ impl Render for CodeReviewPanel {
                     self.changes_file_count(),
                     tab_on_switch,
                 ))
+                .child(commit_list::render_search_field())
                 // File list (directly below tabs, no separate header)
                 .child(
                     div()

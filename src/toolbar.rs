@@ -5,8 +5,9 @@
 //! dirty/clean indicator on the left, and a "Code Review" toggle button
 //! on the right.
 
-use gpui::{Context, FontWeight, IntoElement, Styled, div, prelude::*, px};
+use gpui::{Context, FontWeight, IntoElement, Styled, div, prelude::*, px, svg};
 
+use crate::assets;
 use crate::git::types::{BranchStatus, FileChange};
 use crate::theme;
 
@@ -149,6 +150,12 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                             .rounded(px(9999.0))
                             .bg(t.colors.badge_branch_bg)
                             .child(
+                                svg()
+                                    .path(assets::ICON_GIT_BRANCH)
+                                    .size(px(14.0))
+                                    .flex_shrink_0(),
+                            )
+                            .child(
                                 // Status dot: 8px circle inside the pill
                                 div()
                                     .w(t.spacing.sm)
@@ -224,6 +231,16 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                     .on_click(cx.listener(move |this, _event, window, cx| {
                         on_toggle(this, window, cx);
                     }))
+                    .child(
+                        svg()
+                            .path(if is_code_review {
+                                assets::ICON_TERMINAL
+                            } else {
+                                assets::ICON_COLUMNS
+                            })
+                            .size(px(14.0))
+                            .flex_shrink_0(),
+                    )
                     .child(if is_code_review {
                         "Terminal"
                     } else {
