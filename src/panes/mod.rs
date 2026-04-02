@@ -159,6 +159,7 @@ impl PaneContainer {
 
         self.tree.split(self.active_pane_id, new_id, direction);
         self.active_pane_id = new_id;
+        self.record_mru(new_id);
         focus_handle.focus(window, cx);
     }
 
@@ -177,12 +178,16 @@ impl PaneContainer {
                 PaneCloseResult::LastPane
             }
             CloseResult::Removed => {
-                // Drop the pane state (cleans up terminal/PTY)
                 self.panes.remove(&target);
-
-                // Focus the next remaining pane
-                let ids = self.tree.flatten();
-                self.active_pane_id = ids[0];
+                // Remove closed pane from MRU
+                self.mru_stack.retain(|&id| id != target);
+                // MRU activation: front of stack, or tree-order fallback
+                let next = self
+                    .mru_stack
+                    .front()
+                    .copied()
+                    .unwrap_or_else(|| self.tree.flatten()[0]);
+                self.active_pane_id = next;
                 cx.notify();
                 match self.panes.get(&self.active_pane_id) {
                     Some(p) => PaneCloseResult::Removed(p.focus_handle.clone()),
@@ -199,6 +204,7 @@ impl PaneContainer {
     pub fn focus_next(&mut self, cx: &mut Context<Self>) -> Option<gpui::FocusHandle> {
         let next = self.tree.next_pane(self.active_pane_id);
         self.active_pane_id = next;
+        self.record_mru(next);
         cx.notify();
         self.panes.get(&next).map(|p| p.focus_handle.clone())
     }
@@ -209,6 +215,7 @@ impl PaneContainer {
     pub fn focus_prev(&mut self, cx: &mut Context<Self>) -> Option<gpui::FocusHandle> {
         let prev = self.tree.prev_pane(self.active_pane_id);
         self.active_pane_id = prev;
+        self.record_mru(prev);
         cx.notify();
         self.panes.get(&prev).map(|p| p.focus_handle.clone())
     }
@@ -252,8 +259,9 @@ impl PaneContainer {
 
     /// Record a pane activation in the MRU stack.
     /// Moves the pane to the front, deduplicating any existing entry.
-    fn record_mru(&mut self, _pane_id: PaneId) {
-        // TDD RED: stub -- tests should fail
+    fn record_mru(&mut self, pane_id: PaneId) {
+        self.mru_stack.retain(|&id| id != pane_id);
+        self.mru_stack.push_front(pane_id);
     }
 
     /// Returns true if the active pane's terminal child has exited.
@@ -515,6 +523,7 @@ fn render_tree_recursive(
                                 .update(cx, |container, cx| {
                                     if container.active_pane_id != pane_id {
                                         container.active_pane_id = pane_id;
+                                        container.record_mru(pane_id);
                                         cx.notify();
                                     }
                                 })
