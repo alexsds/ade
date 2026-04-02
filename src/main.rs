@@ -1,3 +1,4 @@
+mod assets;
 mod code_review;
 mod git;
 mod input;
@@ -730,7 +731,7 @@ impl Render for AdeWindow {
 fn main() {
     tracing_subscriber::fmt::init();
 
-    Application::new().run(|cx: &mut App| {
+    Application::new().with_assets(assets::AdeAssets).run(|cx: &mut App| {
         // Register global actions
         cx.on_action(|_: &Quit, cx| cx.quit());
 
