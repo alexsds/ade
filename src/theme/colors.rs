@@ -151,6 +151,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_element_selected_uses_accent_hue() {
+        let colors = ThemeColors::default_dark();
+        let accent_hue = colors.accent.h;
+        let selected_hue = colors.element_selected.h;
+        // Selected element should use the same hue as accent (indigo)
+        let hue_diff = (accent_hue - selected_hue).abs();
+        assert!(
+            hue_diff < 0.02,
+            "element_selected hue ({}) should match accent hue ({})",
+            selected_hue,
+            accent_hue,
+        );
+    }
+
+    #[test]
+    fn test_element_selected_inactive_dimmer() {
+        let colors = ThemeColors::default_dark();
+        assert!(
+            colors.element_selected.a > colors.element_selected_inactive.a,
+            "element_selected alpha ({}) must be greater than element_selected_inactive alpha ({})",
+            colors.element_selected.a,
+            colors.element_selected_inactive.a,
+        );
+        assert!(
+            colors.element_selected_inactive.a > 0.0,
+            "element_selected_inactive must have non-zero alpha to remain visible",
+        );
+    }
+
+    #[test]
     fn test_default_dark_all_fields_have_alpha() {
         let colors = ThemeColors::default_dark();
         // Spot-check key fields are non-transparent
