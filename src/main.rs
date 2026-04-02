@@ -397,7 +397,11 @@ impl AdeWindow {
     }
 
     /// Handle Cmd+W: close the active pane. Cascade: pane -> tab -> app (D-11).
+    /// No-op in Code Review mode to prevent accidentally closing terminal panes.
     fn on_close_pane(&mut self, _: &ClosePane, window: &mut Window, cx: &mut Context<Self>) {
+        if self.mode == Mode::CodeReview {
+            return;
+        }
         let Some(tab) = self.tabs.get(self.active_tab_index) else {
             return;
         };
@@ -466,7 +470,11 @@ impl AdeWindow {
         self.create_new_tab(window, cx);
     }
 
+    /// No-op in Code Review mode to prevent accidentally closing terminal tabs.
     fn on_close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
+        if self.mode == Mode::CodeReview {
+            return;
+        }
         self.close_tab(self.active_tab_index, window, cx);
     }
 
