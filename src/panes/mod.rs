@@ -73,7 +73,7 @@ impl PaneContainer {
             active_pane_id: pane_id,
             next_id: 1,
             dragging_divider: None,
-            chrome_height: 32.0, // toolbar only; AdeWindow updates when tab bar visible
+            chrome_height: 42.0, // toolbar only; AdeWindow updates when tab bar visible
         }
     }
 
@@ -593,7 +593,7 @@ mod tests {
             active_pane_id: 99,
             next_id: 100,
             dragging_divider: None,
-            chrome_height: 32.0,
+            chrome_height: 42.0,
         };
         assert!(
             container.active_runtime_cwd().is_none(),

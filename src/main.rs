@@ -193,7 +193,7 @@ impl AdeWindow {
 
     /// Update chrome_height on all PaneContainers when tab count changes (Pitfall 8).
     fn update_chrome_heights(&self, cx: &mut Context<Self>) {
-        let height = if self.tabs.len() > 1 { 62.0 } else { 32.0 };
+        let height = if self.tabs.len() > 1 { 74.0 } else { 42.0 };
         for tab in &self.tabs {
             tab.pane_container
                 .update(cx, |c, _| c.chrome_height = height);
