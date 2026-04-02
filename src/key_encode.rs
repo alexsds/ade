@@ -124,8 +124,14 @@ pub fn encode_key(name: &str, modifiers: Modifiers, app_cursor: bool) -> Option<
         // Escape
         "escape" => Some(b"\x1b".to_vec()),
 
-        // Enter/Return
-        "enter" | "return" => Some(b"\x0d".to_vec()),
+        // Enter/Return: Shift+Enter sends LF (iTerm2 behavior), bare Enter sends CR
+        "enter" | "return" => {
+            if modifiers.shift {
+                Some(b"\x0a".to_vec()) // LF -- iTerm2 Shift+Enter behavior
+            } else {
+                Some(b"\x0d".to_vec()) // CR -- standard Enter
+            }
+        }
 
         // Backspace: \x1b\x7f (alt), \x7f (no mods)
         "backspace" => {
