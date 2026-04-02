@@ -57,6 +57,7 @@ Reviewing code means context switching: a terminal here, a git GUI there, `git l
 | **History tab** | Browse commits, select files, and read syntax-highlighted unified diffs across a full 3-panel layout |
 | **Changes tab** | View uncommitted working tree diffs with staged/unstaged indicators and status badges (M/A/D/?) |
 | **Multi-commit select** | Shift+Click or Shift+Arrow to select a range of commits and view their combined diff |
+| **Decoration badges** | Color-coded commit badges: green (branch), indigo (HEAD), yellow (tag), blue (remote) |
 | **Syntax highlighting** | 16 languages supported: Rust, JS/TS, Python, Go, C/C++, Java, Ruby, Shell, HTML, CSS, JSON, YAML, Markdown |
 | **Word-level diffs** | Inline highlights pinpoint exactly what changed within each modified line |
 | **Virtual scrolling** | Navigates repositories with 100K+ commits without lag |
@@ -77,17 +78,18 @@ Reviewing code means context switching: a terminal here, a git GUI there, `git l
 | **Tabs** | Open, close, and switch between tabs with automatic process name titles |
 | **Mouse support** | Click, drag, and scroll inside TUI apps (vim, htop, etc.) with native macOS natural scrolling |
 | **Selection** | Double-click for words, triple-click for lines, drag to select, and full clipboard integration |
+| **Shift+Enter** | Sends newline (LF) to the terminal, matching iTerm2 behavior for multi-line input |
 | **GPU-accelerated** | Rendered by GPUI (Zed's framework) for smooth scrolling and tear-free output |
 
 ### Toolbar
 
 - Fish-style shortened current directory path
-- Branch name with dirty/clean indicator
+- Branch name with git-branch icon and dirty/clean indicator
 - Colored diff stats (green +N, yellow ~N, red -N) visible in all modes
 
 ### Theme
 
-"Midnight Workshop" — a dark theme built on blue-tinted backgrounds with deep blue accents, layered depth, and hover feedback throughout.
+Zinc/Indigo — a modern dark theme with zinc-toned backgrounds, indigo accents, emerald/rose diff colors, and color-coded decoration badges. Icons throughout for quick visual recognition.
 
 ## Install
 
@@ -189,6 +191,7 @@ cargo build --release
 - [x] Word-level diff highlighting
 - [x] Mouse support for TUI apps
 - [x] macOS app bundle and DMG installer
+- [x] Zinc/Indigo visual redesign with icons
 - [ ] Homebrew formula
 - [ ] Configurable themes
 
