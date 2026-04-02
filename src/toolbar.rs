@@ -149,10 +149,12 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                             .py(t.spacing.xs)
                             .rounded(px(9999.0))
                             .bg(t.colors.badge_branch_bg)
+                            .text_color(t.colors.badge_branch_text)
                             .child(
                                 svg()
                                     .path(assets::ICON_GIT_BRANCH)
                                     .size(px(14.0))
+                                    .text_color(t.colors.badge_branch_text)
                                     .flex_shrink_0(),
                             )
                             .child(
@@ -239,6 +241,7 @@ pub fn render_toolbar<V: 'static, T: Fn(&mut V, &mut gpui::Window, &mut Context<
                                 assets::ICON_COLUMNS
                             })
                             .size(px(14.0))
+                            .text_color(t.colors.text_secondary)
                             .flex_shrink_0(),
                     )
                     .child(if is_code_review {

@@ -1124,7 +1124,17 @@ fn render_tab_label(
         .on_click(move |_event, window, cx| {
             on_click(window, cx);
         })
-        .child(svg().path(icon_path).size(px(14.0)).flex_shrink_0())
+        .child(
+            svg()
+                .path(icon_path)
+                .size(px(14.0))
+                .text_color(if is_active {
+                    t.colors.text_bright
+                } else {
+                    t.colors.text_muted
+                })
+                .flex_shrink_0(),
+        )
         .child(label.to_string())
 }
 
@@ -1509,7 +1519,6 @@ impl Render for CodeReviewPanel {
                     self.changes_file_count(),
                     tab_on_switch,
                 ))
-                .child(commit_list::render_search_field())
                 // Scrollable commit list
                 .child(div().flex_1().overflow_hidden().child(commit_list_content));
 
@@ -1788,7 +1797,6 @@ impl Render for CodeReviewPanel {
                     self.changes_file_count(),
                     tab_on_switch,
                 ))
-                .child(commit_list::render_search_field())
                 // File list (directly below tabs, no separate header)
                 .child(
                     div()
