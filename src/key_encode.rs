@@ -349,6 +349,33 @@ mod tests {
     }
 
     #[test]
+    fn test_key_encode_enter_shift() {
+        // Shift+Enter should send LF (0x0a) -- iTerm2 behavior
+        assert_eq!(
+            encode_key("enter", shift(), false),
+            Some(vec![0x0a])
+        );
+    }
+
+    #[test]
+    fn test_key_encode_enter_no_shift_unchanged() {
+        // Bare Enter (no shift) must still send CR (0x0d)
+        assert_eq!(
+            encode_key("enter", no_mods(), false),
+            Some(vec![0x0d])
+        );
+    }
+
+    #[test]
+    fn test_key_encode_return_shift() {
+        // "return" variant with Shift should also send LF
+        assert_eq!(
+            encode_key("return", shift(), false),
+            Some(vec![0x0a])
+        );
+    }
+
+    #[test]
     fn test_key_encode_backspace_no_mods() {
         assert_eq!(
             encode_key("backspace", no_mods(), false),
