@@ -24,10 +24,10 @@ use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
 
 /// Semi-transparent blue highlight for selected text, similar to most terminal emulators.
 const SELECTION_BG: gpui::Hsla = gpui::Hsla {
-    h: 0.58,
-    s: 0.6,
-    l: 0.4,
-    a: 0.5,
+    h: 0.61,
+    s: 0.7,
+    l: 0.55,
+    a: 0.45,
 };
 
 // ============================================================================

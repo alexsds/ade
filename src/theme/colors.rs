@@ -104,7 +104,7 @@ impl ThemeColors {
             button_accent_hover: rgba(0x818CF84D).into(),
             element_selected: rgba(0x1E1B2Eff).into(),
             element_selected_inactive: rgba(0x1A1828ff).into(),
-            selection_bg: rgba(0x1E1B2E80).into(),
+            selection_bg: rgba(0x3B3A6Ea0).into(),
 
             // -- Git status (D-09: rd-* palette utility colors) --
             git_added: rgba(0x34D399ff).into(),
