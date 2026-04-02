@@ -438,6 +438,34 @@ impl TerminalView {
     }
 
     // ========================================================================
+    // Selection clearing helper (SLCT-01)
+    // ========================================================================
+
+    /// Clear terminal text selection and cached copy text.
+    /// Does NOT clear if terminal is in alt-screen mode (TUI apps manage their own display).
+    /// Acquires and releases FairMutex internally -- caller must NOT hold the lock.
+    fn clear_selection_if_normal_mode(&mut self, cx: &mut Context<Self>) -> bool {
+        let mode = self.terminal.read(cx).content().mode;
+        if mode.contains(TermMode::ALT_SCREEN) {
+            return false;
+        }
+        let had_selection = {
+            let mut term = self.terminal.read(cx).term.lock();
+            let had = term.selection.is_some();
+            if had {
+                term.selection = None;
+            }
+            had
+        };
+        if had_selection {
+            self.pending_copy = None;
+            self.terminal.update(cx, |t, _| t.sync());
+            cx.notify();
+        }
+        had_selection
+    }
+
+    // ========================================================================
     // Keyboard input handler (INPT-01)
     // ========================================================================
 
@@ -462,6 +490,9 @@ impl TerminalView {
             return;
         }
 
+        // SLCT-01: Clear selection on input-producing keystrokes (not in alt-screen)
+        self.clear_selection_if_normal_mode(cx);
+
         // Read terminal mode for app_cursor
         let mode = self.terminal.read(cx).content().mode;
         let app_cursor = mode.contains(TermMode::APP_CURSOR);
@@ -471,7 +502,11 @@ impl TerminalView {
         if !keystroke.modifiers.control && !keystroke.modifiers.alt {
             match keystroke.key_char.as_deref() {
                 Some("\r") | Some("\n") => {
-                    let byte = if keystroke.modifiers.shift { 0x0a } else { 0x0d };
+                    let byte = if keystroke.modifiers.shift {
+                        0x0a
+                    } else {
+                        0x0d
+                    };
                     self.terminal.update(cx, |t, _| t.write_to_pty(vec![byte]));
                     return;
                 }
@@ -749,6 +784,25 @@ impl TerminalView {
                 }
             }
             return;
+        }
+
+        // SLCT-02: Plain click (no drag) clears selection
+        if self.selecting && !self.dragged {
+            // Clear even in alt-screen -- a deliberate click is an explicit user gesture,
+            // unlike a keystroke which may be TUI navigation. Matches iTerm2 behavior.
+            let had = {
+                let mut term = self.terminal.read(cx).term.lock();
+                let had = term.selection.is_some();
+                if had {
+                    term.selection = None;
+                }
+                had
+            };
+            if had {
+                self.pending_copy = None;
+                self.terminal.update(cx, |t, _| t.sync());
+                cx.notify();
+            }
         }
 
         // Selection ends on mouse up -- copy to system clipboard immediately
@@ -1199,6 +1253,12 @@ impl TerminalView {
         if let Some(text) = text {
             // Copy selection to clipboard
             cx.write_to_clipboard(ClipboardItem::new_string(text));
+            // SLCT-01: Clear selection after copy (iTerm2/Terminal.app behavior)
+            {
+                let mut term = self.terminal.read(cx).term.lock();
+                term.selection = None;
+            }
+            self.pending_copy = None;
             self.terminal.update(cx, |t, _| t.sync());
             cx.notify();
         } else {
