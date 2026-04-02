@@ -226,14 +226,28 @@ fn render_decoration_badge(decoration: &Decoration) -> impl IntoElement {
             t.colors.badge_branch_bg,
             t.colors.badge_branch_text,
         ),
-        Decoration::Tag { name } => (name.clone(), t.colors.badge_tag_bg, t.colors.badge_tag_text),
+        Decoration::Tag { name } => (
+            name.clone(),
+            t.colors.badge_tag_bg,
+            t.colors.badge_tag_text,
+        ),
+        Decoration::Head => (
+            "HEAD".to_string(),
+            t.colors.badge_head_bg,
+            t.colors.badge_head_text,
+        ),
+        Decoration::RemoteBranch { name } => (
+            name.clone(),
+            t.colors.badge_remote_bg,
+            t.colors.badge_remote_text,
+        ),
     };
 
     div()
         .flex_shrink_0()
-        .px(t.spacing.xs)
-        .py(px(1.0))
-        .rounded(px(7.0))
+        .px(px(6.0))
+        .py(px(2.0))
+        .rounded(px(4.0))
         .bg(bg_color)
         .text_color(text_color)
         .text_xs()

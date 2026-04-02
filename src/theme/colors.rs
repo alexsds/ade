@@ -67,6 +67,14 @@ pub struct ThemeColors {
     pub badge_branch_text: Hsla,
     pub badge_tag_bg: Hsla,
     pub badge_tag_text: Hsla,
+    pub badge_head_bg: Hsla,
+    pub badge_head_text: Hsla,
+    pub badge_remote_bg: Hsla,
+    pub badge_remote_text: Hsla,
+
+    // -- Buttons --
+    pub button_border: Hsla,
+    pub button_fill: Hsla,
 }
 
 impl ThemeColors {
@@ -138,6 +146,14 @@ impl ThemeColors {
             badge_branch_text: rgba(0x34D399ff).into(),
             badge_tag_bg: rgba(0xFBBF2420).into(),
             badge_tag_text: rgba(0xFBBF24ff).into(),
+            badge_head_bg: rgba(0x818CF820).into(),
+            badge_head_text: rgba(0x818CF8ff).into(),
+            badge_remote_bg: rgba(0x60A5FA20).into(),
+            badge_remote_text: rgba(0x60A5FAff).into(),
+
+            // -- Buttons --
+            button_border: rgba(0x27272Aff).into(),
+            button_fill: rgba(0x18181Bff).into(),
         }
     }
 }

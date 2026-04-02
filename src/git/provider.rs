@@ -494,10 +494,10 @@ pub fn decode_image_bytes(bytes: &[u8]) -> Result<Arc<gpui::RenderImage>, String
 fn build_decoration_map(repo: &Repository) -> HashMap<Oid, Vec<Decoration>> {
     let mut map: HashMap<Oid, Vec<Decoration>> = HashMap::new();
 
-    // Branches
+    // Branches (local vs remote)
     if let Ok(branches) = repo.branches(None) {
         for branch_result in branches {
-            if let Ok((branch, _)) = branch_result {
+            if let Ok((branch, branch_type)) = branch_result {
                 let name = match branch.name() {
                     Ok(Some(n)) => sanitize_git_string(n),
                     _ => continue,
@@ -507,9 +507,12 @@ fn build_decoration_map(repo: &Repository) -> HashMap<Oid, Vec<Decoration>> {
                     Err(_) => continue,
                 };
                 if let Some(oid) = reference.target() {
-                    map.entry(oid)
-                        .or_default()
-                        .push(Decoration::Branch { name });
+                    let decoration = if branch_type == git2::BranchType::Remote {
+                        Decoration::RemoteBranch { name }
+                    } else {
+                        Decoration::Branch { name }
+                    };
+                    map.entry(oid).or_default().push(decoration);
                 }
             }
         }
@@ -526,6 +529,13 @@ fn build_decoration_map(repo: &Repository) -> HashMap<Oid, Vec<Decoration>> {
                     });
                 }
             }
+        }
+    }
+
+    // HEAD indicator
+    if let Ok(head_ref) = repo.head() {
+        if let Some(oid) = head_ref.resolve().ok().and_then(|r| r.target()) {
+            map.entry(oid).or_default().push(Decoration::Head);
         }
     }
 
@@ -1260,6 +1270,12 @@ mod tests {
                 .any(|d| matches!(d, Decoration::Branch { name } if name == "feature"))
         });
         assert!(has_feature, "Should find 'feature' branch decoration");
+
+        // HEAD decoration should be present
+        let has_head = map.values().any(|decorations| {
+            decorations.iter().any(|d| matches!(d, Decoration::Head))
+        });
+        assert!(has_head, "Should find HEAD decoration");
     }
 
     /// Create a temporary git repository with `n` commits.

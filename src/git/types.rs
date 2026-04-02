@@ -44,6 +44,8 @@ pub fn sanitize_git_string(s: &str) -> String {
 pub enum Decoration {
     Branch { name: String },
     Tag { name: String },
+    Head,
+    RemoteBranch { name: String },
 }
 
 /// Single commit metadata
@@ -426,6 +428,19 @@ mod tests {
         match &tag {
             Decoration::Tag { name } => assert_eq!(name, "v1.0"),
             _ => panic!("Expected Tag"),
+        }
+
+        let head = Decoration::Head;
+        match &head {
+            Decoration::Head => {}
+            _ => panic!("Expected Head"),
+        }
+        let remote = Decoration::RemoteBranch {
+            name: "origin/main".to_string(),
+        };
+        match &remote {
+            Decoration::RemoteBranch { name } => assert_eq!(name, "origin/main"),
+            _ => panic!("Expected RemoteBranch"),
         }
     }
 }
