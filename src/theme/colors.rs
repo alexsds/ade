@@ -27,7 +27,6 @@ pub struct ThemeColors {
     pub accent: Hsla,
     pub element_hover: Hsla,
     pub tab_hover: Hsla,
-    pub button_bg: Hsla,
     pub button_accent_hover: Hsla,
     pub element_selected: Hsla,
     pub element_selected_inactive: Hsla,
@@ -72,9 +71,6 @@ pub struct ThemeColors {
     pub badge_remote_bg: Hsla,
     pub badge_remote_text: Hsla,
 
-    // -- Buttons --
-    pub button_border: Hsla,
-    pub button_fill: Hsla,
 }
 
 impl ThemeColors {
@@ -106,7 +102,6 @@ impl ThemeColors {
             accent: rgba(0x818CF8ff).into(),
             element_hover: rgba(0x1F1F23ff).into(),
             tab_hover: rgba(0x1F1F23ff).into(),
-            button_bg: rgba(0x27272Aff).into(),
             button_accent_hover: rgba(0x818CF84D).into(),
             element_selected: rgba(0x1E1B2Eff).into(),
             element_selected_inactive: rgba(0x1A1828ff).into(),
@@ -150,10 +145,6 @@ impl ThemeColors {
             badge_head_text: rgba(0x818CF8ff).into(),
             badge_remote_bg: rgba(0x60A5FA20).into(),
             badge_remote_text: rgba(0x60A5FAff).into(),
-
-            // -- Buttons --
-            button_border: rgba(0x27272Aff).into(),
-            button_fill: rgba(0x18181Bff).into(),
         }
     }
 }
