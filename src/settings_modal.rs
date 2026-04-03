@@ -225,12 +225,18 @@ impl Render for SettingsModal {
                     this.dismiss(window, cx);
                 }
             }))
-            // Modal panel
+            // Modal panel — clicking anywhere on it closes an open dropdown
             .child(
                 div()
                     .id("settings-modal")
                     .w(px(480.0))
                     .h(px(520.0))
+                    .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
+                        if this.dropdown_open {
+                            this.dropdown_open = false;
+                            cx.notify();
+                        }
+                    }))
                     .bg(t.colors.bg_base)
                     .border_1()
                     .border_color(t.colors.border_default)
