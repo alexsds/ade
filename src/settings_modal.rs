@@ -113,12 +113,32 @@ impl SettingsModal {
                     .text_color(t.colors.text_secondary),
             );
 
-        let mut dropdown_wrapper = div().w_full().flex().flex_col().child(trigger);
+        let mut dropdown_wrapper = div().w_full().relative().flex().flex_col().child(trigger);
 
-        // Open state: render the full list below the trigger
+        // Open state: render scrollable list below trigger with dismiss backdrop
         if self.dropdown_open {
+            // Invisible backdrop to close dropdown on outside click
+            dropdown_wrapper = dropdown_wrapper.child(
+                div()
+                    .id("dropdown-backdrop")
+                    .absolute()
+                    .size(px(2000.0))
+                    .top(px(-1000.0))
+                    .left(px(-1000.0))
+                    .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
+                        this.dropdown_open = false;
+                        cx.notify();
+                    })),
+            );
+
+            let item_h = f32::from(t.sizes.dropdown_item_height);
+            let max_list_height = item_h * 5.0 + 2.0;
+
             let mut list = div()
+                .id("editor-dropdown-list")
                 .w_full()
+                .max_h(px(max_list_height))
+                .overflow_y_scroll()
                 .bg(t.colors.bg_surface)
                 .border_1()
                 .border_color(t.colors.border_default)
@@ -225,18 +245,12 @@ impl Render for SettingsModal {
                     this.dismiss(window, cx);
                 }
             }))
-            // Modal panel — clicking anywhere on it closes an open dropdown
+            // Modal panel
             .child(
                 div()
                     .id("settings-modal")
                     .w(px(480.0))
-                    .h(px(520.0))
-                    .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
-                        if this.dropdown_open {
-                            this.dropdown_open = false;
-                            cx.notify();
-                        }
-                    }))
+                    .h(px(380.0))
                     .bg(t.colors.bg_base)
                     .border_1()
                     .border_color(t.colors.border_default)
