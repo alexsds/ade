@@ -5,7 +5,9 @@
 
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, px, svg, App, Context, FocusHandle, SharedString, Styled, Window};
+use gpui::{
+    deferred, div, prelude::*, px, svg, App, Context, FocusHandle, SharedString, Styled, Window,
+};
 
 use crate::assets;
 use crate::settings::{is_editor_installed, EditorChoice, Settings};
@@ -216,7 +218,7 @@ impl SettingsModal {
                 list = list.child(item);
             }
 
-            wrapper = wrapper.child(list);
+            wrapper = wrapper.child(deferred(list).with_priority(2));
         }
 
         wrapper
