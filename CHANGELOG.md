@@ -19,10 +19,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Commit list author and relative time split into separate left/right aligned elements (author truncates, time always visible)
 - All external editors use macOS `open -a` for reliable launch without requiring CLI tools in PATH
 - Pane divider resize cursor stays locked during entire drag operation (no flickering)
-
 ### Fixed
 - Terminal text selection no longer persists after typing, arrow keys, or clicking in normal mode
 - Pane divider cursor no longer flickers when dragging past the 8px hit area
+- Double-click to open file in editor now works when launched via `open Ade.app`
 
 ## [v2.2] - Redesign
 
