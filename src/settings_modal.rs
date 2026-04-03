@@ -5,9 +5,7 @@
 
 use std::sync::Arc;
 
-use gpui::{
-    deferred, div, prelude::*, px, svg, App, Context, FocusHandle, SharedString, Styled, Window,
-};
+use gpui::{div, prelude::*, px, svg, App, Context, FocusHandle, SharedString, Styled, Window};
 
 use crate::assets;
 use crate::settings::{is_editor_installed, EditorChoice, Settings};
@@ -78,12 +76,10 @@ impl SettingsModal {
         cb(window, &mut *cx);
     }
 
-    /// Render the editor dropdown (closed or open state).
-    fn render_dropdown(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Render just the dropdown trigger button.
+    fn render_trigger(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme();
-
-        // Trigger button (always visible)
-        let trigger = div()
+        div()
             .id("dropdown-trigger")
             .h(t.sizes.dropdown_item_height)
             .w_full()
@@ -113,115 +109,116 @@ impl SettingsModal {
                     .path(assets::ICON_CHEVRON_DOWN)
                     .size(px(14.0))
                     .text_color(t.colors.text_secondary),
-            );
+            )
+    }
 
-        // Wrapper with relative positioning so dropdown list can be absolute
-        let mut wrapper = div().w_full().relative().child(trigger);
+    /// Render the dropdown overlay (backdrop + list). Called as last child of modal
+    /// so it paints on top of the footer.
+    fn render_dropdown_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::theme();
 
-        if self.dropdown_open {
-            // Backdrop: covers the entire modal to catch outside clicks
-            wrapper = wrapper.child(
-                div()
-                    .id("dropdown-backdrop")
-                    .absolute()
-                    .size(px(2000.0))
-                    .top(px(-1000.0))
-                    .left(px(-1000.0))
-                    .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
-                        this.dropdown_open = false;
-                        cx.notify();
-                    })),
-            );
+        // Backdrop to close on outside click
+        let backdrop = div()
+            .id("dropdown-backdrop")
+            .absolute()
+            .size(px(2000.0))
+            .top(px(-1000.0))
+            .left(px(-1000.0))
+            .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
+                this.dropdown_open = false;
+                cx.notify();
+            }));
 
-            // Dropdown list: absolute positioned, overlays content below
-            let mut list = div()
-                .id("editor-dropdown-list")
-                .absolute()
-                .top(px(36.0)) // just below the trigger (32px height + 4px gap)
-                .left_0()
-                .w_full()
-                .max_h(px(200.0))
-                .overflow_y_scroll()
-                .bg(t.colors.bg_surface)
-                .border_1()
-                .border_color(t.colors.border_default)
-                .rounded(px(8.0))
-                .py(px(4.0))
+        // The list itself, positioned absolutely within the modal
+        // Title (~56px) + Editor section padding/heading/desc (~80px) + trigger (32px) + gap (4px)
+        let list_top = 56.0 + 80.0 + 32.0 + 4.0;
+        let content_padding = f32::from(t.sizes.modal_content_padding);
+
+        let mut list = div()
+            .id("editor-dropdown-list")
+            .absolute()
+            .top(px(list_top))
+            .left(px(content_padding))
+            .right(px(content_padding))
+            .max_h(px(200.0))
+            .overflow_y_scroll()
+            .bg(t.colors.bg_surface)
+            .border_1()
+            .border_color(t.colors.border_default)
+            .rounded(px(8.0))
+            .py(px(4.0))
+            .flex()
+            .flex_col();
+
+        for (editor, installed) in &self.installed_editors {
+            let is_selected = *editor == self.selected_editor;
+            let editor_copy = *editor;
+            let editor_name = editor.display_name();
+            let is_installed = *installed;
+
+            let item_id: SharedString = format!("editor-{}", editor_name).into();
+            let mut item = div()
+                .id(item_id)
+                .h(t.sizes.dropdown_item_height)
+                .flex_shrink_0()
+                .px(t.spacing.sm)
                 .flex()
-                .flex_col();
+                .flex_row()
+                .items_center()
+                .gap(t.spacing.sm)
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
+                    this.selected_editor = editor_copy;
+                    this.dropdown_open = false;
+                    cx.notify();
+                }));
 
-            for (editor, installed) in &self.installed_editors {
-                let is_selected = *editor == self.selected_editor;
-                let editor_copy = *editor;
-                let editor_name = editor.display_name();
-                let is_installed = *installed;
-
-                let item_id: SharedString = format!("editor-{}", editor_name).into();
-                let mut item = div()
-                    .id(item_id)
-                    .h(t.sizes.dropdown_item_height)
-                    .flex_shrink_0()
-                    .px(t.spacing.sm)
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(t.spacing.sm)
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
-                        this.selected_editor = editor_copy;
-                        this.dropdown_open = false;
-                        cx.notify();
-                    }));
-
-                if is_selected {
-                    item = item.bg(t.colors.element_selected);
-                } else {
-                    item = item.hover(|s| s.bg(t.colors.element_hover));
-                }
-
-                let check_space = if is_selected {
-                    div().child(
-                        svg()
-                            .path(assets::ICON_CHECK)
-                            .size(px(14.0))
-                            .text_color(t.colors.text_primary),
-                    )
-                } else {
-                    div().w(px(14.0))
-                };
-
-                let label = if is_installed {
-                    div()
-                        .text_size(t.typography.body.size)
-                        .text_color(t.colors.text_primary)
-                        .child(editor_name)
-                } else {
-                    div()
-                        .flex()
-                        .flex_row()
-                        .gap(px(4.0))
-                        .child(
-                            div()
-                                .text_size(t.typography.body.size)
-                                .text_color(t.colors.text_primary)
-                                .child(editor_name),
-                        )
-                        .child(
-                            div()
-                                .text_size(t.typography.body.size)
-                                .text_color(t.colors.text_muted)
-                                .child("(not installed)"),
-                        )
-                };
-
-                item = item.child(check_space).child(label);
-                list = list.child(item);
+            if is_selected {
+                item = item.bg(t.colors.element_selected);
+            } else {
+                item = item.hover(|s| s.bg(t.colors.element_hover));
             }
 
-            wrapper = wrapper.child(deferred(list).with_priority(2));
+            let check_space = if is_selected {
+                div().child(
+                    svg()
+                        .path(assets::ICON_CHECK)
+                        .size(px(14.0))
+                        .text_color(t.colors.text_primary),
+                )
+            } else {
+                div().w(px(14.0))
+            };
+
+            let label = if is_installed {
+                div()
+                    .text_size(t.typography.body.size)
+                    .text_color(t.colors.text_primary)
+                    .child(editor_name)
+            } else {
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(px(4.0))
+                    .child(
+                        div()
+                            .text_size(t.typography.body.size)
+                            .text_color(t.colors.text_primary)
+                            .child(editor_name),
+                    )
+                    .child(
+                        div()
+                            .text_size(t.typography.body.size)
+                            .text_color(t.colors.text_muted)
+                            .child("(not installed)"),
+                    )
+            };
+
+            item = item.child(check_space).child(label);
+            list = list.child(item);
         }
 
-        wrapper
+        div().absolute().size_full().top_0().left_0().child(backdrop).child(list)
     }
 }
 
@@ -252,11 +249,12 @@ impl Render for SettingsModal {
                     }
                 }
             }))
-            // Modal panel — auto-height, no fixed h()
+            // Modal panel — auto-height, relative for dropdown overlay
             .child(
                 div()
                     .id("settings-modal")
                     .w(px(480.0))
+                    .relative()
                     .bg(t.colors.bg_base)
                     .border_1()
                     .border_color(t.colors.border_default)
@@ -298,7 +296,7 @@ impl Render for SettingsModal {
                                     .text_color(t.colors.text_secondary)
                                     .child("Choose the editor to open files from code review"),
                             )
-                            .child(self.render_dropdown(cx)),
+                            .child(self.render_trigger(cx)),
                     )
                     // Footer with buttons
                     .child(
@@ -368,7 +366,11 @@ impl Render for SettingsModal {
                                 }
                                 btn
                             }),
-                    ),
+                    )
+                    // Dropdown overlay — rendered LAST so it paints on top of footer
+                    .when(self.dropdown_open, |modal| {
+                        modal.child(self.render_dropdown_overlay(cx))
+                    }),
             )
     }
 }
