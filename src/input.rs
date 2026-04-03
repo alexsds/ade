@@ -5,7 +5,7 @@
 //! Also provides Cmd+G to toggle Code Review mode, pane management
 //! keybindings for split, close, and navigate, and tab management keybindings.
 
-use gpui::{App, KeyBinding, actions};
+use gpui::{actions, App, KeyBinding};
 
 actions!(
     ade,
@@ -33,6 +33,8 @@ actions!(
         SelectTab7,
         SelectTab8,
         SelectTab9,
+        // Settings:
+        OpenSettings,
     ]
 );
 
@@ -69,5 +71,7 @@ pub fn setup_keybindings(cx: &mut App) {
         KeyBinding::new("cmd-7", SelectTab7, None),
         KeyBinding::new("cmd-8", SelectTab8, None),
         KeyBinding::new("cmd-9", SelectTab9, None),
+        // Settings:
+        KeyBinding::new("cmd-,", OpenSettings, None),
     ]);
 }

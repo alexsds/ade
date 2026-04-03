@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use gpui::{
     App, Application, Bounds, KeyBinding, Styled, TitlebarOptions, Window, WindowBounds,
-    WindowOptions, actions, div, prelude::*, px, size,
+    WindowOptions, actions, deferred, div, prelude::*, px, size,
 };
 
 use crate::code_review::{ActivePanel, ReviewTab};
@@ -29,9 +29,9 @@ use alacritty_terminal::event::Event as AlacEvent;
 use futures::StreamExt as _;
 
 use input::{
-    ClosePane, CloseTab, CopyOrInterrupt, NewTab, NextPane, NextTab, PrevPane, PrevTab, SelectTab1,
-    SelectTab2, SelectTab3, SelectTab4, SelectTab5, SelectTab6, SelectTab7, SelectTab8, SelectTab9,
-    SplitHorizontal, SplitVertical, ToggleCodeReview,
+    ClosePane, CloseTab, CopyOrInterrupt, NewTab, NextPane, NextTab, OpenSettings, PrevPane,
+    PrevTab, SelectTab1, SelectTab2, SelectTab3, SelectTab4, SelectTab5, SelectTab6, SelectTab7,
+    SelectTab8, SelectTab9, SplitHorizontal, SplitVertical, ToggleCodeReview,
 };
 use panes::PaneContainer;
 use panes::tree::SplitDirection;
@@ -89,6 +89,10 @@ pub struct AdeWindow {
     current_git_cwd: std::path::PathBuf,
     /// Persisted settings (editor choice, etc.) loaded once at startup.
     settings: settings::Settings,
+    /// Whether the settings modal overlay is visible.
+    show_settings: bool,
+    /// Lazily created settings modal entity.
+    settings_modal: Option<gpui::Entity<settings_modal::SettingsModal>>,
 }
 
 impl AdeWindow {
@@ -267,6 +271,9 @@ impl AdeWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.show_settings {
+            return;
+        }
         self.mode = match self.mode {
             Mode::Terminal => Mode::CodeReview,
             Mode::CodeReview => Mode::Terminal,
@@ -358,6 +365,9 @@ impl AdeWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.show_settings {
+            return;
+        }
         self.do_split(SplitDirection::Vertical, window, cx);
     }
 
@@ -368,6 +378,9 @@ impl AdeWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.show_settings {
+            return;
+        }
         self.do_split(SplitDirection::Horizontal, window, cx);
     }
 
@@ -404,6 +417,9 @@ impl AdeWindow {
     /// Handle Cmd+W: close the active pane. Cascade: pane -> tab -> app (D-11).
     /// No-op in Code Review mode to prevent accidentally closing terminal panes.
     fn on_close_pane(&mut self, _: &ClosePane, window: &mut Window, cx: &mut Context<Self>) {
+        if self.show_settings {
+            return;
+        }
         if self.mode == Mode::CodeReview {
             return;
         }
@@ -441,6 +457,9 @@ impl AdeWindow {
 
     /// Handle Cmd+]: focus the next pane in the active tab.
     fn on_next_pane(&mut self, _: &NextPane, window: &mut Window, cx: &mut Context<Self>) {
+        if self.show_settings {
+            return;
+        }
         let Some(tab) = self.tabs.get(self.active_tab_index) else {
             return;
         };
@@ -456,6 +475,9 @@ impl AdeWindow {
 
     /// Handle Cmd+[: focus the previous pane in the active tab.
     fn on_prev_pane(&mut self, _: &PrevPane, window: &mut Window, cx: &mut Context<Self>) {
+        if self.show_settings {
+            return;
+        }
         let Some(tab) = self.tabs.get(self.active_tab_index) else {
             return;
         };
@@ -476,7 +498,11 @@ impl AdeWindow {
     }
 
     /// No-op in Code Review mode to prevent accidentally closing terminal tabs.
+    /// Also no-op while settings modal is open.
     fn on_close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
+        if self.show_settings {
+            return;
+        }
         if self.mode == Mode::CodeReview {
             return;
         }
@@ -557,6 +583,48 @@ impl AdeWindow {
         }
     }
 
+    /// Handle Cmd+,: open the settings modal overlay.
+    fn on_open_settings(
+        &mut self,
+        _: &OpenSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.show_settings {
+            return; // Already open
+        }
+        // Create the modal entity with on_save and on_dismiss callbacks
+        let weak = cx.weak_entity();
+        let on_save = {
+            let weak = weak.clone();
+            Arc::new(move |_window: &mut Window, cx: &mut App| {
+                weak.update(cx, |this, cx| {
+                    this.settings = settings::Settings::load();
+                    this.show_settings = false;
+                    cx.notify();
+                })
+                .ok();
+            })
+        };
+        let on_dismiss = {
+            let weak = weak.clone();
+            Arc::new(move |_window: &mut Window, cx: &mut App| {
+                weak.update(cx, |this, cx| {
+                    this.show_settings = false;
+                    cx.notify();
+                })
+                .ok();
+            })
+        };
+        let modal =
+            cx.new(|cx| settings_modal::SettingsModal::new(on_save, on_dismiss, cx));
+        let modal_focus = modal.read(cx).focus_handle().clone();
+        self.settings_modal = Some(modal);
+        modal_focus.focus(window, cx);
+        self.show_settings = true;
+        cx.notify();
+    }
+
     /// Handle arrow keys in Code Review mode for panel switching (NAV-04).
     /// Only bare arrows (no modifiers) trigger panel switching (Pitfall 5).
     fn on_code_review_key_down(
@@ -565,6 +633,9 @@ impl AdeWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.show_settings {
+            return;
+        }
         // Block Alt/Ctrl/Cmd modified keys (unchanged)
         let mods = &event.keystroke.modifiers;
         if mods.alt || mods.control || mods.platform {
@@ -674,6 +745,8 @@ impl Render for AdeWindow {
             .on_action(cx.listener(Self::on_select_tab_7))
             .on_action(cx.listener(Self::on_select_tab_8))
             .on_action(cx.listener(Self::on_select_tab_9))
+            // Settings action
+            .on_action(cx.listener(Self::on_open_settings))
             // Arrow key handler for Code Review panel switching (NAV-04)
             .when(self.mode == Mode::CodeReview, |d| {
                 d.on_key_down(cx.listener(Self::on_code_review_key_down))
@@ -738,6 +811,14 @@ impl Render for AdeWindow {
                         d.child(self.code_review_panel.clone())
                     }),
             )
+            // Settings modal overlay (deferred to paint on top of all content)
+            .when(self.show_settings, |el| {
+                if let Some(ref modal) = self.settings_modal {
+                    el.child(deferred(modal.clone()).with_priority(1))
+                } else {
+                    el
+                }
+            })
     }
 }
 
@@ -844,6 +925,8 @@ fn main() {
                 focus_handle: cx.focus_handle(),
                 current_git_cwd: initial_git_cwd,
                 settings: app_settings,
+                show_settings: false,
+                settings_modal: None,
             });
 
             // Set the double-click callback on the code review panel.

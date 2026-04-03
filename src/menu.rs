@@ -4,8 +4,8 @@
 
 use gpui::{App, Menu, MenuItem, OsAction};
 
+use crate::input::{CopyOrInterrupt, OpenSettings, Paste, SelectAll, ToggleCodeReview};
 use crate::Quit;
-use crate::input::{CopyOrInterrupt, Paste, SelectAll, ToggleCodeReview};
 
 /// Set up the macOS menu bar with ADE, Edit, View, and Window menus.
 ///
@@ -17,7 +17,7 @@ pub fn setup_menus(cx: &mut App) {
         Menu {
             name: "Ade".into(),
             items: vec![
-                // Standard macOS app menu items
+                MenuItem::action("Settings...", OpenSettings),
                 MenuItem::separator(),
                 MenuItem::action("Quit Ade", Quit),
             ],
