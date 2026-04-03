@@ -297,55 +297,7 @@ impl SettingsModal {
                             )
                             .child(self.render_dropdown(cx)),
                     )
-                    // Shell section (disabled)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(t.spacing.sm)
-                            .child(
-                                div()
-                                    .text_size(t.typography.heading.size)
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(t.colors.text_primary)
-                                    .child("Shell"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(t.typography.body.size)
-                                    .text_color(t.colors.text_secondary)
-                                    .child("Default shell for terminal sessions"),
-                            )
-                            .child(
-                                // Disabled dropdown placeholder
-                                div()
-                                    .h(t.sizes.dropdown_item_height)
-                                    .w_full()
-                                    .bg(t.colors.bg_surface)
-                                    .border_1()
-                                    .border_color(t.colors.border_default)
-                                    .rounded(px(8.0))
-                                    .px(t.spacing.sm)
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .justify_between()
-                                    .opacity(0.5)
-                                    .cursor_default()
-                                    .child(
-                                        div()
-                                            .text_size(t.typography.body.size)
-                                            .text_color(t.colors.text_primary)
-                                            .child("Default"),
-                                    )
-                                    .child(
-                                        svg()
-                                            .path(assets::ICON_CHEVRON_DOWN)
-                                            .size(px(14.0))
-                                            .text_color(t.colors.text_secondary),
-                                    ),
-                            ),
-                    ),
+                    ,
             )
             // Footer
             .child(
@@ -433,20 +385,26 @@ impl Render for SettingsModal {
             .flex()
             .items_center()
             .justify_center()
-            // Click overlay background to dismiss
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _: &gpui::MouseDownEvent, window, cx| {
-                    this.dismiss(window, cx);
-                }),
-            )
+            // Click overlay background to dismiss (via a separate background element below)
             // Escape key to dismiss
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
                     this.dismiss(window, cx);
                 }
             }))
-            // Modal container
+            // Dismiss background: absolute full-size, behind the modal
+            .child(
+                div()
+                    .id("settings-overlay-bg")
+                    .absolute()
+                    .size_full()
+                    .top_0()
+                    .left_0()
+                    .on_click(cx.listener(|this, _: &gpui::ClickEvent, window, cx| {
+                        this.dismiss(window, cx);
+                    })),
+            )
+            // Modal container (on top of dismiss background)
             .child(
                 div()
                     .id("settings-modal")
@@ -459,13 +417,6 @@ impl Render for SettingsModal {
                     .flex()
                     .flex_row()
                     .overflow_hidden()
-                    // Stop propagation: clicking inside the modal should NOT dismiss
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(|_this, _: &gpui::MouseDownEvent, _window, _cx| {
-                            // Intentionally empty: stops propagation to overlay dismiss handler
-                        }),
-                    )
                     // Sidebar
                     .child(self.render_sidebar())
                     // Content area
