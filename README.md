@@ -56,6 +56,7 @@ Reviewing code means context switching: a terminal here, a git GUI there, `git l
 |---|---|
 | **History tab** | Browse commits, select files, and read syntax-highlighted unified diffs across a full 3-panel layout |
 | **Changes tab** | View uncommitted working tree diffs with staged/unstaged indicators and status badges (M/A/D/?) |
+| **Double-click to edit** | Double-click a file in code review to open it in your configured external editor (VS Code, Zed, etc.) |
 | **Multi-commit select** | Shift+Click or Shift+Arrow to select a range of commits and view their combined diff |
 | **Decoration badges** | Color-coded commit badges: green (branch), indigo (HEAD), yellow (tag), blue (remote) |
 | **Syntax highlighting** | 16 languages supported: Rust, JS/TS, Python, Go, C/C++, Java, Ruby, Shell, HTML, CSS, JSON, YAML, Markdown |
@@ -77,8 +78,9 @@ Reviewing code means context switching: a terminal here, a git GUI there, `git l
 | **Split panes** | Vertical (<kbd>Cmd</kbd>+<kbd>D</kbd>) and horizontal (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>) splits with draggable dividers |
 | **Tabs** | Open, close, and switch between tabs with automatic process name titles |
 | **Mouse support** | Click, drag, and scroll inside TUI apps (vim, htop, etc.) with native macOS natural scrolling |
-| **Selection** | Double-click for words, triple-click for lines, drag to select, and full clipboard integration |
+| **Selection** | Double-click for words, triple-click for lines, drag to select, and full clipboard integration. Selection auto-clears on keypress or click |
 | **Shift+Enter** | Sends newline (LF) to the terminal, matching iTerm2 behavior for multi-line input |
+| **MRU pane close** | Closing a pane activates the most recently used pane, not the first in tree order |
 | **GPU-accelerated** | Rendered by GPUI (Zed's framework) for smooth scrolling and tear-free output |
 
 ### Toolbar
@@ -134,6 +136,7 @@ cargo build --release
 | <kbd>Cmd</kbd>+<kbd>C</kbd> | Copy selection (or send SIGINT if no selection) |
 | <kbd>Cmd</kbd>+<kbd>V</kbd> | Paste from clipboard |
 | <kbd>Cmd</kbd>+<kbd>A</kbd> | Select all |
+| <kbd>Cmd</kbd>+<kbd>,</kbd> | Open settings |
 | <kbd>Cmd</kbd>+<kbd>Q</kbd> | Quit |
 
 </details>
@@ -192,6 +195,9 @@ cargo build --release
 - [x] Mouse support for TUI apps
 - [x] macOS app bundle and DMG installer
 - [x] Zinc/Indigo visual redesign with icons
+- [x] External editor integration (double-click to open files)
+- [x] Settings UI with editor configuration
+- [x] MRU pane activation and selection clearing fixes
 - [ ] Homebrew formula
 - [ ] Configurable themes
 

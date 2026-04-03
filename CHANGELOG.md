@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [v2.3] - Usability Improvements
+
+### Added
+- Settings modal (Cmd+,) with external editor dropdown — persists to ~/.config/ade/settings.json
+- External editor integration: double-click a file in code review to open it in VS Code, Zed, Sublime Text, Cursor, IntelliJ IDEA, Nova, Xcode, or macOS default
+- MRU (most recently used) pane activation — closing a pane returns focus to the previously active pane instead of first-in-tree-order
+- Terminal selection clearing on keypress, plain click, and after Cmd+C copy (respects alt-screen mode for TUI apps)
+- Chevron-down and check SVG icons for settings dropdown
+
+### Changed
+- Selection highlight colors updated to indigo accent at 16% opacity (active) and 8% opacity (inactive) for clearer visual hierarchy
+- Commit list author and relative time split into separate left/right aligned elements (author truncates, time always visible)
+- All external editors use macOS `open -a` for reliable launch without requiring CLI tools in PATH
+- Pane divider resize cursor stays locked during entire drag operation (no flickering)
+
+### Fixed
+- Terminal text selection no longer persists after typing, arrow keys, or clicking in normal mode
+- Pane divider cursor no longer flickers when dragging past the 8px hit area
+
 ## [v2.2] - Redesign
 
 ### Added
