@@ -133,9 +133,9 @@ fn render_file_row(
         .items_center()
         .relative()
         .gap(t.spacing.sm)
-        .on_click(move |event, window, cx| {
+        .on_mouse_down(gpui::MouseButton::Left, move |event, window, cx| {
             on_select(index, window, cx);
-            if event.click_count() >= 2 {
+            if event.click_count >= 2 {
                 if let Some(ref on_dbl) = on_double_click {
                     on_dbl(index, window, cx);
                 }
