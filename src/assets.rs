@@ -9,6 +9,8 @@ pub const ICON_TERMINAL: &str = "icons/terminal.svg";
 pub const ICON_COLUMNS: &str = "icons/columns-2.svg";
 pub const ICON_SEARCH: &str = "icons/search.svg";
 pub const ICON_GIT_BRANCH: &str = "icons/git-branch.svg";
+pub const ICON_CHEVRON_DOWN: &str = "icons/chevron-down.svg";
+pub const ICON_CHECK: &str = "icons/check.svg";
 
 /// All known icon paths, used by `list()`.
 const ALL_ICONS: &[&str] = &[
@@ -18,6 +20,8 @@ const ALL_ICONS: &[&str] = &[
     ICON_COLUMNS,
     ICON_SEARCH,
     ICON_GIT_BRANCH,
+    ICON_CHEVRON_DOWN,
+    ICON_CHECK,
 ];
 
 /// Asset source for ADE's embedded icons.
@@ -35,6 +39,8 @@ impl AssetSource for AdeAssets {
             "icons/columns-2.svg" => Some(include_bytes!("../assets/icons/columns-2.svg")),
             "icons/search.svg" => Some(include_bytes!("../assets/icons/search.svg")),
             "icons/git-branch.svg" => Some(include_bytes!("../assets/icons/git-branch.svg")),
+            "icons/chevron-down.svg" => Some(include_bytes!("../assets/icons/chevron-down.svg")),
+            "icons/check.svg" => Some(include_bytes!("../assets/icons/check.svg")),
             _ => None,
         };
         Ok(data.map(|d| Cow::Borrowed(d)))
@@ -81,6 +87,6 @@ mod tests {
     fn test_list_icons() {
         let assets = AdeAssets;
         let entries = assets.list("icons/").expect("list should not error");
-        assert_eq!(entries.len(), 6, "Expected 6 icons, got {}", entries.len());
+        assert_eq!(entries.len(), 8, "Expected 8 icons, got {}", entries.len());
     }
 }
