@@ -311,8 +311,8 @@ impl Render for SettingsModal {
                             .flex_row()
                             .justify_end()
                             .gap(t.spacing.sm)
-                            .child(
-                                div()
+                            .child({
+                                let mut discard = div()
                                     .id("discard-btn")
                                     .bg(t.colors.bg_surface)
                                     .border_1()
@@ -322,21 +322,26 @@ impl Render for SettingsModal {
                                     .px(px(16.0))
                                     .flex()
                                     .items_center()
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(t.colors.element_hover))
                                     .child(
                                         div()
                                             .text_size(t.typography.body.size)
                                             .font_weight(gpui::FontWeight::SEMIBOLD)
                                             .text_color(t.colors.text_secondary)
                                             .child("Discard Changes"),
-                                    )
-                                    .on_click(
-                                        cx.listener(|this, _: &gpui::ClickEvent, window, cx| {
-                                            this.dismiss(window, cx);
-                                        }),
-                                    ),
-                            )
+                                    );
+                                // Only attach click handler when dropdown is closed
+                                if !self.dropdown_open {
+                                    discard = discard
+                                        .cursor_pointer()
+                                        .hover(|s| s.bg(t.colors.element_hover))
+                                        .on_click(cx.listener(
+                                            |this, _: &gpui::ClickEvent, window, cx| {
+                                                this.dismiss(window, cx);
+                                            },
+                                        ));
+                                }
+                                discard
+                            })
                             .child({
                                 let mut btn = div()
                                     .id("save-btn")
@@ -353,7 +358,8 @@ impl Render for SettingsModal {
                                             .text_color(t.colors.text_on_emphasis)
                                             .child("Save Settings"),
                                     );
-                                if is_dirty {
+                                // Only attach click handler when dropdown is closed and dirty
+                                if is_dirty && !self.dropdown_open {
                                     btn = btn
                                         .cursor_pointer()
                                         .hover(|s| s.bg(t.colors.button_accent_hover))
