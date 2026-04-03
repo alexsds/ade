@@ -26,9 +26,6 @@ pub struct Sizes {
     pub diff_line_height: Pixels,
     pub gutter_width: Pixels,
     pub commit_panel_width: Pixels,
-    pub modal_width: Pixels,
-    pub modal_height: Pixels,
-    pub modal_sidebar_width: Pixels,
     pub modal_content_padding: Pixels,
     pub dropdown_item_height: Pixels,
     pub button_height: Pixels,
@@ -44,9 +41,6 @@ impl Sizes {
             diff_line_height: px(20.0),
             gutter_width: px(40.0),
             commit_panel_width: px(280.0),
-            modal_width: px(720.0),
-            modal_height: px(540.0),
-            modal_sidebar_width: px(200.0),
             modal_content_padding: px(24.0),
             dropdown_item_height: px(32.0),
             button_height: px(32.0),
@@ -77,9 +71,6 @@ mod tests {
         assert_eq!(s.file_row_height, px(28.0));
         assert_eq!(s.diff_line_height, px(20.0));
         // Modal sizes (52-UI-SPEC)
-        assert_eq!(s.modal_width, px(720.0));
-        assert_eq!(s.modal_height, px(540.0));
-        assert_eq!(s.modal_sidebar_width, px(200.0));
         assert_eq!(s.modal_content_padding, px(24.0));
         assert_eq!(s.dropdown_item_height, px(32.0));
         assert_eq!(s.button_height, px(32.0));
