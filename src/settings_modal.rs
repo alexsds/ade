@@ -117,18 +117,6 @@ impl SettingsModal {
     fn render_dropdown_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme();
 
-        // Backdrop to close on outside click
-        let backdrop = div()
-            .id("dropdown-backdrop")
-            .absolute()
-            .size(px(2000.0))
-            .top(px(-1000.0))
-            .left(px(-1000.0))
-            .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
-                this.dropdown_open = false;
-                cx.notify();
-            }));
-
         // The list itself, positioned absolutely within the modal
         // Title (~56px) + Editor section padding/heading/desc (~80px) + trigger (32px) + gap (4px)
         let list_top = 56.0 + 80.0 + 32.0 + 4.0;
@@ -218,7 +206,21 @@ impl SettingsModal {
             list = list.child(item);
         }
 
-        div().absolute().size_full().top_0().left_0().child(backdrop).child(list)
+        // Container consumes clicks so they don't fall through to footer buttons
+        div()
+            .id("dropdown-overlay")
+            .absolute()
+            .size_full()
+            .top_0()
+            .left_0()
+            .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
+                // Consume click — close dropdown if it reaches here (outside the list items)
+                if this.dropdown_open {
+                    this.dropdown_open = false;
+                    cx.notify();
+                }
+            }))
+            .child(list)
     }
 }
 
