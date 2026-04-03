@@ -6,6 +6,7 @@ mod key_encode;
 mod menu;
 mod panes;
 mod settings;
+mod settings_modal;
 mod syntax;
 mod tabs;
 mod terminal;
