@@ -14,6 +14,7 @@ mod terminal_view;
 mod theme;
 mod toolbar;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
@@ -85,6 +86,8 @@ pub struct AdeWindow {
     focus_handle: gpui::FocusHandle,
     /// The CWD that the git provider was last initialized with.
     current_git_cwd: std::path::PathBuf,
+    /// Persisted settings (editor choice, etc.) loaded once at startup.
+    settings: settings::Settings,
 }
 
 impl AdeWindow {
@@ -824,6 +827,9 @@ fn main() {
             // Create CodeReviewPanel entity
             let code_review_panel = cx.new(|_| code_review::CodeReviewPanel::new());
 
+            // Load persisted settings (editor choice, etc.)
+            let app_settings = settings::Settings::load();
+
             // Create AdeWindow entity with tabs
             let window_entity = cx.new(|cx| AdeWindow {
                 tabs: vec![initial_tab],
@@ -836,7 +842,30 @@ fn main() {
                 code_review_panel,
                 focus_handle: cx.focus_handle(),
                 current_git_cwd: initial_git_cwd,
+                settings: app_settings,
             });
+
+            // Set the double-click callback on the code review panel.
+            // When a file row is double-clicked, resolve the path and open in the configured editor.
+            {
+                let weak = window_entity.downgrade();
+                window_entity.update(cx, |this, cx| {
+                    this.code_review_panel.update(cx, |panel, _| {
+                        panel.on_file_double_click = Some(Arc::new(move |path: String, _window: &mut Window, cx: &mut App| {
+                            if let Some(entity) = weak.upgrade() {
+                                entity.update(cx, |this, _cx| {
+                                    let full_path = this.current_git_cwd.join(&path);
+                                    if full_path.exists() {
+                                        crate::settings::open_in_editor(&this.settings.external_editor, &full_path);
+                                    } else {
+                                        tracing::trace!("Double-click: file does not exist on disk: {}", full_path.display());
+                                    }
+                                });
+                            }
+                        }));
+                    });
+                });
+            }
 
             // Set up window resize observer: resize ONLY the active tab (Pitfall 7)
             let resize_subscription = window_entity.update(cx, |_this, cx| {

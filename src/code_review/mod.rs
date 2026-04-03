@@ -153,6 +153,11 @@ pub struct CodeReviewPanel {
     pub changes_image_preview: Option<Arc<RenderImage>>,
     /// State of Changes tab image preview.
     pub changes_image_preview_state: Option<String>,
+
+    /// Callback fired when a file row is double-clicked in either tab.
+    /// Receives the file path (relative to repo root), so the caller (AdeWindow)
+    /// can resolve it to an absolute path and open in the editor.
+    pub on_file_double_click: Option<Arc<dyn Fn(String, &mut Window, &mut gpui::App) + 'static>>,
 }
 
 impl CodeReviewPanel {
@@ -199,6 +204,7 @@ impl CodeReviewPanel {
             pending_blob_request: None,
             changes_image_preview: None,
             changes_image_preview_state: None,
+            on_file_double_click: None,
         }
     }
 
@@ -1350,11 +1356,23 @@ impl Render for CodeReviewPanel {
                 .into_any_element()
             };
 
+            let file_on_double_click: Option<Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>> = {
+                let files_for_dbl: Vec<String> = self.files.iter().map(|f| f.path.clone()).collect();
+                self.on_file_double_click.as_ref().map(|cb| {
+                    let cb = cb.clone();
+                    Arc::new(move |ix: usize, window: &mut Window, cx: &mut gpui::App| {
+                        if let Some(path) = files_for_dbl.get(ix) {
+                            cb(path.clone(), window, cx);
+                        }
+                    }) as Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>
+                })
+            };
+
             let file_list_content = file_list::render_file_list_with_empty_msg(
                 &self.files,
                 selected_file_index,
                 file_on_select,
-                None,
+                file_on_double_click,
                 is_file_list_active,
                 &self.file_scroll_handle,
                 "Select a commit to view changes",
@@ -1772,11 +1790,23 @@ impl Render for CodeReviewPanel {
 
             // char_width and scroll_top are now read live inside diff_view closures
 
+            let changes_file_on_double_click: Option<Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>> = {
+                let files_for_dbl: Vec<String> = self.changes_files.iter().map(|f| f.path.clone()).collect();
+                self.on_file_double_click.as_ref().map(|cb| {
+                    let cb = cb.clone();
+                    Arc::new(move |ix: usize, window: &mut Window, cx: &mut gpui::App| {
+                        if let Some(path) = files_for_dbl.get(ix) {
+                            cb(path.clone(), window, cx);
+                        }
+                    }) as Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>
+                })
+            };
+
             let changes_file_list_content = file_list::render_file_list_with_empty_msg(
                 &self.changes_files,
                 self.selected_changes_file_index,
                 changes_file_on_select,
-                None,
+                changes_file_on_double_click,
                 is_changes_file_list_active,
                 &self.changes_file_scroll_handle,
                 "No uncommitted changes",
