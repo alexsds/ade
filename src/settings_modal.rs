@@ -115,17 +115,10 @@ impl SettingsModal {
 
         let mut dropdown_wrapper = div().w_full().flex().flex_col().child(trigger);
 
-        // Open state: render the list below the trigger (max 3 visible, scroll for rest)
+        // Open state: render the full list below the trigger
         if self.dropdown_open {
-            let max_visible_items = 3.0;
-            let item_h = f32::from(t.sizes.dropdown_item_height);
-            let max_list_height = item_h * max_visible_items + 2.0; // +2 for border
-
             let mut list = div()
-                .id("editor-dropdown-list")
                 .w_full()
-                .max_h(px(max_list_height))
-                .overflow_y_scroll()
                 .bg(t.colors.bg_surface)
                 .border_1()
                 .border_color(t.colors.border_default)
@@ -245,46 +238,57 @@ impl Render for SettingsModal {
                     .flex()
                     .flex_col()
                     .overflow_hidden()
-                    // Title bar
+                    // Scrollable content area (flex_1 so footer stays pinned)
                     .child(
                         div()
-                            .px(t.sizes.modal_content_padding)
-                            .pt(t.sizes.modal_content_padding)
-                            .pb(t.spacing.sm)
-                            .child(
-                                div()
-                                    .text_size(px(16.0))
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(t.colors.text_primary)
-                                    .child("Settings"),
-                            ),
-                    )
-                    // External Editor section
-                    .child(
-                        div()
-                            .px(t.sizes.modal_content_padding)
-                            .py(t.spacing.md)
+                            .id("settings-content")
+                            .flex_1()
+                            .overflow_y_scroll()
                             .flex()
                             .flex_col()
-                            .gap(t.spacing.sm)
+                            // Title bar
                             .child(
                                 div()
-                                    .text_size(t.typography.heading.size)
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(t.colors.text_primary)
-                                    .child("External Editor"),
+                                    .px(t.sizes.modal_content_padding)
+                                    .pt(t.sizes.modal_content_padding)
+                                    .pb(t.spacing.sm)
+                                    .flex_shrink_0()
+                                    .child(
+                                        div()
+                                            .text_size(px(16.0))
+                                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                                            .text_color(t.colors.text_primary)
+                                            .child("Settings"),
+                                    ),
                             )
+                            // External Editor section
                             .child(
                                 div()
-                                    .text_size(t.typography.body.size)
-                                    .text_color(t.colors.text_secondary)
-                                    .child("Choose the editor to open files from code review"),
-                            )
-                            .child(self.render_dropdown(cx)),
+                                    .px(t.sizes.modal_content_padding)
+                                    .py(t.spacing.md)
+                                    .flex()
+                                    .flex_col()
+                                    .gap(t.spacing.sm)
+                                    .child(
+                                        div()
+                                            .text_size(t.typography.heading.size)
+                                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                                            .text_color(t.colors.text_primary)
+                                            .child("External Editor"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(t.typography.body.size)
+                                            .text_color(t.colors.text_secondary)
+                                            .child("Choose the editor to open files from code review"),
+                                    )
+                                    .child(self.render_dropdown(cx)),
+                            ),
                     )
-                    // Footer
+                    // Footer (pinned to bottom)
                     .child(
                         div()
+                            .flex_shrink_0()
                             .border_t_1()
                             .border_color(t.colors.border_subtle)
                             .px(t.spacing.md)
