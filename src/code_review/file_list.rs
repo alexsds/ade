@@ -22,6 +22,7 @@ pub fn render_file_list(
     files: &[FileChange],
     selected_index: Option<usize>,
     on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
+    on_double_click: Option<Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
     is_active: bool,
     scroll_handle: &UniformListScrollHandle,
 ) -> gpui::AnyElement {
@@ -29,6 +30,7 @@ pub fn render_file_list(
         files,
         selected_index,
         on_select,
+        on_double_click,
         is_active,
         scroll_handle,
         "Select a commit to view changes",
@@ -40,6 +42,7 @@ pub fn render_file_list_with_empty_msg(
     files: &[FileChange],
     selected_index: Option<usize>,
     on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
+    on_double_click: Option<Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
     is_active: bool,
     scroll_handle: &UniformListScrollHandle,
     empty_message: &str,
@@ -81,7 +84,8 @@ pub fn render_file_list_with_empty_msg(
                 let file = files[ix].clone();
                 let is_selected = Some(ix) == selected_index;
                 let on_select = on_select.clone();
-                render_file_row(&file, is_selected, ix, on_select, is_active)
+                let on_dbl = on_double_click.clone();
+                render_file_row(&file, is_selected, ix, on_select, on_dbl, is_active)
             })
             .collect()
     })
@@ -96,6 +100,7 @@ fn render_file_row(
     is_selected: bool,
     index: usize,
     on_select: Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>,
+    on_double_click: Option<Arc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
     is_active: bool,
 ) -> gpui::AnyElement {
     let t = theme::theme();
@@ -128,8 +133,13 @@ fn render_file_row(
         .items_center()
         .relative()
         .gap(t.spacing.sm)
-        .on_click(move |_event, window, cx| {
+        .on_click(move |event, window, cx| {
             on_select(index, window, cx);
+            if event.click_count() >= 2 {
+                if let Some(ref on_dbl) = on_double_click {
+                    on_dbl(index, window, cx);
+                }
+            }
         });
 
     if is_selected {
