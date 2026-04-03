@@ -13,6 +13,8 @@ dependencies = [
  "gpui",
  "image",
  "libc",
+ "serde",
+ "serde_json",
  "smallvec",
  "tempfile",
  "tracing",
