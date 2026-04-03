@@ -258,12 +258,10 @@ impl Render for SettingsModal {
                     .flex()
                     .flex_col()
                     .overflow_hidden()
-                    // Scrollable content area (flex_1 so footer stays pinned)
+                    // Content area (flex_1, footer stays pinned)
                     .child(
                         div()
-                            .id("settings-content")
                             .flex_1()
-                            .overflow_y_scroll()
                             .flex()
                             .flex_col()
                             // Title bar
