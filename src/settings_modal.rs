@@ -80,7 +80,7 @@ impl SettingsModal {
     fn render_dropdown(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme();
 
-        // Closed state: the trigger button
+        // Trigger button (always visible)
         let trigger = div()
             .id("dropdown-trigger")
             .h(t.sizes.dropdown_item_height)
@@ -113,12 +113,12 @@ impl SettingsModal {
                     .text_color(t.colors.text_secondary),
             );
 
-        let mut dropdown_wrapper = div().w_full().relative().flex().flex_col().child(trigger);
+        // Wrapper with relative positioning so dropdown list can be absolute
+        let mut wrapper = div().w_full().relative().child(trigger);
 
-        // Open state: render scrollable list below trigger with dismiss backdrop
         if self.dropdown_open {
-            // Invisible backdrop to close dropdown on outside click
-            dropdown_wrapper = dropdown_wrapper.child(
+            // Backdrop: covers the entire modal to catch outside clicks
+            wrapper = wrapper.child(
                 div()
                     .id("dropdown-backdrop")
                     .absolute()
@@ -131,19 +131,20 @@ impl SettingsModal {
                     })),
             );
 
-            let item_h = f32::from(t.sizes.dropdown_item_height);
-            let max_list_height = item_h * 5.0 + 2.0;
-
+            // Dropdown list: absolute positioned, overlays content below
             let mut list = div()
                 .id("editor-dropdown-list")
+                .absolute()
+                .top(px(36.0)) // just below the trigger (32px height + 4px gap)
+                .left_0()
                 .w_full()
-                .max_h(px(max_list_height))
+                .max_h(px(200.0))
                 .overflow_y_scroll()
                 .bg(t.colors.bg_surface)
                 .border_1()
                 .border_color(t.colors.border_default)
                 .rounded(px(8.0))
-                .mt(px(4.0))
+                .py(px(4.0))
                 .flex()
                 .flex_col();
 
@@ -157,6 +158,7 @@ impl SettingsModal {
                 let mut item = div()
                     .id(item_id)
                     .h(t.sizes.dropdown_item_height)
+                    .flex_shrink_0()
                     .px(t.spacing.sm)
                     .flex()
                     .flex_row()
@@ -175,7 +177,6 @@ impl SettingsModal {
                     item = item.hover(|s| s.bg(t.colors.element_hover));
                 }
 
-                // Check icon or spacer
                 let check_space = if is_selected {
                     div().child(
                         svg()
@@ -187,7 +188,6 @@ impl SettingsModal {
                     div().w(px(14.0))
                 };
 
-                // Editor name + optional "(not installed)" suffix
                 let label = if is_installed {
                     div()
                         .text_size(t.typography.body.size)
@@ -216,10 +216,10 @@ impl SettingsModal {
                 list = list.child(item);
             }
 
-            dropdown_wrapper = dropdown_wrapper.child(list);
+            wrapper = wrapper.child(list);
         }
 
-        dropdown_wrapper
+        wrapper
     }
 }
 
@@ -228,7 +228,7 @@ impl Render for SettingsModal {
         let t = theme::theme();
         let is_dirty = self.is_dirty();
 
-        // Full-window overlay — only Escape dismisses (no click-outside)
+        // Full-window overlay
         div()
             .key_context("SettingsModal")
             .track_focus(&self.focus_handle)
@@ -242,71 +242,65 @@ impl Render for SettingsModal {
             .justify_center()
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
-                    this.dismiss(window, cx);
+                    if this.dropdown_open {
+                        this.dropdown_open = false;
+                        cx.notify();
+                    } else {
+                        this.dismiss(window, cx);
+                    }
                 }
             }))
-            // Modal panel
+            // Modal panel — auto-height, no fixed h()
             .child(
                 div()
                     .id("settings-modal")
                     .w(px(480.0))
-                    .h(px(380.0))
                     .bg(t.colors.bg_base)
                     .border_1()
                     .border_color(t.colors.border_default)
                     .rounded(px(12.0))
                     .flex()
                     .flex_col()
-                    .overflow_hidden()
-                    // Content area (flex_1, footer stays pinned)
+                    // Title
                     .child(
                         div()
-                            .flex_1()
-                            .flex()
-                            .flex_col()
-                            // Title bar
+                            .px(t.sizes.modal_content_padding)
+                            .pt(t.sizes.modal_content_padding)
+                            .pb(t.spacing.sm)
                             .child(
                                 div()
-                                    .px(t.sizes.modal_content_padding)
-                                    .pt(t.sizes.modal_content_padding)
-                                    .pb(t.spacing.sm)
-                                    .flex_shrink_0()
-                                    .child(
-                                        div()
-                                            .text_size(px(16.0))
-                                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                                            .text_color(t.colors.text_primary)
-                                            .child("Settings"),
-                                    ),
-                            )
-                            // External Editor section
-                            .child(
-                                div()
-                                    .px(t.sizes.modal_content_padding)
-                                    .py(t.spacing.md)
-                                    .flex()
-                                    .flex_col()
-                                    .gap(t.spacing.sm)
-                                    .child(
-                                        div()
-                                            .text_size(t.typography.heading.size)
-                                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                                            .text_color(t.colors.text_primary)
-                                            .child("External Editor"),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(t.typography.body.size)
-                                            .text_color(t.colors.text_secondary)
-                                            .child("Choose the editor to open files from code review"),
-                                    )
-                                    .child(self.render_dropdown(cx)),
+                                    .text_size(px(16.0))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(t.colors.text_primary)
+                                    .child("Settings"),
                             ),
                     )
-                    // Footer (pinned to bottom)
+                    // External Editor section
                     .child(
                         div()
-                            .flex_shrink_0()
+                            .px(t.sizes.modal_content_padding)
+                            .py(t.spacing.md)
+                            .flex()
+                            .flex_col()
+                            .gap(t.spacing.sm)
+                            .child(
+                                div()
+                                    .text_size(t.typography.heading.size)
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(t.colors.text_primary)
+                                    .child("External Editor"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(t.typography.body.size)
+                                    .text_color(t.colors.text_secondary)
+                                    .child("Choose the editor to open files from code review"),
+                            )
+                            .child(self.render_dropdown(cx)),
+                    )
+                    // Footer with buttons
+                    .child(
+                        div()
                             .border_t_1()
                             .border_color(t.colors.border_subtle)
                             .px(t.spacing.md)
@@ -315,7 +309,6 @@ impl Render for SettingsModal {
                             .flex_row()
                             .justify_end()
                             .gap(t.spacing.sm)
-                            // Discard Changes button
                             .child(
                                 div()
                                     .id("discard-btn")
@@ -342,7 +335,6 @@ impl Render for SettingsModal {
                                         }),
                                     ),
                             )
-                            // Save Settings button
                             .child({
                                 let mut btn = div()
                                     .id("save-btn")
@@ -360,14 +352,15 @@ impl Render for SettingsModal {
                                             .child("Save Settings"),
                                     );
                                 if is_dirty {
-                                    btn = btn.cursor_pointer().hover(|s| {
-                                        s.bg(t.colors.button_accent_hover)
-                                    }).on_click(
-                                        cx.listener(|this, _: &gpui::ClickEvent, window, cx| {
-                                            this.save(window, cx);
-                                            this.dismiss(window, cx);
-                                        }),
-                                    );
+                                    btn = btn
+                                        .cursor_pointer()
+                                        .hover(|s| s.bg(t.colors.button_accent_hover))
+                                        .on_click(cx.listener(
+                                            |this, _: &gpui::ClickEvent, window, cx| {
+                                                this.save(window, cx);
+                                                this.dismiss(window, cx);
+                                            },
+                                        ));
                                 } else {
                                     btn = btn.opacity(0.5).cursor_default();
                                 }
