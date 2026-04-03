@@ -158,6 +158,10 @@ pub struct CodeReviewPanel {
     /// Receives the file path (relative to repo root), so the caller (AdeWindow)
     /// can resolve it to an absolute path and open in the editor.
     pub on_file_double_click: Option<Arc<dyn Fn(String, &mut Window, &mut gpui::App) + 'static>>,
+
+    /// Last file click tracking for manual double-click detection.
+    /// GPUI's click_count() doesn't work in .app bundle context.
+    last_file_click: Option<(usize, std::time::Instant, bool)>, // (index, time, is_changes_tab)
 }
 
 impl CodeReviewPanel {
@@ -205,6 +209,7 @@ impl CodeReviewPanel {
             changes_image_preview: None,
             changes_image_preview_state: None,
             on_file_double_click: None,
+            last_file_click: None,
         }
     }
 
@@ -1186,10 +1191,25 @@ impl Render for CodeReviewPanel {
 
             let file_on_select: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
                 let weak = weak.clone();
-                Arc::new(move |ix: usize, _window: &mut Window, cx: &mut gpui::App| {
+                Arc::new(move |ix: usize, window: &mut Window, cx: &mut gpui::App| {
                     weak.update(cx, |this, cx| {
+                        // Check for double-click (same index within 500ms)
+                        let now = std::time::Instant::now();
+                        let is_double = this.last_file_click.map_or(false, |(prev_ix, prev_time, prev_changes)| {
+                            prev_ix == ix && !prev_changes && now.duration_since(prev_time).as_millis() < 500
+                        });
+                        this.last_file_click = Some((ix, now, false));
+
                         this.select_file(ix);
                         cx.notify();
+
+                        if is_double {
+                            if let Some(file) = this.files.get(ix) {
+                                if let Some(ref cb) = this.on_file_double_click {
+                                    cb(file.path.clone(), window, cx);
+                                }
+                            }
+                        }
                     })
                     .ok();
                 })
@@ -1356,23 +1376,10 @@ impl Render for CodeReviewPanel {
                 .into_any_element()
             };
 
-            let file_on_double_click: Option<Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>> = {
-                let files_for_dbl: Vec<String> = self.files.iter().map(|f| f.path.clone()).collect();
-                self.on_file_double_click.as_ref().map(|cb| {
-                    let cb = cb.clone();
-                    Arc::new(move |ix: usize, window: &mut Window, cx: &mut gpui::App| {
-                        if let Some(path) = files_for_dbl.get(ix) {
-                            cb(path.clone(), window, cx);
-                        }
-                    }) as Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>
-                })
-            };
-
             let file_list_content = file_list::render_file_list_with_empty_msg(
                 &self.files,
                 selected_file_index,
                 file_on_select,
-                file_on_double_click,
                 is_file_list_active,
                 &self.file_scroll_handle,
                 "Select a commit to view changes",
@@ -1678,10 +1685,24 @@ impl Render for CodeReviewPanel {
 
             let changes_file_on_select: Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static> = {
                 let weak = weak.clone();
-                Arc::new(move |ix: usize, _window: &mut Window, cx: &mut gpui::App| {
+                Arc::new(move |ix: usize, window: &mut Window, cx: &mut gpui::App| {
                     weak.update(cx, |this, cx| {
+                        let now = std::time::Instant::now();
+                        let is_double = this.last_file_click.map_or(false, |(prev_ix, prev_time, prev_changes)| {
+                            prev_ix == ix && prev_changes && now.duration_since(prev_time).as_millis() < 500
+                        });
+                        this.last_file_click = Some((ix, now, true));
+
                         this.select_changes_file(ix);
                         cx.notify();
+
+                        if is_double {
+                            if let Some(file) = this.changes_files.get(ix) {
+                                if let Some(ref cb) = this.on_file_double_click {
+                                    cb(file.path.clone(), window, cx);
+                                }
+                            }
+                        }
                     })
                     .ok();
                 })
@@ -1790,23 +1811,10 @@ impl Render for CodeReviewPanel {
 
             // char_width and scroll_top are now read live inside diff_view closures
 
-            let changes_file_on_double_click: Option<Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>> = {
-                let files_for_dbl: Vec<String> = self.changes_files.iter().map(|f| f.path.clone()).collect();
-                self.on_file_double_click.as_ref().map(|cb| {
-                    let cb = cb.clone();
-                    Arc::new(move |ix: usize, window: &mut Window, cx: &mut gpui::App| {
-                        if let Some(path) = files_for_dbl.get(ix) {
-                            cb(path.clone(), window, cx);
-                        }
-                    }) as Arc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>
-                })
-            };
-
             let changes_file_list_content = file_list::render_file_list_with_empty_msg(
                 &self.changes_files,
                 self.selected_changes_file_index,
                 changes_file_on_select,
-                changes_file_on_double_click,
                 is_changes_file_list_active,
                 &self.changes_file_scroll_handle,
                 "No uncommitted changes",

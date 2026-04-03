@@ -327,7 +327,9 @@ impl AdeWindow {
                                 self.git_provider.request_log(200);
                                 // Reset code review panel to clear old repo data
                                 self.code_review_panel.update(cx, |panel, _| {
+                                    let cb = panel.on_file_double_click.take();
                                     *panel = code_review::CodeReviewPanel::new();
+                                    panel.on_file_double_click = cb;
                                 });
                             }
                         }
@@ -1278,14 +1280,18 @@ fn main() {
                                                                     this.git_provider.request_log(200);
                                                                     this.git_provider.request_working_tree_files();
                                                                     this.code_review_panel.update(cx, |panel, _| {
+                                                                        let cb = panel.on_file_double_click.take();
                                                                         *panel = code_review::CodeReviewPanel::new();
+                                                                        panel.on_file_double_click = cb;
                                                                     });
                                                                 } else {
                                                                     // Left a git repo — clear git state
                                                                     this.branch_status = None;
                                                                     this.working_tree_files.clear();
                                                                     this.code_review_panel.update(cx, |panel, _| {
+                                                                        let cb = panel.on_file_double_click.take();
                                                                         *panel = code_review::CodeReviewPanel::new();
+                                                                        panel.on_file_double_click = cb;
                                                                     });
                                                                 }
                                                             }
