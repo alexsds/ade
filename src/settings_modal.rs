@@ -115,16 +115,10 @@ impl SettingsModal {
 
         let mut dropdown_wrapper = div().w_full().flex().flex_col().child(trigger);
 
-        // Open state: render the list below the trigger (5 visible, scroll for rest)
+        // Open state: render the full list below the trigger
         if self.dropdown_open {
-            let item_h = f32::from(t.sizes.dropdown_item_height);
-            let max_list_height = item_h * 5.0 + 2.0; // 5 items + border
-
             let mut list = div()
-                .id("editor-dropdown-list")
                 .w_full()
-                .max_h(px(max_list_height))
-                .overflow_y_scroll()
                 .bg(t.colors.bg_surface)
                 .border_1()
                 .border_color(t.colors.border_default)
@@ -236,7 +230,7 @@ impl Render for SettingsModal {
                 div()
                     .id("settings-modal")
                     .w(px(480.0))
-                    .h(px(340.0))
+                    .h(px(520.0))
                     .bg(t.colors.bg_base)
                     .border_1()
                     .border_color(t.colors.border_default)
@@ -247,7 +241,9 @@ impl Render for SettingsModal {
                     // Scrollable content area (flex_1 so footer stays pinned)
                     .child(
                         div()
+                            .id("settings-content")
                             .flex_1()
+                            .overflow_y_scroll()
                             .flex()
                             .flex_col()
                             // Title bar
