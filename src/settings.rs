@@ -178,10 +178,26 @@ pub fn is_editor_installed(editor: &EditorChoice) -> bool {
 pub fn open_in_editor(editor: &EditorChoice, file_path: &Path) {
     let result = match editor {
         EditorChoice::MacOsOpen => Command::new("open").arg(file_path).spawn(),
-        EditorChoice::VsCode => Command::new("code").arg(file_path).spawn(),
-        EditorChoice::SublimeText => Command::new("subl").arg(file_path).spawn(),
-        EditorChoice::Zed => Command::new("zed").arg(file_path).spawn(),
-        EditorChoice::Cursor => Command::new("cursor").arg(file_path).spawn(),
+        EditorChoice::VsCode => Command::new("open")
+            .arg("-a")
+            .arg("Visual Studio Code")
+            .arg(file_path)
+            .spawn(),
+        EditorChoice::SublimeText => Command::new("open")
+            .arg("-a")
+            .arg("Sublime Text")
+            .arg(file_path)
+            .spawn(),
+        EditorChoice::Zed => Command::new("open")
+            .arg("-a")
+            .arg("Zed")
+            .arg(file_path)
+            .spawn(),
+        EditorChoice::Cursor => Command::new("open")
+            .arg("-a")
+            .arg("Cursor")
+            .arg(file_path)
+            .spawn(),
         EditorChoice::IntelliJ => Command::new("open")
             .arg("-a")
             .arg("IntelliJ IDEA")
