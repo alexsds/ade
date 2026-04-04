@@ -628,10 +628,11 @@ fn collect_diff_data(diff: git2::Diff<'_>) -> Result<DiffData, git2::Error> {
                     file.hunks.push(prev_hunk);
                 }
             }
-            let header = std::str::from_utf8(hunk.header())
-                .unwrap_or("")
-                .trim_end()
-                .to_string();
+            let header = sanitize_git_string(
+                std::str::from_utf8(hunk.header())
+                    .unwrap_or("")
+                    .trim_end(),
+            );
             *current_hunk.borrow_mut() = Some(DiffHunk {
                 header,
                 lines: Vec::new(),
@@ -657,11 +658,12 @@ fn collect_diff_data(diff: git2::Diff<'_>) -> Result<DiffData, git2::Error> {
 
             let raw_content = std::str::from_utf8(line.content()).unwrap_or("");
             let content = if raw_content.len() > MAX_LINE_LENGTH {
-                let mut truncated = raw_content[..MAX_LINE_LENGTH].to_string();
+                let truncate_at = raw_content.floor_char_boundary(MAX_LINE_LENGTH);
+                let mut truncated = sanitize_git_string(&raw_content[..truncate_at]);
                 truncated.push_str("... (truncated)");
                 truncated
             } else {
-                raw_content.to_string()
+                sanitize_git_string(raw_content)
             };
 
             if line_type == DiffLineType::Add {
@@ -750,7 +752,7 @@ fn get_branch_status(repo: &Repository) -> Result<BranchStatus, git2::Error> {
     let branch_name = match repo.head() {
         Ok(head) => {
             if head.is_branch() {
-                head.shorthand().unwrap_or("HEAD").to_string()
+                sanitize_git_string(head.shorthand().unwrap_or("HEAD"))
             } else {
                 // Detached HEAD -- show short OID
                 match head.target() {
@@ -1019,10 +1021,11 @@ fn compute_working_tree_file_diff(repo: &Repository, path: &str) -> Result<DiffD
                     file.hunks.push(prev_hunk);
                 }
             }
-            let header = std::str::from_utf8(hunk.header())
-                .unwrap_or("")
-                .trim_end()
-                .to_string();
+            let header = sanitize_git_string(
+                std::str::from_utf8(hunk.header())
+                    .unwrap_or("")
+                    .trim_end(),
+            );
             *current_hunk.borrow_mut() = Some(DiffHunk {
                 header,
                 lines: Vec::new(),
@@ -1046,11 +1049,12 @@ fn compute_working_tree_file_diff(repo: &Repository, path: &str) -> Result<DiffD
 
             let raw_content = std::str::from_utf8(line.content()).unwrap_or("");
             let content = if raw_content.len() > MAX_LINE_LENGTH {
-                let mut truncated = raw_content[..MAX_LINE_LENGTH].to_string();
+                let truncate_at = raw_content.floor_char_boundary(MAX_LINE_LENGTH);
+                let mut truncated = sanitize_git_string(&raw_content[..truncate_at]);
                 truncated.push_str("... (truncated)");
                 truncated
             } else {
-                raw_content.to_string()
+                sanitize_git_string(raw_content)
             };
 
             if line_type == DiffLineType::Add {
