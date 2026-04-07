@@ -12,6 +12,7 @@ env:
 jobs:
   check:
     name: Build & Test
+    needs: fmt
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
