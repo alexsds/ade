@@ -586,12 +586,7 @@ impl AdeWindow {
     }
 
     /// Handle Cmd+,: open the settings modal overlay.
-    fn on_open_settings(
-        &mut self,
-        _: &OpenSettings,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn on_open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
         if self.show_settings {
             return; // Already open
         }
@@ -618,8 +613,7 @@ impl AdeWindow {
                 .ok();
             })
         };
-        let modal =
-            cx.new(|cx| settings_modal::SettingsModal::new(on_save, on_dismiss, cx));
+        let modal = cx.new(|cx| settings_modal::SettingsModal::new(on_save, on_dismiss, cx));
         let modal_focus = modal.read(cx).focus_handle().clone();
         self.settings_modal = Some(modal);
         modal_focus.focus(window, cx);

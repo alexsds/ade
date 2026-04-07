@@ -1195,9 +1195,14 @@ impl Render for CodeReviewPanel {
                     weak.update(cx, |this, cx| {
                         // Check for double-click (same index within 500ms)
                         let now = std::time::Instant::now();
-                        let is_double = this.last_file_click.map_or(false, |(prev_ix, prev_time, prev_changes)| {
-                            prev_ix == ix && !prev_changes && now.duration_since(prev_time).as_millis() < 500
-                        });
+                        let is_double = this.last_file_click.map_or(
+                            false,
+                            |(prev_ix, prev_time, prev_changes)| {
+                                prev_ix == ix
+                                    && !prev_changes
+                                    && now.duration_since(prev_time).as_millis() < 500
+                            },
+                        );
                         this.last_file_click = Some((ix, now, false));
 
                         this.select_file(ix);
@@ -1688,9 +1693,14 @@ impl Render for CodeReviewPanel {
                 Arc::new(move |ix: usize, window: &mut Window, cx: &mut gpui::App| {
                     weak.update(cx, |this, cx| {
                         let now = std::time::Instant::now();
-                        let is_double = this.last_file_click.map_or(false, |(prev_ix, prev_time, prev_changes)| {
-                            prev_ix == ix && prev_changes && now.duration_since(prev_time).as_millis() < 500
-                        });
+                        let is_double = this.last_file_click.map_or(
+                            false,
+                            |(prev_ix, prev_time, prev_changes)| {
+                                prev_ix == ix
+                                    && prev_changes
+                                    && now.duration_since(prev_time).as_millis() < 500
+                            },
+                        );
                         this.last_file_click = Some((ix, now, true));
 
                         this.select_changes_file(ix);

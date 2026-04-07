@@ -628,11 +628,8 @@ fn collect_diff_data(diff: git2::Diff<'_>) -> Result<DiffData, git2::Error> {
                     file.hunks.push(prev_hunk);
                 }
             }
-            let header = sanitize_git_string(
-                std::str::from_utf8(hunk.header())
-                    .unwrap_or("")
-                    .trim_end(),
-            );
+            let header =
+                sanitize_git_string(std::str::from_utf8(hunk.header()).unwrap_or("").trim_end());
             *current_hunk.borrow_mut() = Some(DiffHunk {
                 header,
                 lines: Vec::new(),
@@ -1021,11 +1018,8 @@ fn compute_working_tree_file_diff(repo: &Repository, path: &str) -> Result<DiffD
                     file.hunks.push(prev_hunk);
                 }
             }
-            let header = sanitize_git_string(
-                std::str::from_utf8(hunk.header())
-                    .unwrap_or("")
-                    .trim_end(),
-            );
+            let header =
+                sanitize_git_string(std::str::from_utf8(hunk.header()).unwrap_or("").trim_end());
             *current_hunk.borrow_mut() = Some(DiffHunk {
                 header,
                 lines: Vec::new(),

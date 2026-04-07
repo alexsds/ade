@@ -5,10 +5,10 @@
 
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, px, svg, App, Context, FocusHandle, SharedString, Styled, Window};
+use gpui::{App, Context, FocusHandle, SharedString, Styled, Window, div, prelude::*, px, svg};
 
 use crate::assets;
-use crate::settings::{is_editor_installed, EditorChoice, Settings};
+use crate::settings::{EditorChoice, Settings, is_editor_installed};
 use crate::theme;
 
 /// Settings modal entity with editor dropdown and save/discard buttons.
