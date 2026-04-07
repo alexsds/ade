@@ -3,6 +3,45 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+/// Theme mode preference: Dark, Light, or System (follows OS appearance).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum ThemeMode {
+    Dark,
+    Light,
+    System,
+}
+
+impl ThemeMode {
+    /// Returns all theme mode variants in display order.
+    pub fn all() -> &'static [ThemeMode] {
+        &[ThemeMode::Dark, ThemeMode::Light, ThemeMode::System]
+    }
+
+    /// Human-readable display name for the theme mode.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ThemeMode::Dark => "Dark",
+            ThemeMode::Light => "Light",
+            ThemeMode::System => "System",
+        }
+    }
+
+    /// Resolve the user's theme mode preference to a concrete ThemeName.
+    /// For System mode, currently defaults to Dark (Phase 55 will add
+    /// macOS appearance detection).
+    pub fn resolve(&self) -> crate::theme::ThemeName {
+        match self {
+            ThemeMode::Dark => crate::theme::ThemeName::Dark,
+            ThemeMode::Light => crate::theme::ThemeName::Light,
+            ThemeMode::System => crate::theme::ThemeName::Dark, // placeholder until Phase 55
+        }
+    }
+}
+
+fn default_theme_mode() -> ThemeMode {
+    ThemeMode::System
+}
+
 /// Supported external editors for opening files from code review.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum EditorChoice {
@@ -83,12 +122,15 @@ fn default_editor() -> EditorChoice {
 pub struct Settings {
     #[serde(default = "default_editor")]
     pub external_editor: EditorChoice,
+    #[serde(default = "default_theme_mode")]
+    pub theme_mode: ThemeMode,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             external_editor: default_editor(),
+            theme_mode: default_theme_mode(),
         }
     }
 }
@@ -367,7 +409,11 @@ mod tests {
     #[test]
     fn test_theme_mode_serializes_dark() {
         let json = serde_json::to_string(&ThemeMode::Dark).unwrap();
-        assert!(json.contains("Dark"), "Expected Dark in JSON, got: {}", json);
+        assert!(
+            json.contains("Dark"),
+            "Expected Dark in JSON, got: {}",
+            json
+        );
     }
 
     #[test]
@@ -429,27 +475,18 @@ mod tests {
 
     #[test]
     fn test_theme_mode_resolve_dark() {
-        assert_eq!(
-            ThemeMode::Dark.resolve(),
-            crate::theme::ThemeName::Dark
-        );
+        assert_eq!(ThemeMode::Dark.resolve(), crate::theme::ThemeName::Dark);
     }
 
     #[test]
     fn test_theme_mode_resolve_light() {
-        assert_eq!(
-            ThemeMode::Light.resolve(),
-            crate::theme::ThemeName::Light
-        );
+        assert_eq!(ThemeMode::Light.resolve(), crate::theme::ThemeName::Light);
     }
 
     #[test]
     fn test_theme_mode_resolve_system() {
         // System currently defaults to Dark (placeholder until Phase 55)
-        assert_eq!(
-            ThemeMode::System.resolve(),
-            crate::theme::ThemeName::Dark
-        );
+        assert_eq!(ThemeMode::System.resolve(), crate::theme::ThemeName::Dark);
     }
 
     #[test]

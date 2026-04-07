@@ -61,6 +61,7 @@ impl SettingsModal {
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let new_settings = Settings {
             external_editor: self.selected_editor,
+            theme_mode: self.current_settings.theme_mode,
         };
         if let Err(e) = new_settings.save() {
             tracing::warn!("Failed to save settings: {}", e);

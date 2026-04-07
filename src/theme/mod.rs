@@ -6,8 +6,8 @@ pub use colors::ThemeColors;
 pub use spacing::{Sizes, Spacing};
 pub use typography::Typography;
 
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use gpui::Global;
 
