@@ -144,6 +144,79 @@ impl ThemeColors {
             badge_remote_text: rgba(0x60A5FAff).into(),
         }
     }
+
+    pub fn default_light() -> Self {
+        Self {
+            // -- Surfaces (white/gray scale, light backgrounds) --
+            bg_base: rgba(0xFFFFFFff).into(),
+            bg_panel: rgba(0xF9FAFBff).into(),
+            bg_surface: rgba(0xF3F4F6ff).into(),
+            bg_elevated: rgba(0xE5E7EBff).into(),
+            transparent: rgba(0x00000000).into(),
+
+            // -- Borders (darker grays for visibility on light bg) --
+            border_subtle: rgba(0xE5E7EB80).into(),
+            border_default: rgba(0xD1D5DBff).into(),
+            border_strong: rgba(0x9CA3AFff).into(),
+
+            // -- Text (dark on light) --
+            text_primary: rgba(0x111827ff).into(),
+            text_secondary: rgba(0x4B5563ff).into(),
+            text_muted: rgba(0x9CA3AFff).into(),
+            text_dimmed: rgba(0xD1D5DBff).into(),
+            text_bright: rgba(0x030712ff).into(),
+            text_on_emphasis: rgba(0xFFFFFFff).into(),
+            text_commit_hash: rgba(0x6B7280ff).into(),
+            text_commit_time: rgba(0x9CA3AFff).into(),
+
+            // -- Interactive (indigo accent, adjusted for light bg) --
+            accent: rgba(0x6366F1ff).into(),
+            element_hover: rgba(0xF3F4F6ff).into(),
+            tab_hover: rgba(0xF3F4F6ff).into(),
+            button_accent_hover: rgba(0x6366F14D).into(),
+            element_selected: rgba(0x6366F140).into(),
+            element_selected_inactive: rgba(0x6366F120).into(),
+            selection_bg: rgba(0xA5B4FC60).into(),
+
+            // -- Git status (saturated for readability on light bg) --
+            git_added: rgba(0x059669ff).into(),
+            git_clean: rgba(0x059669ff).into(),
+            git_modified: rgba(0xD97706ff).into(),
+            git_dirty: rgba(0xD97706ff).into(),
+            git_deleted: rgba(0xE11D48ff).into(),
+            git_renamed: rgba(0x2563EBff).into(),
+            git_unknown: rgba(0x6B7280ff).into(),
+
+            // -- Git badge backgrounds (12% opacity on status colors) --
+            git_added_bg: rgba(0x05966920).into(),
+            git_modified_bg: rgba(0xD9770620).into(),
+            git_deleted_bg: rgba(0xE11D4820).into(),
+            git_renamed_bg: rgba(0x2563EB20).into(),
+            git_unknown_bg: rgba(0x6B728020).into(),
+
+            // -- Diff (adjusted for light background contrast) --
+            diff_add_text: rgba(0x059669ff).into(),
+            diff_add_line_bg: rgba(0x05966912).into(),
+            diff_add_word_bg: rgba(0x05966940).into(),
+            diff_remove_text: rgba(0xE11D48ff).into(),
+            diff_remove_line_bg: rgba(0xE11D4812).into(),
+            diff_remove_word_bg: rgba(0xE11D4840).into(),
+            diff_hunk_text: rgba(0x6366F1ff).into(),
+            diff_hunk_bg: rgba(0xF9FAFBff).into(),
+            diff_context_text: rgba(0x4B5563ff).into(),
+            diff_gutter_text: rgba(0x9CA3AFff).into(),
+
+            // -- Decoration badges (adjusted for light bg) --
+            badge_branch_bg: rgba(0x05966920).into(),
+            badge_branch_text: rgba(0x059669ff).into(),
+            badge_tag_bg: rgba(0xD9770620).into(),
+            badge_tag_text: rgba(0xD97706ff).into(),
+            badge_head_bg: rgba(0x6366F120).into(),
+            badge_head_text: rgba(0x6366F1ff).into(),
+            badge_remote_bg: rgba(0x2563EB20).into(),
+            badge_remote_text: rgba(0x2563EBff).into(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -183,6 +256,34 @@ mod tests {
     #[test]
     fn test_default_dark_all_fields_have_alpha() {
         let colors = ThemeColors::default_dark();
+        // Spot-check key fields are non-transparent
+        assert!(colors.bg_base.a > 0.0, "bg_base must have alpha");
+        assert!(colors.bg_panel.a > 0.0, "bg_panel must have alpha");
+        assert!(colors.accent.a > 0.0, "accent must have alpha");
+        assert!(colors.text_primary.a > 0.0, "text_primary must have alpha");
+        assert!(
+            colors.border_default.a > 0.0,
+            "border_default must have alpha"
+        );
+        assert!(colors.git_added.a > 0.0, "git_added must have alpha");
+        assert!(
+            colors.diff_add_text.a > 0.0,
+            "diff_add_text must have alpha"
+        );
+        assert!(
+            colors.button_accent_hover.a > 0.0,
+            "button_accent_hover must have alpha"
+        );
+        // transparent field should have zero alpha
+        assert!(
+            colors.transparent.a == 0.0,
+            "transparent must have zero alpha"
+        );
+    }
+
+    #[test]
+    fn test_default_light_all_fields_have_alpha() {
+        let colors = ThemeColors::default_light();
         // Spot-check key fields are non-transparent
         assert!(colors.bg_base.a > 0.0, "bg_base must have alpha");
         assert!(colors.bg_panel.a > 0.0, "bg_panel must have alpha");
