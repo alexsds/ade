@@ -207,6 +207,56 @@ impl Default for TerminalContent {
 // Section 3b: Color resolution (xterm-256color palette)
 // ============================================================================
 
+/// Convert an Hsla color to an alacritty Rgb value.
+/// Used to bridge theme colors (Hsla) into the terminal color pipeline (Rgb).
+pub fn hsla_to_rgb(hsla: gpui::Hsla) -> Rgb {
+    let rgba: gpui::Rgba = hsla.into();
+    Rgb {
+        r: (rgba.r * 255.0).round() as u8,
+        g: (rgba.g * 255.0).round() as u8,
+        b: (rgba.b * 255.0).round() as u8,
+    }
+}
+
+/// Pre-computed terminal color palette derived from the active theme.
+/// Created BEFORE acquiring the FairMutex lock to respect FairMutex discipline.
+pub struct TerminalPalette {
+    pub fg: Rgb,
+    pub bg: Rgb,
+    pub cursor: Rgb,
+    pub ansi: [Rgb; 16],
+}
+
+impl TerminalPalette {
+    /// Build a palette from the currently active theme's terminal_* color fields.
+    pub fn from_theme() -> Self {
+        let colors = &crate::theme::theme().colors;
+        Self {
+            fg: hsla_to_rgb(colors.terminal_fg),
+            bg: hsla_to_rgb(colors.terminal_bg),
+            cursor: hsla_to_rgb(colors.terminal_cursor),
+            ansi: [
+                hsla_to_rgb(colors.terminal_ansi_black),
+                hsla_to_rgb(colors.terminal_ansi_red),
+                hsla_to_rgb(colors.terminal_ansi_green),
+                hsla_to_rgb(colors.terminal_ansi_yellow),
+                hsla_to_rgb(colors.terminal_ansi_blue),
+                hsla_to_rgb(colors.terminal_ansi_magenta),
+                hsla_to_rgb(colors.terminal_ansi_cyan),
+                hsla_to_rgb(colors.terminal_ansi_white),
+                hsla_to_rgb(colors.terminal_ansi_bright_black),
+                hsla_to_rgb(colors.terminal_ansi_bright_red),
+                hsla_to_rgb(colors.terminal_ansi_bright_green),
+                hsla_to_rgb(colors.terminal_ansi_bright_yellow),
+                hsla_to_rgb(colors.terminal_ansi_bright_blue),
+                hsla_to_rgb(colors.terminal_ansi_bright_magenta),
+                hsla_to_rgb(colors.terminal_ansi_bright_cyan),
+                hsla_to_rgb(colors.terminal_ansi_bright_white),
+            ],
+        }
+    }
+}
+
 /// Standard xterm-256color palette: 16 named ANSI colors.
 const NAMED_COLORS: [Rgb; 16] = [
     Rgb {
@@ -314,50 +364,50 @@ pub const DEFAULT_CURSOR: Rgb = Rgb {
 
 /// Resolve a raw Color enum to a concrete Rgb value using the terminal's color palette.
 /// Called during sync() while the FairMutex lock is held, so the render path stays lock-free.
-pub fn resolve_color(color: Color, colors: &Colors) -> Rgb {
+pub fn resolve_color(color: Color, colors: &Colors, palette: &TerminalPalette) -> Rgb {
     match color {
         Color::Spec(rgb) => rgb,
-        Color::Indexed(idx) => indexed_color(idx, colors),
-        Color::Named(name) => named_color(name, colors),
+        Color::Indexed(idx) => indexed_color(idx, colors, palette),
+        Color::Named(name) => named_color(name, colors, palette),
     }
 }
 
 /// Resolve a NamedColor to Rgb, checking for custom overrides in the Colors palette first.
-fn named_color(name: NamedColor, colors: &Colors) -> Rgb {
+fn named_color(name: NamedColor, colors: &Colors, palette: &TerminalPalette) -> Rgb {
     // Check for custom override
     if let Some(rgb) = colors[name] {
         return rgb;
     }
 
-    // Fall back to default palette
+    // Fall back to theme-derived palette
     match name {
-        NamedColor::Foreground => DEFAULT_FG,
-        NamedColor::Background => DEFAULT_BG,
-        NamedColor::Cursor => DEFAULT_CURSOR,
-        NamedColor::BrightForeground => DEFAULT_FG,
-        NamedColor::DimForeground => dim(DEFAULT_FG),
-        NamedColor::DimBlack => dim(NAMED_COLORS[0]),
-        NamedColor::DimRed => dim(NAMED_COLORS[1]),
-        NamedColor::DimGreen => dim(NAMED_COLORS[2]),
-        NamedColor::DimYellow => dim(NAMED_COLORS[3]),
-        NamedColor::DimBlue => dim(NAMED_COLORS[4]),
-        NamedColor::DimMagenta => dim(NAMED_COLORS[5]),
-        NamedColor::DimCyan => dim(NAMED_COLORS[6]),
-        NamedColor::DimWhite => dim(NAMED_COLORS[7]),
+        NamedColor::Foreground => palette.fg,
+        NamedColor::Background => palette.bg,
+        NamedColor::Cursor => palette.cursor,
+        NamedColor::BrightForeground => palette.fg,
+        NamedColor::DimForeground => dim(palette.fg),
+        NamedColor::DimBlack => dim(palette.ansi[0]),
+        NamedColor::DimRed => dim(palette.ansi[1]),
+        NamedColor::DimGreen => dim(palette.ansi[2]),
+        NamedColor::DimYellow => dim(palette.ansi[3]),
+        NamedColor::DimBlue => dim(palette.ansi[4]),
+        NamedColor::DimMagenta => dim(palette.ansi[5]),
+        NamedColor::DimCyan => dim(palette.ansi[6]),
+        NamedColor::DimWhite => dim(palette.ansi[7]),
         // Normal and Bright variants: Black(0) through BrightWhite(15)
         other => {
             let idx = other as usize;
             if idx < 16 {
-                NAMED_COLORS[idx]
+                palette.ansi[idx]
             } else {
-                DEFAULT_FG
+                palette.fg
             }
         }
     }
 }
 
 /// Resolve an indexed color (0-255) to Rgb, checking for custom overrides first.
-fn indexed_color(idx: u8, colors: &Colors) -> Rgb {
+fn indexed_color(idx: u8, colors: &Colors, palette: &TerminalPalette) -> Rgb {
     // Check for custom override
     if let Some(rgb) = colors[idx as usize] {
         return rgb;
@@ -365,7 +415,7 @@ fn indexed_color(idx: u8, colors: &Colors) -> Rgb {
 
     match idx {
         // 0-15: Standard ANSI colors
-        0..=15 => NAMED_COLORS[idx as usize],
+        0..=15 => palette.ansi[idx as usize],
         // 16-231: 6x6x6 color cube
         16..=231 => {
             let n = idx - 16;
@@ -470,6 +520,9 @@ pub struct Terminal {
     pty_tx: Notifier,
     /// Cached content snapshot -- updated on sync(), read during render
     last_content: TerminalContent,
+    /// Pre-computed terminal palette from active theme, updated during sync().
+    /// pub(crate) so TerminalElement can read palette.bg for background comparison.
+    pub(crate) palette: TerminalPalette,
     /// Whether the child shell process has exited
     pub child_exited: bool,
     /// Exit code of the child process (if exited)
@@ -503,6 +556,10 @@ impl Terminal {
         // TERM-02: Clear cached URL highlights -- terminal content may have changed
         self.url_highlights.clear();
 
+        // Compute palette OUTSIDE the lock (FairMutex discipline)
+        self.palette = TerminalPalette::from_theme();
+        let palette = &self.palette;
+
         let term = self.term.lock();
         let content = term.renderable_content();
 
@@ -514,8 +571,8 @@ impl Terminal {
         let cells: Vec<TerminalCell> = content
             .display_iter
             .map(|ic| {
-                let mut fg = resolve_color(ic.cell.fg, content.colors);
-                let mut bg = resolve_color(ic.cell.bg, content.colors);
+                let mut fg = resolve_color(ic.cell.fg, content.colors, palette);
+                let mut bg = resolve_color(ic.cell.bg, content.colors, palette);
                 if ic.cell.flags.contains(Flags::INVERSE) {
                     std::mem::swap(&mut fg, &mut bg);
                 }
@@ -728,6 +785,7 @@ pub fn new_terminal(
         term,
         pty_tx: notifier,
         last_content: TerminalContent::default(),
+        palette: TerminalPalette::from_theme(),
         child_exited: false,
         exit_code: None,
         title: None,
@@ -893,9 +951,15 @@ mod tests {
 
     // --- Color resolution tests (Phase 9 Plan 1) ---
 
+    /// Build a dark-mode TerminalPalette for use in tests.
+    fn test_palette() -> TerminalPalette {
+        TerminalPalette::from_theme()
+    }
+
     #[test]
     fn test_resolve_color_spec() {
         let colors = Colors::default();
+        let palette = test_palette();
         let rgb = resolve_color(
             Color::Spec(Rgb {
                 r: 0xAB,
@@ -903,6 +967,7 @@ mod tests {
                 b: 0xEF,
             }),
             &colors,
+            &palette,
         );
         assert_eq!(
             rgb,
@@ -917,7 +982,8 @@ mod tests {
     #[test]
     fn test_resolve_color_named_red() {
         let colors = Colors::default();
-        let rgb = resolve_color(Color::Named(NamedColor::Red), &colors);
+        let palette = test_palette();
+        let rgb = resolve_color(Color::Named(NamedColor::Red), &colors, &palette);
         assert_eq!(
             rgb,
             Rgb {
@@ -931,8 +997,9 @@ mod tests {
     #[test]
     fn test_resolve_color_indexed_basic() {
         let colors = Colors::default();
+        let palette = test_palette();
         // Indexed 1 = Red
-        let rgb = resolve_color(Color::Indexed(1), &colors);
+        let rgb = resolve_color(Color::Indexed(1), &colors, &palette);
         assert_eq!(
             rgb,
             Rgb {
@@ -946,9 +1013,10 @@ mod tests {
     #[test]
     fn test_resolve_color_indexed_cube() {
         let colors = Colors::default();
+        let palette = test_palette();
         // Indexed 196 = 16 + 180, 180 = 5*36 + 0*6 + 0, so r=5,g=0,b=0
         // r: 5*40+55=255, g: 0, b: 0
-        let rgb = resolve_color(Color::Indexed(196), &colors);
+        let rgb = resolve_color(Color::Indexed(196), &colors, &palette);
         assert_eq!(
             rgb,
             Rgb {
@@ -962,19 +1030,21 @@ mod tests {
     #[test]
     fn test_resolve_color_indexed_grayscale() {
         let colors = Colors::default();
+        let palette = test_palette();
         // Indexed 232 = first grayscale: (232-232)*10+8 = 8
-        let rgb = resolve_color(Color::Indexed(232), &colors);
+        let rgb = resolve_color(Color::Indexed(232), &colors, &palette);
         assert_eq!(rgb, Rgb { r: 8, g: 8, b: 8 });
     }
 
     #[test]
     fn test_inverse_flag_swaps() {
         let colors = Colors::default();
+        let palette = test_palette();
         let fg_color = Color::Named(NamedColor::Red);
         let bg_color = Color::Named(NamedColor::Blue);
 
-        let mut fg = resolve_color(fg_color, &colors);
-        let mut bg = resolve_color(bg_color, &colors);
+        let mut fg = resolve_color(fg_color, &colors, &palette);
+        let mut bg = resolve_color(bg_color, &colors, &palette);
 
         // Before swap
         assert_eq!(
@@ -1014,6 +1084,81 @@ mod tests {
                 b: 0x00
             }
         );
+    }
+
+    #[test]
+    fn test_terminal_palette_from_theme_dark() {
+        // Default ACTIVE_THEME is 0 (dark)
+        use crate::theme::ACTIVE_THEME;
+        use std::sync::atomic::Ordering;
+        ACTIVE_THEME.store(0, Ordering::Relaxed);
+
+        let palette = TerminalPalette::from_theme();
+        // Dark fg should be light gray (E5E5E5)
+        assert_eq!(palette.fg.r, 0xE5);
+        assert_eq!(palette.fg.g, 0xE5);
+        assert_eq!(palette.fg.b, 0xE5);
+        // Dark bg should be near-black (09090B)
+        assert!(palette.bg.r < 20);
+        assert!(palette.bg.g < 20);
+        assert!(palette.bg.b < 20);
+        // ANSI red should match xterm dark palette
+        assert_eq!(palette.ansi[1].r, 0xCD);
+        assert_eq!(palette.ansi[1].g, 0x00);
+    }
+
+    #[test]
+    fn test_terminal_palette_from_theme_light() {
+        use crate::theme::ACTIVE_THEME;
+        use std::sync::atomic::Ordering;
+
+        // Temporarily switch to light theme
+        let prev = ACTIVE_THEME.load(Ordering::Relaxed);
+        ACTIVE_THEME.store(1, Ordering::Relaxed);
+
+        let palette = TerminalPalette::from_theme();
+        // Light bg should be white-ish
+        assert!(palette.bg.r > 200, "bg.r={} expected > 200", palette.bg.r);
+        assert!(palette.bg.g > 200, "bg.g={} expected > 200", palette.bg.g);
+        assert!(palette.bg.b > 200, "bg.b={} expected > 200", palette.bg.b);
+        // Light fg should be dark
+        assert!(palette.fg.r < 50, "fg.r={} expected < 50", palette.fg.r);
+        assert!(palette.fg.g < 50, "fg.g={} expected < 50", palette.fg.g);
+        assert!(palette.fg.b < 50, "fg.b={} expected < 50", palette.fg.b);
+
+        // Restore
+        ACTIVE_THEME.store(prev, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn test_hsla_to_rgb_white() {
+        let white = gpui::Hsla {
+            h: 0.0,
+            s: 0.0,
+            l: 1.0,
+            a: 1.0,
+        };
+        let rgb = hsla_to_rgb(white);
+        assert_eq!(
+            rgb,
+            Rgb {
+                r: 255,
+                g: 255,
+                b: 255
+            }
+        );
+    }
+
+    #[test]
+    fn test_hsla_to_rgb_black() {
+        let black = gpui::Hsla {
+            h: 0.0,
+            s: 0.0,
+            l: 0.0,
+            a: 1.0,
+        };
+        let rgb = hsla_to_rgb(black);
+        assert_eq!(rgb, Rgb { r: 0, g: 0, b: 0 });
     }
 
     // --- INPUT-01/INPUT-02: OSC 52 guard tests ---

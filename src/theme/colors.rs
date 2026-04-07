@@ -69,6 +69,28 @@ pub struct ThemeColors {
     pub badge_head_text: Hsla,
     pub badge_remote_bg: Hsla,
     pub badge_remote_text: Hsla,
+
+    // -- Terminal --
+    pub terminal_bg: Hsla,
+    pub terminal_fg: Hsla,
+    pub terminal_cursor: Hsla,
+    pub terminal_selection: Hsla,
+    pub terminal_ansi_black: Hsla,
+    pub terminal_ansi_red: Hsla,
+    pub terminal_ansi_green: Hsla,
+    pub terminal_ansi_yellow: Hsla,
+    pub terminal_ansi_blue: Hsla,
+    pub terminal_ansi_magenta: Hsla,
+    pub terminal_ansi_cyan: Hsla,
+    pub terminal_ansi_white: Hsla,
+    pub terminal_ansi_bright_black: Hsla,
+    pub terminal_ansi_bright_red: Hsla,
+    pub terminal_ansi_bright_green: Hsla,
+    pub terminal_ansi_bright_yellow: Hsla,
+    pub terminal_ansi_bright_blue: Hsla,
+    pub terminal_ansi_bright_magenta: Hsla,
+    pub terminal_ansi_bright_cyan: Hsla,
+    pub terminal_ansi_bright_white: Hsla,
 }
 
 impl ThemeColors {
@@ -142,6 +164,28 @@ impl ThemeColors {
             badge_head_text: rgba(0x818CF8ff).into(),
             badge_remote_bg: rgba(0x60A5FA20).into(),
             badge_remote_text: rgba(0x60A5FAff).into(),
+
+            // -- Terminal (dark: black bg, light fg, standard xterm ANSI palette) --
+            terminal_bg: rgba(0x09090Bff).into(),
+            terminal_fg: rgba(0xE5E5E5ff).into(),
+            terminal_cursor: rgba(0xD9D9D9B8).into(),
+            terminal_selection: rgba(0x4A80CC73).into(),
+            terminal_ansi_black: rgba(0x000000ff).into(),
+            terminal_ansi_red: rgba(0xCD0000ff).into(),
+            terminal_ansi_green: rgba(0x00CD00ff).into(),
+            terminal_ansi_yellow: rgba(0xCDCD00ff).into(),
+            terminal_ansi_blue: rgba(0x0000EEff).into(),
+            terminal_ansi_magenta: rgba(0xCD00CDff).into(),
+            terminal_ansi_cyan: rgba(0x00CDCDff).into(),
+            terminal_ansi_white: rgba(0xE5E5E5ff).into(),
+            terminal_ansi_bright_black: rgba(0x7F7F7Fff).into(),
+            terminal_ansi_bright_red: rgba(0xFF0000ff).into(),
+            terminal_ansi_bright_green: rgba(0x00FF00ff).into(),
+            terminal_ansi_bright_yellow: rgba(0xFFFF00ff).into(),
+            terminal_ansi_bright_blue: rgba(0x5C5CFFff).into(),
+            terminal_ansi_bright_magenta: rgba(0xFF00FFff).into(),
+            terminal_ansi_bright_cyan: rgba(0x00FFFFff).into(),
+            terminal_ansi_bright_white: rgba(0xFFFFFFff).into(),
         }
     }
 
@@ -215,6 +259,28 @@ impl ThemeColors {
             badge_head_text: rgba(0x6366F1ff).into(),
             badge_remote_bg: rgba(0x2563EB20).into(),
             badge_remote_text: rgba(0x2563EBff).into(),
+
+            // -- Terminal (light: white bg, dark fg, GitHub-inspired ANSI palette) --
+            terminal_bg: rgba(0xFFFFFFff).into(),
+            terminal_fg: rgba(0x171717ff).into(),
+            terminal_cursor: rgba(0x171717C0).into(),
+            terminal_selection: rgba(0x6366F140).into(),
+            terminal_ansi_black: rgba(0x000000ff).into(),
+            terminal_ansi_red: rgba(0xC4190Bff).into(),
+            terminal_ansi_green: rgba(0x1A7F37ff).into(),
+            terminal_ansi_yellow: rgba(0x9A6700ff).into(),
+            terminal_ansi_blue: rgba(0x0550AEff).into(),
+            terminal_ansi_magenta: rgba(0x8250DFff).into(),
+            terminal_ansi_cyan: rgba(0x0D7D83ff).into(),
+            terminal_ansi_white: rgba(0x6E7781ff).into(),
+            terminal_ansi_bright_black: rgba(0x57606Aff).into(),
+            terminal_ansi_bright_red: rgba(0xCF222Eff).into(),
+            terminal_ansi_bright_green: rgba(0x116329ff).into(),
+            terminal_ansi_bright_yellow: rgba(0x7D4E00ff).into(),
+            terminal_ansi_bright_blue: rgba(0x0969DAff).into(),
+            terminal_ansi_bright_magenta: rgba(0x8250DFff).into(),
+            terminal_ansi_bright_cyan: rgba(0x1B7C83ff).into(),
+            terminal_ansi_bright_white: rgba(0x8C959Fff).into(),
         }
     }
 }
