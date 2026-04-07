@@ -712,12 +712,14 @@ impl Render for AdeWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let show_tab_bar = self.tabs.len() > 1; // D-04
 
+        let t = theme::theme();
         div()
             .key_context("AdeWindow")
             .track_focus(&self.focus_handle)
             .size_full()
             .flex()
             .flex_col()
+            .bg(t.colors.bg_base)
             // Existing action handlers
             .on_action(cx.listener(Self::on_copy_or_interrupt))
             .on_action(cx.listener(Self::on_select_all))
