@@ -257,109 +257,21 @@ impl TerminalPalette {
     }
 }
 
-/// Standard xterm-256color palette: 16 named ANSI colors.
-const NAMED_COLORS: [Rgb; 16] = [
-    Rgb {
-        r: 0x00,
-        g: 0x00,
-        b: 0x00,
-    }, // Black
-    Rgb {
-        r: 0xCD,
-        g: 0x00,
-        b: 0x00,
-    }, // Red
-    Rgb {
-        r: 0x00,
-        g: 0xCD,
-        b: 0x00,
-    }, // Green
-    Rgb {
-        r: 0xCD,
-        g: 0xCD,
-        b: 0x00,
-    }, // Yellow
-    Rgb {
-        r: 0x00,
-        g: 0x00,
-        b: 0xEE,
-    }, // Blue
-    Rgb {
-        r: 0xCD,
-        g: 0x00,
-        b: 0xCD,
-    }, // Magenta
-    Rgb {
-        r: 0x00,
-        g: 0xCD,
-        b: 0xCD,
-    }, // Cyan
-    Rgb {
-        r: 0xE5,
-        g: 0xE5,
-        b: 0xE5,
-    }, // White
-    Rgb {
-        r: 0x7F,
-        g: 0x7F,
-        b: 0x7F,
-    }, // BrightBlack
-    Rgb {
-        r: 0xFF,
-        g: 0x00,
-        b: 0x00,
-    }, // BrightRed
-    Rgb {
-        r: 0x00,
-        g: 0xFF,
-        b: 0x00,
-    }, // BrightGreen
-    Rgb {
-        r: 0xFF,
-        g: 0xFF,
-        b: 0x00,
-    }, // BrightYellow
-    Rgb {
-        r: 0x5C,
-        g: 0x5C,
-        b: 0xFF,
-    }, // BrightBlue
-    Rgb {
-        r: 0xFF,
-        g: 0x00,
-        b: 0xFF,
-    }, // BrightMagenta
-    Rgb {
-        r: 0x00,
-        g: 0xFF,
-        b: 0xFF,
-    }, // BrightCyan
-    Rgb {
-        r: 0xFF,
-        g: 0xFF,
-        b: 0xFF,
-    }, // BrightWhite
-];
-
-/// Default foreground color (light gray).
+/// Default foreground color (light gray). Retained for TerminalContent::default()
+/// initial state before first sync() applies the theme palette.
+#[allow(dead_code)]
 pub const DEFAULT_FG: Rgb = Rgb {
     r: 0xE5,
     g: 0xE5,
     b: 0xE5,
 };
 
-/// Default background color (black).
+/// Default background color (black). Retained for documentation.
+#[allow(dead_code)]
 pub const DEFAULT_BG: Rgb = Rgb {
     r: 0x00,
     g: 0x00,
     b: 0x00,
-};
-
-/// Default cursor color (same as foreground).
-pub const DEFAULT_CURSOR: Rgb = Rgb {
-    r: 0xE5,
-    g: 0xE5,
-    b: 0xE5,
 };
 
 /// Resolve a raw Color enum to a concrete Rgb value using the terminal's color palette.

@@ -18,17 +18,9 @@ use gpui::{
     SharedString, Style, TextRun, UnderlineStyle, Window, fill, point, px, relative, size,
 };
 
-use crate::terminal::{DEFAULT_BG, DEFAULT_FG, Terminal, TerminalCell, TerminalContent};
+use crate::terminal::{Terminal, TerminalCell, TerminalContent};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
-
-/// Semi-transparent blue highlight for selected text, similar to most terminal emulators.
-const SELECTION_BG: gpui::Hsla = gpui::Hsla {
-    h: 0.61,
-    s: 0.7,
-    l: 0.55,
-    a: 0.45,
-};
 
 // ============================================================================
 // Font setup (ported from vendor/gpui-ghostty/crates/gpui_ghostty_terminal/src/font.rs)
@@ -360,18 +352,12 @@ fn build_cursor_quad(
     bounds: Bounds<Pixels>,
     cell_width: f32,
     line_height: Pixels,
+    cursor_color: gpui::Hsla,
 ) -> Option<PaintQuad> {
     // Don't render cursor when scrolled up into history
     if content.display_offset > 0 {
         return None;
     }
-
-    let cursor_color = gpui::Hsla {
-        h: 0.0,
-        s: 0.0,
-        l: 0.85,
-        a: 0.72,
-    };
 
     let col = content.cursor.point.column.0 as f32;
     let line = content.cursor.point.line.0 as f32;
@@ -502,11 +488,16 @@ impl Element for TerminalElement {
         let line_height = style.line_height.to_pixels(style.font_size, rem_size);
         let base_font = style.font();
 
-        // 4. Default foreground color
-        let default_fg_hsla = rgb_to_hsla(DEFAULT_FG);
+        // 4. Read theme colors for terminal rendering
+        let theme_colors = &crate::theme::theme().colors;
+        let default_fg_hsla = theme_colors.terminal_fg;
+        let selection_bg = theme_colors.terminal_selection;
+        let cursor_color = theme_colors.terminal_cursor;
 
-        // 5. Read content (lock-free, D-06 safe)
-        let content = self.terminal.read(cx).content().clone();
+        // 5. Read content and palette bg (lock-free, D-06 safe)
+        let terminal = self.terminal.read(cx);
+        let palette_bg = terminal.palette.bg;
+        let content = terminal.content().clone();
 
         // 6. Group cells by line, skip WIDE_CHAR_SPACER cells
         let mut lines_map: BTreeMap<i32, Vec<&TerminalCell>> = BTreeMap::new();
@@ -551,7 +542,7 @@ impl Element for TerminalElement {
             // 7e. Build background quads
             let y = bounds.top() + line_height * row_index as f32;
             for cell in line_cells.iter() {
-                if cell.bg != DEFAULT_BG {
+                if cell.bg != palette_bg {
                     let x = bounds.left() + px(cell_width * cell.point.column.0 as f32);
                     let w = if cell.flags.contains(Flags::WIDE_CHAR) {
                         px(cell_width * 2.0)
@@ -577,7 +568,7 @@ impl Element for TerminalElement {
                         };
                         selection_quads.push(fill(
                             Bounds::new(point(x, y), size(w, line_height)),
-                            SELECTION_BG,
+                            selection_bg,
                         ));
                     }
                 }
@@ -648,7 +639,7 @@ impl Element for TerminalElement {
         }
 
         // 8. Build cursor quad
-        let cursor = build_cursor_quad(&content, bounds, cell_width, line_height);
+        let cursor = build_cursor_quad(&content, bounds, cell_width, line_height, cursor_color);
 
         // 9. Return state
         TerminalPrepaintState {
@@ -673,8 +664,9 @@ impl Element for TerminalElement {
         cx: &mut App,
     ) {
         window.paint_layer(bounds, |window| {
-            // 1. Fill entire bounds with default background
-            window.paint_quad(fill(bounds, rgb_to_hsla(DEFAULT_BG)));
+            // 1. Fill entire bounds with theme-derived terminal background
+            let terminal_bg = crate::theme::theme().colors.terminal_bg;
+            window.paint_quad(fill(bounds, terminal_bg));
 
             // 2. Paint background quads
             for quad in prepaint.background_quads.drain(..) {

@@ -372,6 +372,14 @@ pub struct TerminalView {
 
 impl TerminalView {
     pub fn new(terminal: gpui::Entity<Terminal>, cx: &mut Context<Self>) -> Self {
+        // Re-sync terminal colors when the theme changes (dark <-> light)
+        let terminal_for_observer = terminal.clone();
+        cx.observe_global::<crate::theme::ActiveTheme>(move |_this, cx| {
+            terminal_for_observer.update(cx, |t, _| t.sync());
+            cx.notify();
+        })
+        .detach();
+
         Self {
             terminal,
             focus_handle: cx.focus_handle(),
