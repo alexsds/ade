@@ -97,7 +97,7 @@ Reviewing code means context switching: a terminal here, a git GUI there, `git l
 
 ### Theme
 
-Zinc/Indigo — a modern dark theme with zinc-toned backgrounds, indigo accents, emerald/rose diff colors, and color-coded decoration badges. Icons throughout for quick visual recognition.
+Dark and Light modes with runtime switching. Choose Dark, Light, or System (follows macOS appearance) from the settings modal or toggle with <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>. Your preference persists across restarts. Terminal colors, syntax highlighting, and all UI surfaces adapt instantly.
 
 ## Install
 
@@ -142,6 +142,7 @@ cargo build --release
 | <kbd>Cmd</kbd>+<kbd>C</kbd> | Copy selection (or send SIGINT if no selection) |
 | <kbd>Cmd</kbd>+<kbd>V</kbd> | Paste from clipboard |
 | <kbd>Cmd</kbd>+<kbd>A</kbd> | Select all |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | Toggle dark/light theme |
 | <kbd>Cmd</kbd>+<kbd>,</kbd> | Open settings |
 | <kbd>Cmd</kbd>+<kbd>Q</kbd> | Quit |
 

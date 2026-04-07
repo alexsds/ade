@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [v2.4] - Light and Dark Mode
+
+### Added
+- Light color palette alongside existing dark theme with full ThemeColors coverage (53 fields)
+- Theme setting in settings modal: Dark, Light, or System mode
+- macOS system appearance detection — "System" mode follows OS dark/light preference automatically
+- Terminal colors adapt to active theme: background, foreground, cursor, selection, and all 16 ANSI colors
+- Cmd+Shift+T keyboard shortcut to toggle between dark and light theme
+- Light-appropriate syntax highlighting colors for diff view (14 token colors)
+
+### Changed
+- Theme system upgraded from static LazyLock to runtime-switchable AtomicU8 dispatch with GPUI Global
+- Theme preference persists to ~/.config/ade/settings.json and restores on app restart
+- Switching themes triggers instant repaint across all UI surfaces including terminal scrollback
+
 ## [v2.3] - Usability Improvements
 
 ### Added
