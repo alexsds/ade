@@ -825,6 +825,13 @@ fn main() {
         // Initialize theme global (must be before any theme-dependent rendering)
         crate::theme::init_theme_global(cx);
 
+        // Load settings and apply persisted theme before opening window (SET-02)
+        let app_settings = settings::Settings::load();
+        let initial_theme = app_settings.theme_mode.resolve();
+        if initial_theme != crate::theme::ThemeName::Dark {
+            crate::theme::set_theme(initial_theme, cx);
+        }
+
         // Register global actions
         cx.on_action(|_: &Quit, cx| cx.quit());
 
@@ -834,6 +841,13 @@ fn main() {
                 crate::theme::ThemeName::Light => crate::theme::ThemeName::Dark,
             };
             crate::theme::set_theme(next, cx);
+            // Persist the explicit theme choice (SET-02)
+            let mut s = settings::Settings::load();
+            s.theme_mode = match next {
+                crate::theme::ThemeName::Dark => settings::ThemeMode::Dark,
+                crate::theme::ThemeName::Light => settings::ThemeMode::Light,
+            };
+            let _ = s.save();
         });
 
         // Register Quit keybinding (other keybindings set up in input module)
@@ -915,9 +929,6 @@ fn main() {
 
             // Create CodeReviewPanel entity
             let code_review_panel = cx.new(|_| code_review::CodeReviewPanel::new());
-
-            // Load persisted settings (editor choice, etc.)
-            let app_settings = settings::Settings::load();
 
             // Create AdeWindow entity with tabs
             let window_entity = cx.new(|cx| AdeWindow {

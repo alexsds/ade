@@ -1,6 +1,6 @@
 //! Settings modal overlay for ADE.
 //!
-//! Centered modal with External Editor dropdown and save/discard buttons.
+//! Centered modal with External Editor dropdown, Theme dropdown, and save/discard buttons.
 //! Dismissed via Escape key or button clicks only.
 
 use std::sync::Arc;
@@ -8,15 +8,17 @@ use std::sync::Arc;
 use gpui::{App, Context, FocusHandle, SharedString, Styled, Window, div, prelude::*, px, svg};
 
 use crate::assets;
-use crate::settings::{EditorChoice, Settings, is_editor_installed};
+use crate::settings::{EditorChoice, Settings, ThemeMode, is_editor_installed};
 use crate::theme;
 
-/// Settings modal entity with editor dropdown and save/discard buttons.
+/// Settings modal entity with editor dropdown, theme dropdown, and save/discard buttons.
 pub struct SettingsModal {
     focus_handle: FocusHandle,
     current_settings: Settings,
     selected_editor: EditorChoice,
+    selected_theme_mode: ThemeMode,
     dropdown_open: bool,
+    theme_dropdown_open: bool,
     installed_editors: Vec<(EditorChoice, bool)>,
     on_save: Arc<dyn Fn(&mut Window, &mut App) + 'static>,
     on_dismiss: Arc<dyn Fn(&mut Window, &mut App) + 'static>,
@@ -31,6 +33,7 @@ impl SettingsModal {
     ) -> Self {
         let settings = Settings::load();
         let selected_editor = settings.external_editor;
+        let selected_theme_mode = settings.theme_mode;
         let installed_editors: Vec<(EditorChoice, bool)> = EditorChoice::all()
             .iter()
             .map(|e| (*e, is_editor_installed(e)))
@@ -40,7 +43,9 @@ impl SettingsModal {
             focus_handle: cx.focus_handle(),
             current_settings: settings,
             selected_editor,
+            selected_theme_mode,
             dropdown_open: false,
+            theme_dropdown_open: false,
             installed_editors,
             on_save,
             on_dismiss,
@@ -52,32 +57,46 @@ impl SettingsModal {
         &self.focus_handle
     }
 
-    /// Whether the user has changed the editor selection from the persisted value.
+    /// Whether the user has changed any selection from the persisted value.
     fn is_dirty(&self) -> bool {
         self.selected_editor != self.current_settings.external_editor
+            || self.selected_theme_mode != self.current_settings.theme_mode
+    }
+
+    /// Whether any dropdown is currently open.
+    fn any_dropdown_open(&self) -> bool {
+        self.dropdown_open || self.theme_dropdown_open
     }
 
     /// Save the current selection and call the on_save callback.
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let new_settings = Settings {
             external_editor: self.selected_editor,
-            theme_mode: self.current_settings.theme_mode,
+            theme_mode: self.selected_theme_mode,
         };
         if let Err(e) = new_settings.save() {
             tracing::warn!("Failed to save settings: {}", e);
         }
         self.current_settings = new_settings;
+        // Apply theme immediately on save
+        let resolved = self.selected_theme_mode.resolve();
+        crate::theme::set_theme(resolved, &mut *cx);
         let cb = self.on_save.clone();
         cb(window, &mut *cx);
     }
 
     /// Call the on_dismiss callback to close the modal.
     fn dismiss(&self, window: &mut Window, cx: &mut Context<Self>) {
+        // Revert theme preview if user didn't save
+        let resolved = self.current_settings.theme_mode.resolve();
+        if resolved != crate::theme::active_theme_name() {
+            crate::theme::set_theme(resolved, &mut *cx);
+        }
         let cb = self.on_dismiss.clone();
         cb(window, &mut *cx);
     }
 
-    /// Render just the dropdown trigger button.
+    /// Render just the editor dropdown trigger button.
     fn render_trigger(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme();
         div()
@@ -97,6 +116,8 @@ impl SettingsModal {
             .hover(|s| s.border_color(t.colors.border_strong))
             .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
                 this.dropdown_open = !this.dropdown_open;
+                // Mutual exclusion: close theme dropdown
+                this.theme_dropdown_open = false;
                 cx.notify();
             }))
             .child(
@@ -113,7 +134,45 @@ impl SettingsModal {
             )
     }
 
-    /// Render the dropdown overlay (backdrop + list). Called as last child of modal
+    /// Render the theme dropdown trigger button.
+    fn render_theme_trigger(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::theme();
+        div()
+            .id("theme-dropdown-trigger")
+            .h(t.sizes.dropdown_item_height)
+            .w_full()
+            .bg(t.colors.bg_surface)
+            .border_1()
+            .border_color(t.colors.border_default)
+            .rounded(px(8.0))
+            .px(t.spacing.sm)
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            .cursor_pointer()
+            .hover(|s| s.border_color(t.colors.border_strong))
+            .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
+                this.theme_dropdown_open = !this.theme_dropdown_open;
+                // Mutual exclusion: close editor dropdown
+                this.dropdown_open = false;
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .text_size(t.typography.body.size)
+                    .text_color(t.colors.text_primary)
+                    .child(self.selected_theme_mode.display_name()),
+            )
+            .child(
+                svg()
+                    .path(assets::ICON_CHEVRON_DOWN)
+                    .size(px(14.0))
+                    .text_color(t.colors.text_secondary),
+            )
+    }
+
+    /// Render the editor dropdown overlay (backdrop + list). Called as last child of modal
     /// so it paints on top of the footer.
     fn render_dropdown_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme();
@@ -215,9 +274,101 @@ impl SettingsModal {
             .top_0()
             .left_0()
             .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
-                // Consume click — close dropdown if it reaches here (outside the list items)
+                // Consume click -- close dropdown if it reaches here (outside the list items)
                 if this.dropdown_open {
                     this.dropdown_open = false;
+                    cx.notify();
+                }
+            }))
+            .child(list)
+    }
+
+    /// Render the theme dropdown overlay. Follows the same pattern as the editor dropdown.
+    fn render_theme_dropdown_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::theme();
+
+        // Position below theme section:
+        // Title (~56px) + Editor section (~112px) + Theme heading+desc (~48px) + trigger (32px) + gap (4px)
+        let list_top = 56.0 + 112.0 + 48.0 + 32.0 + 4.0;
+        let content_padding = f32::from(t.sizes.modal_content_padding);
+
+        let mut list = div()
+            .id("theme-dropdown-list")
+            .absolute()
+            .top(px(list_top))
+            .left(px(content_padding))
+            .right(px(content_padding))
+            .max_h(px(200.0))
+            .overflow_y_scroll()
+            .bg(t.colors.bg_surface)
+            .border_1()
+            .border_color(t.colors.border_default)
+            .rounded(px(8.0))
+            .py(px(4.0))
+            .flex()
+            .flex_col();
+
+        for mode in ThemeMode::all() {
+            let is_selected = *mode == self.selected_theme_mode;
+            let mode_copy = *mode;
+            let mode_name = mode.display_name();
+
+            let item_id: SharedString = format!("theme-{}", mode_name).into();
+            let mut item = div()
+                .id(item_id)
+                .h(t.sizes.dropdown_item_height)
+                .flex_shrink_0()
+                .px(t.spacing.sm)
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(t.spacing.sm)
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
+                    this.selected_theme_mode = mode_copy;
+                    this.theme_dropdown_open = false;
+                    // Live preview: apply theme immediately on selection
+                    let resolved = this.selected_theme_mode.resolve();
+                    crate::theme::set_theme(resolved, &mut *cx);
+                    cx.notify();
+                }));
+
+            if is_selected {
+                item = item.bg(t.colors.element_selected);
+            } else {
+                item = item.hover(|s| s.bg(t.colors.element_hover));
+            }
+
+            let check_space = if is_selected {
+                div().child(
+                    svg()
+                        .path(assets::ICON_CHECK)
+                        .size(px(14.0))
+                        .text_color(t.colors.text_primary),
+                )
+            } else {
+                div().w(px(14.0))
+            };
+
+            let label = div()
+                .text_size(t.typography.body.size)
+                .text_color(t.colors.text_primary)
+                .child(mode_name);
+
+            item = item.child(check_space).child(label);
+            list = list.child(item);
+        }
+
+        // Container consumes clicks so they don't fall through to footer buttons
+        div()
+            .id("theme-dropdown-overlay")
+            .absolute()
+            .size_full()
+            .top_0()
+            .left_0()
+            .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
+                if this.theme_dropdown_open {
+                    this.theme_dropdown_open = false;
                     cx.notify();
                 }
             }))
@@ -229,6 +380,7 @@ impl Render for SettingsModal {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme();
         let is_dirty = self.is_dirty();
+        let any_dropdown = self.any_dropdown_open();
 
         // Full-window overlay
         div()
@@ -244,7 +396,10 @@ impl Render for SettingsModal {
             .justify_center()
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
-                    if this.dropdown_open {
+                    if this.theme_dropdown_open {
+                        this.theme_dropdown_open = false;
+                        cx.notify();
+                    } else if this.dropdown_open {
                         this.dropdown_open = false;
                         cx.notify();
                     } else {
@@ -252,7 +407,7 @@ impl Render for SettingsModal {
                     }
                 }
             }))
-            // Modal panel — auto-height, relative for dropdown overlay
+            // Modal panel -- auto-height, relative for dropdown overlay
             .child(
                 div()
                     .id("settings-modal")
@@ -301,6 +456,29 @@ impl Render for SettingsModal {
                             )
                             .child(self.render_trigger(cx)),
                     )
+                    // Theme section
+                    .child(
+                        div()
+                            .px(t.sizes.modal_content_padding)
+                            .py(t.spacing.md)
+                            .flex()
+                            .flex_col()
+                            .gap(t.spacing.sm)
+                            .child(
+                                div()
+                                    .text_size(t.typography.heading.size)
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(t.colors.text_primary)
+                                    .child("Theme"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(t.typography.body.size)
+                                    .text_color(t.colors.text_secondary)
+                                    .child("Choose the appearance mode for ADE"),
+                            )
+                            .child(self.render_theme_trigger(cx)),
+                    )
                     // Footer with buttons
                     .child(
                         div()
@@ -330,8 +508,8 @@ impl Render for SettingsModal {
                                             .text_color(t.colors.text_secondary)
                                             .child("Discard Changes"),
                                     );
-                                // Only attach click handler when dropdown is closed
-                                if !self.dropdown_open {
+                                // Only attach click handler when no dropdown is open
+                                if !any_dropdown {
                                     discard = discard
                                         .cursor_pointer()
                                         .hover(|s| s.bg(t.colors.element_hover))
@@ -359,8 +537,8 @@ impl Render for SettingsModal {
                                             .text_color(t.colors.text_on_emphasis)
                                             .child("Save Settings"),
                                     );
-                                // Only attach click handler when dropdown is closed and dirty
-                                if is_dirty && !self.dropdown_open {
+                                // Only attach click handler when no dropdown is open and dirty
+                                if is_dirty && !any_dropdown {
                                     btn = btn
                                         .cursor_pointer()
                                         .hover(|s| s.bg(t.colors.button_accent_hover))
@@ -376,9 +554,13 @@ impl Render for SettingsModal {
                                 btn
                             }),
                     )
-                    // Dropdown overlay — rendered LAST so it paints on top of footer
+                    // Editor dropdown overlay -- rendered LAST so it paints on top of footer
                     .when(self.dropdown_open, |modal| {
                         modal.child(self.render_dropdown_overlay(cx))
+                    })
+                    // Theme dropdown overlay
+                    .when(self.theme_dropdown_open, |modal| {
+                        modal.child(self.render_theme_dropdown_overlay(cx))
                     }),
             )
     }
