@@ -825,12 +825,8 @@ fn main() {
         // Initialize theme global (must be before any theme-dependent rendering)
         crate::theme::init_theme_global(cx);
 
-        // Load settings and apply persisted theme before opening window (SET-02)
+        // Load settings (theme applied inside open_window where appearance is available)
         let app_settings = settings::Settings::load();
-        let initial_theme = app_settings.theme_mode.resolve();
-        if initial_theme != crate::theme::ThemeName::Dark {
-            crate::theme::set_theme(initial_theme, cx);
-        }
 
         // Register global actions
         cx.on_action(|_: &Quit, cx| cx.quit());
@@ -930,6 +926,9 @@ fn main() {
             // Create CodeReviewPanel entity
             let code_review_panel = cx.new(|_| code_review::CodeReviewPanel::new());
 
+            // Save theme_mode before app_settings is moved into the entity
+            let startup_theme_mode = app_settings.theme_mode;
+
             // Create AdeWindow entity with tabs
             let window_entity = cx.new(|cx| AdeWindow {
                 tabs: vec![initial_tab],
@@ -968,6 +967,31 @@ fn main() {
                     });
                 });
             }
+
+            // Apply initial theme based on settings + system appearance (SYS-01)
+            let initial_theme = startup_theme_mode
+                .resolve_with_appearance(window.appearance());
+            if initial_theme != crate::theme::ThemeName::Dark {
+                crate::theme::set_theme(initial_theme, cx);
+            }
+
+            // Observe macOS appearance changes for live System mode tracking (SYS-02)
+            let appearance_subscription = window_entity.update(cx, |_this, cx| {
+                cx.observe_window_appearance(
+                    window,
+                    |_this: &mut AdeWindow, window: &mut Window, cx: &mut Context<AdeWindow>| {
+                        let current_mode = settings::Settings::load().theme_mode;
+                        if current_mode == settings::ThemeMode::System {
+                            let resolved =
+                                current_mode.resolve_with_appearance(window.appearance());
+                            if resolved != crate::theme::active_theme_name() {
+                                crate::theme::set_theme(resolved, cx);
+                            }
+                        }
+                    },
+                )
+            });
+            appearance_subscription.detach();
 
             // Set up window resize observer: resize ONLY the active tab (Pitfall 7)
             let resize_subscription = window_entity.update(cx, |_this, cx| {

@@ -27,13 +27,31 @@ impl ThemeMode {
     }
 
     /// Resolve the user's theme mode preference to a concrete ThemeName.
-    /// For System mode, currently defaults to Dark (Phase 55 will add
-    /// macOS appearance detection).
+    /// For System mode, defaults to Dark when no window context is available.
+    /// Prefer `resolve_with_appearance` when a window is accessible.
     pub fn resolve(&self) -> crate::theme::ThemeName {
         match self {
             ThemeMode::Dark => crate::theme::ThemeName::Dark,
             ThemeMode::Light => crate::theme::ThemeName::Light,
-            ThemeMode::System => crate::theme::ThemeName::Dark, // placeholder until Phase 55
+            ThemeMode::System => crate::theme::ThemeName::Dark,
+        }
+    }
+
+    /// Resolve the user's theme mode preference to a concrete ThemeName,
+    /// using the window's appearance to determine System mode mapping.
+    pub fn resolve_with_appearance(
+        &self,
+        appearance: gpui::WindowAppearance,
+    ) -> crate::theme::ThemeName {
+        match self {
+            ThemeMode::Dark => crate::theme::ThemeName::Dark,
+            ThemeMode::Light => crate::theme::ThemeName::Light,
+            ThemeMode::System => match appearance {
+                gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark => {
+                    crate::theme::ThemeName::Dark
+                }
+                _ => crate::theme::ThemeName::Light,
+            },
         }
     }
 }
@@ -503,5 +521,38 @@ mod tests {
         assert_eq!(ThemeMode::Dark.display_name(), "Dark");
         assert_eq!(ThemeMode::Light.display_name(), "Light");
         assert_eq!(ThemeMode::System.display_name(), "System");
+    }
+
+    #[test]
+    fn test_theme_mode_resolve_with_appearance() {
+        use gpui::WindowAppearance;
+
+        // System mode follows OS appearance
+        assert_eq!(
+            ThemeMode::System.resolve_with_appearance(WindowAppearance::Dark),
+            crate::theme::ThemeName::Dark
+        );
+        assert_eq!(
+            ThemeMode::System.resolve_with_appearance(WindowAppearance::VibrantDark),
+            crate::theme::ThemeName::Dark
+        );
+        assert_eq!(
+            ThemeMode::System.resolve_with_appearance(WindowAppearance::Light),
+            crate::theme::ThemeName::Light
+        );
+        assert_eq!(
+            ThemeMode::System.resolve_with_appearance(WindowAppearance::VibrantLight),
+            crate::theme::ThemeName::Light
+        );
+
+        // Explicit modes ignore system appearance
+        assert_eq!(
+            ThemeMode::Dark.resolve_with_appearance(WindowAppearance::Light),
+            crate::theme::ThemeName::Dark
+        );
+        assert_eq!(
+            ThemeMode::Light.resolve_with_appearance(WindowAppearance::Dark),
+            crate::theme::ThemeName::Light
+        );
     }
 }
