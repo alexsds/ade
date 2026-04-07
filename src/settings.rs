@@ -361,4 +361,110 @@ mod tests {
             assert!(!cmd.is_empty(), "CLI command should not be empty");
         }
     }
+
+    // -- ThemeMode tests --
+
+    #[test]
+    fn test_theme_mode_serializes_dark() {
+        let json = serde_json::to_string(&ThemeMode::Dark).unwrap();
+        assert!(json.contains("Dark"), "Expected Dark in JSON, got: {}", json);
+    }
+
+    #[test]
+    fn test_theme_mode_serializes_light() {
+        let json = serde_json::to_string(&ThemeMode::Light).unwrap();
+        assert!(
+            json.contains("Light"),
+            "Expected Light in JSON, got: {}",
+            json
+        );
+    }
+
+    #[test]
+    fn test_theme_mode_serializes_system() {
+        let json = serde_json::to_string(&ThemeMode::System).unwrap();
+        assert!(
+            json.contains("System"),
+            "Expected System in JSON, got: {}",
+            json
+        );
+    }
+
+    #[test]
+    fn test_theme_mode_deserializes() {
+        let mode: ThemeMode = serde_json::from_str("\"System\"").unwrap();
+        assert_eq!(mode, ThemeMode::System);
+    }
+
+    #[test]
+    fn test_settings_default_has_system_theme() {
+        let settings = Settings::default();
+        assert_eq!(settings.theme_mode, ThemeMode::System);
+    }
+
+    #[test]
+    fn test_settings_round_trip_preserves_theme_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+
+        let mut settings = Settings::default();
+        settings.theme_mode = ThemeMode::Light;
+        settings.save_to(&path).unwrap();
+
+        let loaded = Settings::load_from(&path);
+        assert_eq!(loaded.theme_mode, ThemeMode::Light);
+    }
+
+    #[test]
+    fn test_settings_backward_compat_missing_theme_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        // Write JSON with only external_editor (no theme_mode field)
+        std::fs::write(&path, r#"{"external_editor":"VsCode"}"#).unwrap();
+
+        let loaded = Settings::load_from(&path);
+        assert_eq!(loaded.external_editor, EditorChoice::VsCode);
+        assert_eq!(loaded.theme_mode, ThemeMode::System);
+    }
+
+    #[test]
+    fn test_theme_mode_resolve_dark() {
+        assert_eq!(
+            ThemeMode::Dark.resolve(),
+            crate::theme::ThemeName::Dark
+        );
+    }
+
+    #[test]
+    fn test_theme_mode_resolve_light() {
+        assert_eq!(
+            ThemeMode::Light.resolve(),
+            crate::theme::ThemeName::Light
+        );
+    }
+
+    #[test]
+    fn test_theme_mode_resolve_system() {
+        // System currently defaults to Dark (placeholder until Phase 55)
+        assert_eq!(
+            ThemeMode::System.resolve(),
+            crate::theme::ThemeName::Dark
+        );
+    }
+
+    #[test]
+    fn test_theme_mode_all_returns_three_variants() {
+        let all = ThemeMode::all();
+        assert_eq!(all.len(), 3);
+        assert!(all.contains(&ThemeMode::Dark));
+        assert!(all.contains(&ThemeMode::Light));
+        assert!(all.contains(&ThemeMode::System));
+    }
+
+    #[test]
+    fn test_theme_mode_display_names() {
+        assert_eq!(ThemeMode::Dark.display_name(), "Dark");
+        assert_eq!(ThemeMode::Light.display_name(), "Light");
+        assert_eq!(ThemeMode::System.display_name(), "System");
+    }
 }
