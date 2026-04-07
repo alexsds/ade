@@ -42,7 +42,10 @@ static LIGHT_THEME: LazyLock<Theme> = LazyLock::new(|| Theme {
 pub(crate) static ACTIVE_THEME: AtomicU8 = AtomicU8::new(0); // 0 = Dark
 
 /// GPUI Global marker struct for observer notifications.
+/// Downstream code can call `cx.observe_global::<ActiveTheme>()` to
+/// react to theme changes and read `cx.global::<ActiveTheme>().name`.
 pub struct ActiveTheme {
+    #[allow(dead_code)]
     pub name: ThemeName,
 }
 impl Global for ActiveTheme {}

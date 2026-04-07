@@ -822,8 +822,19 @@ fn main() {
     tracing_subscriber::fmt::init();
 
     Application::new().with_assets(assets::AdeAssets).run(|cx: &mut App| {
+        // Initialize theme global (must be before any theme-dependent rendering)
+        crate::theme::init_theme_global(cx);
+
         // Register global actions
         cx.on_action(|_: &Quit, cx| cx.quit());
+
+        cx.on_action(|_: &input::ToggleTheme, cx| {
+            let next = match crate::theme::active_theme_name() {
+                crate::theme::ThemeName::Dark => crate::theme::ThemeName::Light,
+                crate::theme::ThemeName::Light => crate::theme::ThemeName::Dark,
+            };
+            crate::theme::set_theme(next, cx);
+        });
 
         // Register Quit keybinding (other keybindings set up in input module)
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);

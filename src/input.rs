@@ -35,6 +35,8 @@ actions!(
         SelectTab9,
         // Settings:
         OpenSettings,
+        // Theme:
+        ToggleTheme,
     ]
 );
 
@@ -73,5 +75,7 @@ pub fn setup_keybindings(cx: &mut App) {
         KeyBinding::new("cmd-9", SelectTab9, None),
         // Settings:
         KeyBinding::new("cmd-,", OpenSettings, None),
+        // Theme toggle:
+        KeyBinding::new("cmd-shift-t", ToggleTheme, None),
     ]);
 }
