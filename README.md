@@ -21,6 +21,12 @@
 </p>
 
 <p align="center">
+  <a href="https://www.producthunt.com/products/ade?utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-ade" target="_blank" rel="noopener noreferrer">
+    <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1116495&theme=light&t=1775590325140" alt="ADE - Review code without leaving your terminal | Product Hunt" width="250" height="54" />
+  </a>
+</p>
+
+<p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/platform-macOS-lightgrey.svg" alt="macOS" />
   <img src="https://img.shields.io/badge/rust-edition%202024-orange.svg" alt="Rust Edition 2024" />
