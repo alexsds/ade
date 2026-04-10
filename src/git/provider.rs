@@ -753,6 +753,15 @@ fn compute_range_diff(
     oldest_oid: Oid,
     newest_oid: Oid,
 ) -> Result<DiffData, git2::Error> {
+    // Guard: oldest must be a strict ancestor of newest. The commit list is time-sorted,
+    // not ancestry-validated, so a Shift-selection across a merge can produce unrelated
+    // tree states. Diffing them silently shows wrong changes.
+    if !repo.graph_descendant_of(newest_oid, oldest_oid)? {
+        return Err(git2::Error::from_str(
+            "range diff: oldest commit is not an ancestor of newest commit",
+        ));
+    }
+
     let oldest_commit = repo.find_commit(oldest_oid)?;
     let newest_commit = repo.find_commit(newest_oid)?;
     let newest_tree = newest_commit.tree()?;
@@ -2108,4 +2117,72 @@ mod tests {
         );
     }
 
+    // --- compute_range_diff ancestry check ---
+
+    /// Build a divergent repo:  A → B (main)
+    ///                           A → C (side)
+    /// B and C share parent A but are not ancestors of each other.
+    fn create_divergent_repo() -> (tempfile::TempDir, Repository, Oid, Oid) {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let repo = Repository::init(dir.path()).expect("init repo");
+        {
+            let mut config = repo.config().expect("get config");
+            config.set_str("user.name", "Test").expect("set name");
+            config.set_str("user.email", "t@t.com").expect("set email");
+        }
+
+        // Commit A
+        fs::write(dir.path().join("a.txt"), "a\n").unwrap();
+        add_and_commit(&repo, dir.path(), "A");
+        let a_oid = repo.head().unwrap().peel_to_commit().unwrap().id();
+
+        // Commit B (child of A, on main)
+        fs::write(dir.path().join("b.txt"), "b\n").unwrap();
+        add_and_commit(&repo, dir.path(), "B");
+        let b_oid = repo.head().unwrap().peel_to_commit().unwrap().id();
+
+        // Commit C (child of A, on side branch) — sibling of B, not an ancestor
+        let c_oid = {
+            let a_commit = repo.find_commit(a_oid).unwrap();
+            let a_tree = a_commit.tree().unwrap();
+            let sig = repo.signature().unwrap();
+            repo.commit(
+                Some("refs/heads/side"),
+                &sig,
+                &sig,
+                "C",
+                &a_tree,
+                &[&a_commit],
+            )
+            .unwrap()
+            // a_commit, a_tree, sig dropped here — repo borrow released
+        };
+
+        (dir, repo, b_oid, c_oid)
+    }
+
+    #[test]
+    fn test_compute_range_diff_rejects_non_ancestor() {
+        let (_dir, repo, b_oid, c_oid) = create_divergent_repo();
+        // B and C are siblings — neither is an ancestor of the other.
+        // compute_range_diff(oldest=C, newest=B) must fail.
+        let result = compute_range_diff(&repo, c_oid, b_oid);
+        assert!(
+            result.is_err(),
+            "compute_range_diff must return Err when oldest is not an ancestor of newest"
+        );
+    }
+
+    #[test]
+    fn test_compute_range_diff_accepts_linear_ancestry() {
+        let (_dir, repo, b_oid, _c_oid) = create_divergent_repo();
+        // On main: A → B. A is an ancestor of B, so (oldest=A, newest=B) must succeed.
+        let a_oid = {
+            let b_commit = repo.find_commit(b_oid).unwrap();
+            b_commit.parent(0).unwrap().id()
+            // b_commit dropped, borrow released
+        };
+        let result = compute_range_diff(&repo, a_oid, b_oid);
+        assert!(result.is_ok(), "linear range diff must succeed");
+    }
 }
