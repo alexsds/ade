@@ -714,6 +714,49 @@ impl CodeReviewPanel {
         self.changes_file_path_text_selection.clear();
     }
 
+    /// Set diff from a keyed Diff response. Discards if `commit_oid` doesn't match the
+    /// currently selected commit, preventing stale responses from overwriting a newer selection.
+    pub fn set_diff_keyed(&mut self, commit_oid: &str, diff: DiffData) {
+        let current_oid = self.selected_commit().map(|c| c.oid.as_str());
+        if current_oid != Some(commit_oid) {
+            return;
+        }
+        self.set_diff(diff);
+    }
+
+    /// Set diff from a keyed RangeDiff response. Discards if `(oldest_oid, newest_oid)` doesn't
+    /// match the current anchor/cursor range selection.
+    pub fn set_range_diff_keyed(&mut self, oldest_oid: &str, newest_oid: &str, diff: DiffData) {
+        let anchor = self.range_anchor;
+        let cursor = self.selected_commit_index;
+        match (anchor, cursor) {
+            (Some(a), Some(c)) if a != c => {
+                let lo = a.min(c);
+                let hi = a.max(c);
+                let expected_newest = self.commits[lo].oid.as_str();
+                let expected_oldest = self.commits[hi].oid.as_str();
+                if expected_newest != newest_oid || expected_oldest != oldest_oid {
+                    return;
+                }
+            }
+            _ => return, // no active range selection — discard
+        }
+        self.set_diff(diff);
+    }
+
+    /// Set Changes tab diff from a keyed WorkingTreeDiff response. Discards if `path` doesn't
+    /// match the currently selected Changes file.
+    pub fn set_changes_diff_keyed(&mut self, path: &str, diff: DiffData) {
+        let current_path = self
+            .selected_changes_file_index
+            .and_then(|i| self.changes_files.get(i))
+            .map(|f| f.path.as_str());
+        if current_path != Some(path) {
+            return;
+        }
+        self.set_changes_diff(diff);
+    }
+
     /// Select a Changes file by index. Triggers pending diff request for the selected file.
     /// Clears diff line selection (D-07).
     pub fn select_changes_file(&mut self, index: usize) {
@@ -4124,5 +4167,98 @@ mod tests {
         };
         panel.set_changes_diff(diff);
         assert!(panel.changes_file_path_text_selection.is_empty());
+    }
+
+    // --- Helpers shared by stale-response tests ---
+
+    fn make_diff() -> DiffData {
+        DiffData {
+            files: vec![FileChange {
+                path: "a.rs".into(),
+                status_char: 'M',
+                additions: 1,
+                deletions: 0,
+                staging_state: None,
+            }],
+            file_diffs: vec![],
+        }
+    }
+
+    fn make_file_change(path: &str) -> FileChange {
+        FileChange {
+            path: path.into(),
+            status_char: 'M',
+            additions: 1,
+            deletions: 0,
+            staging_state: None,
+        }
+    }
+
+    // --- Fix 1: set_diff_keyed / set_range_diff_keyed ---
+
+    #[test]
+    fn test_set_diff_keyed_rejects_stale_oid() {
+        let mut panel = CodeReviewPanel::new();
+        panel.set_commits(vec![make_commit(0)]);
+        panel.select_commit(0); // selected commit is "oid0"
+        panel.set_diff_keyed("oid1", make_diff()); // wrong OID — should be discarded
+        assert!(panel.diff_data.is_none(), "stale diff must be discarded");
+    }
+
+    #[test]
+    fn test_set_diff_keyed_accepts_current_oid() {
+        let mut panel = CodeReviewPanel::new();
+        panel.set_commits(vec![make_commit(0)]);
+        panel.select_commit(0); // "oid0"
+        panel.set_diff_keyed("oid0", make_diff());
+        assert!(panel.diff_data.is_some(), "matching diff must be applied");
+    }
+
+    #[test]
+    fn test_set_range_diff_keyed_rejects_wrong_range() {
+        let mut panel = CodeReviewPanel::new();
+        panel.set_commits((0..3).map(make_commit).collect());
+        // anchor=0 (oid0), cursor=2 (oid2) → oldest=oid2, newest=oid0
+        panel.select_commit(0);
+        panel.select_commit_with_shift(2);
+        panel.set_range_diff_keyed("oid1", "oid0", make_diff()); // wrong oldest
+        assert!(panel.diff_data.is_none(), "wrong-range diff must be discarded");
+    }
+
+    #[test]
+    fn test_set_range_diff_keyed_accepts_correct_range() {
+        let mut panel = CodeReviewPanel::new();
+        panel.set_commits((0..3).map(make_commit).collect());
+        panel.select_commit(0);
+        panel.select_commit_with_shift(2);
+        // commits[0]="oid0" (newest), commits[2]="oid2" (oldest)
+        panel.set_range_diff_keyed("oid2", "oid0", make_diff());
+        assert!(panel.diff_data.is_some(), "correct-range diff must be applied");
+    }
+
+    // --- Fix 2: set_changes_diff_keyed ---
+
+    #[test]
+    fn test_set_changes_diff_keyed_rejects_stale_path() {
+        let mut panel = CodeReviewPanel::new();
+        panel.set_changes_files(vec![make_file_change("foo.rs")]);
+        panel.select_changes_file(0);
+        panel.set_changes_diff_keyed("bar.rs", make_diff()); // wrong path
+        assert!(
+            panel.changes_diff_data.is_none(),
+            "stale changes diff must be discarded"
+        );
+    }
+
+    #[test]
+    fn test_set_changes_diff_keyed_accepts_matching_path() {
+        let mut panel = CodeReviewPanel::new();
+        panel.set_changes_files(vec![make_file_change("foo.rs")]);
+        panel.select_changes_file(0);
+        panel.set_changes_diff_keyed("foo.rs", make_diff());
+        assert!(
+            panel.changes_diff_data.is_some(),
+            "matching path diff must be applied"
+        );
     }
 }

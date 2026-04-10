@@ -61,12 +61,26 @@ pub enum GitResponse {
         commits: Vec<CommitInfo>,
         exhausted: bool,
     },
-    Diff(DiffData),
-    RangeDiff(DiffData),
+    /// Diff for a single commit. `commit_oid` echoes the request so the receiver can
+    /// discard stale responses that arrived after the selection changed.
+    Diff {
+        commit_oid: String,
+        diff: DiffData,
+    },
+    /// Combined diff for a commit range. Carries the request endpoints for staleness checks.
+    RangeDiff {
+        oldest_oid: String,
+        newest_oid: String,
+        diff: DiffData,
+    },
     Status(BranchStatus),
     Error(String),
     WorkingTreeFiles(Vec<FileChange>),
-    WorkingTreeDiff(DiffData),
+    /// Diff for a single working-tree file. `path` echoes the request for staleness checks.
+    WorkingTreeDiff {
+        path: String,
+        diff: DiffData,
+    },
     /// Decoded image blob, ready to render. Decode happened on background thread.
     BlobData {
         commit_oid: String,
@@ -198,7 +212,10 @@ impl GitProvider {
                     }
                     GitRequest::FetchDiff { commit_oid } => match Oid::from_str(&commit_oid) {
                         Ok(oid) => match compute_diff(&repo, oid) {
-                            Ok(diff) => GitResponse::Diff(diff),
+                            Ok(diff) => GitResponse::Diff {
+                                commit_oid: commit_oid.clone(),
+                                diff,
+                            },
                             Err(e) => GitResponse::Error(e.to_string()),
                         },
                         Err(e) => {
@@ -211,7 +228,11 @@ impl GitProvider {
                     } => match (Oid::from_str(&oldest_oid), Oid::from_str(&newest_oid)) {
                         (Ok(oldest), Ok(newest)) => {
                             match compute_range_diff(&repo, oldest, newest) {
-                                Ok(diff) => GitResponse::RangeDiff(diff),
+                                Ok(diff) => GitResponse::RangeDiff {
+                                    oldest_oid: oldest_oid.clone(),
+                                    newest_oid: newest_oid.clone(),
+                                    diff,
+                                },
                                 Err(e) => GitResponse::Error(e.to_string()),
                             }
                         }
@@ -229,7 +250,10 @@ impl GitProvider {
                     },
                     GitRequest::FetchWorkingTreeDiff { path } => {
                         match compute_working_tree_file_diff(&repo, &path) {
-                            Ok(diff) => GitResponse::WorkingTreeDiff(diff),
+                            Ok(diff) => GitResponse::WorkingTreeDiff {
+                                path: path.clone(),
+                                diff,
+                            },
                             Err(e) => GitResponse::Error(format!("Working tree diff: {}", e)),
                         }
                     }
@@ -1761,7 +1785,7 @@ mod tests {
         let mut got_range_diff = false;
         while let Some(response) = provider.try_recv() {
             match response {
-                GitResponse::RangeDiff(diff) => {
+                GitResponse::RangeDiff { diff, .. } => {
                     got_range_diff = true;
                     assert!(!diff.files.is_empty(), "Range diff should have files");
                 }
@@ -2083,4 +2107,5 @@ mod tests {
             "Second (oldest) commit should NOT be ahead"
         );
     }
+
 }

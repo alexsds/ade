@@ -1054,9 +1054,9 @@ fn main() {
                                                 });
                                                 cx.notify();
                                             }
-                                            git::GitResponse::Diff(diff) => {
+                                            git::GitResponse::Diff { commit_oid, diff } => {
                                                 this.code_review_panel.update(cx, |panel, _cx| {
-                                                    panel.set_diff(diff);
+                                                    panel.set_diff_keyed(&commit_oid, diff);
                                                 });
                                                 cx.notify();
                                             }
@@ -1073,17 +1073,23 @@ fn main() {
                                                 });
                                                 cx.notify();
                                             }
-                                            git::GitResponse::WorkingTreeDiff(diff) => {
+                                            git::GitResponse::WorkingTreeDiff { path, diff } => {
                                                 this.code_review_panel.update(cx, |panel, _cx| {
-                                                    panel.set_changes_diff(diff);
+                                                    panel.set_changes_diff_keyed(&path, diff);
                                                 });
                                                 cx.notify();
                                             }
-                                            git::GitResponse::RangeDiff(diff) => {
-                                                // Range diff: same DiffData type, routes through set_diff
-                                                // which populates file list and auto-selects first file (D-09)
+                                            git::GitResponse::RangeDiff {
+                                                oldest_oid,
+                                                newest_oid,
+                                                diff,
+                                            } => {
                                                 this.code_review_panel.update(cx, |panel, _cx| {
-                                                    panel.set_diff(diff);
+                                                    panel.set_range_diff_keyed(
+                                                        &oldest_oid,
+                                                        &newest_oid,
+                                                        diff,
+                                                    );
                                                 });
                                                 cx.notify();
                                             }
