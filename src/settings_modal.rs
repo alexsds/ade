@@ -73,6 +73,7 @@ impl SettingsModal {
         let new_settings = Settings {
             external_editor: self.selected_editor,
             theme_mode: self.selected_theme_mode,
+            ..self.current_settings.clone()
         };
         if let Err(e) = new_settings.save() {
             tracing::warn!("Failed to save settings: {}", e);

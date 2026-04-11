@@ -135,6 +135,14 @@ fn default_editor() -> EditorChoice {
     EditorChoice::MacOsOpen
 }
 
+fn default_history_panel_ratios() -> [f32; 3] {
+    [0.25, 0.25, 0.50]
+}
+
+fn default_changes_panel_ratios() -> [f32; 2] {
+    [0.25, 0.75]
+}
+
 /// Application settings persisted to `~/.config/ade/settings.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
@@ -142,6 +150,10 @@ pub struct Settings {
     pub external_editor: EditorChoice,
     #[serde(default = "default_theme_mode")]
     pub theme_mode: ThemeMode,
+    #[serde(default = "default_history_panel_ratios")]
+    pub history_panel_ratios: [f32; 3],
+    #[serde(default = "default_changes_panel_ratios")]
+    pub changes_panel_ratios: [f32; 2],
 }
 
 impl Default for Settings {
@@ -149,6 +161,8 @@ impl Default for Settings {
         Self {
             external_editor: default_editor(),
             theme_mode: default_theme_mode(),
+            history_panel_ratios: default_history_panel_ratios(),
+            changes_panel_ratios: default_changes_panel_ratios(),
         }
     }
 }
@@ -554,5 +568,32 @@ mod tests {
             ThemeMode::Light.resolve_with_appearance(WindowAppearance::Dark),
             crate::theme::ThemeName::Light
         );
+    }
+
+    #[test]
+    fn test_settings_round_trip_preserves_panel_ratios() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+
+        let mut settings = Settings::default();
+        settings.history_panel_ratios = [0.3, 0.3, 0.4];
+        settings.changes_panel_ratios = [0.4, 0.6];
+        settings.save_to(&path).unwrap();
+
+        let loaded = Settings::load_from(&path);
+        assert_eq!(loaded.history_panel_ratios, [0.3, 0.3, 0.4]);
+        assert_eq!(loaded.changes_panel_ratios, [0.4, 0.6]);
+    }
+
+    #[test]
+    fn test_settings_backward_compat_missing_panel_ratios() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        // Write JSON with only external_editor field (no panel ratio fields)
+        std::fs::write(&path, r#"{"external_editor":"VsCode"}"#).unwrap();
+
+        let loaded = Settings::load_from(&path);
+        assert_eq!(loaded.history_panel_ratios, [0.25, 0.25, 0.50]);
+        assert_eq!(loaded.changes_panel_ratios, [0.25, 0.75]);
     }
 }

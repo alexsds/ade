@@ -29,6 +29,7 @@ pub struct Sizes {
     pub modal_content_padding: Pixels,
     pub dropdown_item_height: Pixels,
     pub button_height: Pixels,
+    pub panel_min_width: Pixels,
 }
 
 impl Sizes {
@@ -44,6 +45,7 @@ impl Sizes {
             modal_content_padding: px(24.0),
             dropdown_item_height: px(32.0),
             button_height: px(32.0),
+            panel_min_width: px(120.0),
         }
     }
 }
@@ -74,5 +76,6 @@ mod tests {
         assert_eq!(s.modal_content_padding, px(24.0));
         assert_eq!(s.dropdown_item_height, px(32.0));
         assert_eq!(s.button_height, px(32.0));
+        assert_eq!(s.panel_min_width, px(120.0));
     }
 }
