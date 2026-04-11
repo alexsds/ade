@@ -21,6 +21,10 @@
 # Claude Code - personal settings
 .claude/settings.local.json
 
+# MemPalace plugin artifacts
+entities.json
+mempalace.yaml
+
 # Sensitive files
 .env*
 *.pem
