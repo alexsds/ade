@@ -1130,6 +1130,27 @@ fn main() {
                                                 });
                                                 cx.notify();
                                             }
+                                            git::GitResponse::WorkingTreeImageData {
+                                                path,
+                                                image,
+                                            } => {
+                                                this.code_review_panel.update(cx, |panel, _cx| {
+                                                    panel.set_changes_image_keyed(&path, image);
+                                                });
+                                                cx.notify();
+                                            }
+                                            git::GitResponse::WorkingTreeImageError { path } => {
+                                                this.code_review_panel.update(cx, |panel, _cx| {
+                                                    panel.set_changes_image_error_keyed(&path);
+                                                });
+                                                cx.notify();
+                                            }
+                                            git::GitResponse::WorkingTreeImageTooLarge { path } => {
+                                                this.code_review_panel.update(cx, |panel, _cx| {
+                                                    panel.set_changes_image_too_large_keyed(&path);
+                                                });
+                                                cx.notify();
+                                            }
                                         }
                                     }
 
@@ -1198,56 +1219,13 @@ fn main() {
                                         .clone();
                                     if let Some(path) = pending_changes {
                                         this.git_provider.request_working_tree_diff(&path);
+                                        // Image decode moved off the UI thread (fix-3)
+                                        if crate::code_review::diff_view::is_image_file(&path) {
+                                            this.git_provider.request_working_tree_image(&path);
+                                        }
                                         this.code_review_panel.update(cx, |panel, _cx| {
                                             panel.pending_changes_diff_request = None;
                                         });
-                                        // If the file is an image, read from filesystem and decode
-                                        if crate::code_review::diff_view::is_image_file(&path) {
-                                            let full_path = this.current_git_cwd.join(&path);
-                                            match std::fs::read(&full_path) {
-                                                Ok(data) => {
-                                                    if data.len() > 10 * 1024 * 1024 {
-                                                        this.code_review_panel.update(
-                                                            cx,
-                                                            |panel, _cx| {
-                                                                panel.set_changes_image_too_large();
-                                                            },
-                                                        );
-                                                        cx.notify();
-                                                    } else {
-                                                        match crate::git::provider::decode_image_bytes(&data) {
-                                                            Ok(img) => {
-                                                                this.code_review_panel.update(
-                                                                    cx,
-                                                                    |panel, _cx| {
-                                                                        panel.set_changes_image(img);
-                                                                    },
-                                                                );
-                                                                cx.notify();
-                                                            }
-                                                            Err(_) => {
-                                                                this.code_review_panel.update(
-                                                                    cx,
-                                                                    |panel, _cx| {
-                                                                        panel.set_changes_image_error();
-                                                                    },
-                                                                );
-                                                                cx.notify();
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                Err(_) => {
-                                                    this.code_review_panel.update(
-                                                        cx,
-                                                        |panel, _cx| {
-                                                            panel.set_changes_image_error();
-                                                        },
-                                                    );
-                                                    cx.notify();
-                                                }
-                                            }
-                                        }
                                     }
 
                                     // Check if CodeReviewPanel wants a working tree file list fetched

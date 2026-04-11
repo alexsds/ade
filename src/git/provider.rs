@@ -52,6 +52,10 @@ pub enum GitRequest {
         commit_oid: String,
         path: String,
     },
+    /// Read and decode an image from the working tree (not a committed blob).
+    FetchWorkingTreeImage {
+        path: String,
+    },
 }
 
 /// Responses from the git background thread.
@@ -95,6 +99,19 @@ pub enum GitResponse {
     /// Blob exceeded the 10MB size limit.
     BlobTooLarge {
         commit_oid: String,
+        path: String,
+    },
+    /// Decoded working-tree image, ready to render.
+    WorkingTreeImageData {
+        path: String,
+        image: Arc<gpui::RenderImage>,
+    },
+    /// Working-tree image read or decode error.
+    WorkingTreeImageError {
+        path: String,
+    },
+    /// Working-tree image exceeded the 10MB size limit.
+    WorkingTreeImageTooLarge {
         path: String,
     },
 }
@@ -279,6 +296,30 @@ impl GitProvider {
                             Err(_) => GitResponse::BlobError { commit_oid, path },
                         }
                     }
+                    GitRequest::FetchWorkingTreeImage { path } => {
+                        let workdir = repo.workdir().map(|p| p.to_owned());
+                        match workdir {
+                            Some(wd) => {
+                                let full_path = wd.join(&path);
+                                match std::fs::read(&full_path) {
+                                    Ok(data) => {
+                                        if data.len() > MAX_IMAGE_BLOB_SIZE {
+                                            GitResponse::WorkingTreeImageTooLarge { path }
+                                        } else {
+                                            match decode_image_bytes(&data) {
+                                                Ok(image) => {
+                                                    GitResponse::WorkingTreeImageData { path, image }
+                                                }
+                                                Err(_) => GitResponse::WorkingTreeImageError { path },
+                                            }
+                                        }
+                                    }
+                                    Err(_) => GitResponse::WorkingTreeImageError { path },
+                                }
+                            }
+                            None => GitResponse::WorkingTreeImageError { path },
+                        }
+                    }
                 };
                 if response_tx.send(response).is_err() {
                     break;
@@ -355,6 +396,19 @@ impl GitProvider {
             .is_err()
         {
             tracing::warn!("Git background thread disconnected (FetchWorkingTreeDiff)");
+        }
+    }
+
+    /// Request a working-tree image to be read and decoded on the background thread.
+    pub fn request_working_tree_image(&self, path: &str) {
+        if self
+            .request_tx
+            .send(GitRequest::FetchWorkingTreeImage {
+                path: path.to_string(),
+            })
+            .is_err()
+        {
+            tracing::warn!("Git background thread disconnected (FetchWorkingTreeImage)");
         }
     }
 

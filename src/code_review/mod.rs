@@ -372,6 +372,42 @@ impl CodeReviewPanel {
     }
 
     /// Set the Changes tab image preview from a decoded RenderImage.
+    /// Keyed by path: discards if `path` doesn't match the currently selected Changes file.
+    pub fn set_changes_image_keyed(&mut self, path: &str, image: Arc<RenderImage>) {
+        if !self.changes_path_matches(path) {
+            return;
+        }
+        self.changes_image_preview = Some(image);
+        self.changes_image_preview_state = Some("loaded".to_string());
+    }
+
+    /// Set Changes tab image preview error state, keyed by path.
+    pub fn set_changes_image_error_keyed(&mut self, path: &str) {
+        if !self.changes_path_matches(path) {
+            return;
+        }
+        self.changes_image_preview = None;
+        self.changes_image_preview_state = Some("error".to_string());
+    }
+
+    /// Set Changes tab image preview too-large state, keyed by path.
+    pub fn set_changes_image_too_large_keyed(&mut self, path: &str) {
+        if !self.changes_path_matches(path) {
+            return;
+        }
+        self.changes_image_preview = None;
+        self.changes_image_preview_state = Some("too_large".to_string());
+    }
+
+    /// Returns true if `path` matches the currently selected Changes file.
+    fn changes_path_matches(&self, path: &str) -> bool {
+        self.selected_changes_file_index
+            .and_then(|i| self.changes_files.get(i))
+            .map(|f| f.path.as_str())
+            == Some(path)
+    }
+
+    /// Set the Changes tab image preview from a decoded RenderImage.
     pub fn set_changes_image(&mut self, image: Arc<RenderImage>) {
         self.changes_image_preview = Some(image);
         self.changes_image_preview_state = Some("loaded".to_string());
@@ -4234,6 +4270,60 @@ mod tests {
         // commits[0]="oid0" (newest), commits[2]="oid2" (oldest)
         panel.set_range_diff_keyed("oid2", "oid0", make_diff());
         assert!(panel.diff_data.is_some(), "correct-range diff must be applied");
+    }
+
+    // --- Fix 3: Changes-tab image responses keyed by path ---
+
+    #[test]
+    fn test_set_changes_image_error_keyed_rejects_stale_path() {
+        let mut panel = CodeReviewPanel::new();
+        panel.set_changes_files(vec![make_file_change("foo.png")]);
+        panel.select_changes_file(0);
+        // After select, state is "loading"
+        assert_eq!(
+            panel.changes_image_preview_state.as_deref(),
+            Some("loading")
+        );
+        panel.set_changes_image_error_keyed("bar.png"); // wrong path — must not change state
+        assert_eq!(
+            panel.changes_image_preview_state.as_deref(),
+            Some("loading"),
+            "stale error response must not overwrite loading state"
+        );
+    }
+
+    #[test]
+    fn test_set_changes_image_error_keyed_accepts_current_path() {
+        let mut panel = CodeReviewPanel::new();
+        panel.set_changes_files(vec![make_file_change("foo.png")]);
+        panel.select_changes_file(0);
+        panel.set_changes_image_error_keyed("foo.png");
+        assert_eq!(panel.changes_image_preview_state.as_deref(), Some("error"));
+    }
+
+    #[test]
+    fn test_set_changes_image_too_large_keyed_rejects_stale_path() {
+        let mut panel = CodeReviewPanel::new();
+        panel.set_changes_files(vec![make_file_change("big.png")]);
+        panel.select_changes_file(0);
+        panel.set_changes_image_too_large_keyed("other.png");
+        assert_eq!(
+            panel.changes_image_preview_state.as_deref(),
+            Some("loading"),
+            "stale too-large response must not overwrite loading state"
+        );
+    }
+
+    #[test]
+    fn test_set_changes_image_too_large_keyed_accepts_current_path() {
+        let mut panel = CodeReviewPanel::new();
+        panel.set_changes_files(vec![make_file_change("big.png")]);
+        panel.select_changes_file(0);
+        panel.set_changes_image_too_large_keyed("big.png");
+        assert_eq!(
+            panel.changes_image_preview_state.as_deref(),
+            Some("too_large")
+        );
     }
 
     // --- Fix 2: set_changes_diff_keyed ---
