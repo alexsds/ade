@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [v2.5] - Customization
+
+### Added
+- Draggable dividers between code review panels — resize commit list, file list, and diff view by dragging
+- Independent theme settings for terminal and code review — set terminal to Dark and code review to Light (or any combination)
+- Two separate theme dropdowns in settings modal: Terminal Theme and Code Review Theme
+- Live preview when changing theme in settings modal, with reversion on dismiss
+- Settings modal focus restoration — pressing Escape returns keyboard focus to the previous view
+
+### Changed
+- Panel widths use ratio-based layout instead of fixed pixel widths, with 120px minimum enforcement
+- Panel width ratios persist to settings.json and restore on launch
+- Mode toggle (Cmd+G) automatically switches the active color palette to match the entered mode's theme preference
+- Cmd+Shift+T now changes the theme for the current mode only (terminal or code review)
+- Existing settings.json files migrate seamlessly — no manual changes needed
+
 ## [v2.4] - Light and Dark Mode
 
 ### Added
