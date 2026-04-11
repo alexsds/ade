@@ -278,6 +278,15 @@ impl AdeWindow {
             Mode::Terminal => Mode::CodeReview,
             Mode::CodeReview => Mode::Terminal,
         };
+        // Switch active theme to match the entered mode
+        let mode_theme = match self.mode {
+            Mode::Terminal => self.settings.terminal_theme_mode,
+            Mode::CodeReview => self.settings.code_review_theme_mode,
+        };
+        let resolved = mode_theme.resolve_with_appearance(window.appearance());
+        if resolved != crate::theme::active_theme_name() {
+            crate::theme::set_theme(resolved, cx);
+        }
         match self.mode {
             Mode::Terminal => {
                 // Re-focus the active pane
@@ -594,10 +603,34 @@ impl AdeWindow {
         let weak = cx.weak_entity();
         let on_save = {
             let weak = weak.clone();
-            Arc::new(move |_window: &mut Window, cx: &mut App| {
+            Arc::new(move |window: &mut Window, cx: &mut App| {
                 weak.update(cx, |this, cx| {
                     this.settings = settings::Settings::load();
+                    // Apply theme for current mode after settings reload
+                    let mode_theme = match this.mode {
+                        Mode::Terminal => this.settings.terminal_theme_mode,
+                        Mode::CodeReview => this.settings.code_review_theme_mode,
+                    };
+                    let resolved = mode_theme.resolve_with_appearance(window.appearance());
+                    if resolved != crate::theme::active_theme_name() {
+                        crate::theme::set_theme(resolved, &mut *cx);
+                    }
                     this.show_settings = false;
+                    // FIX-01: Restore focus to the appropriate view
+                    match this.mode {
+                        Mode::Terminal => {
+                            if let Some(tab) = this.tabs.get(this.active_tab_index) {
+                                if let Some(focus) =
+                                    tab.pane_container.read(cx).active_pane_focus_handle()
+                                {
+                                    focus.clone().focus(window, cx);
+                                }
+                            }
+                        }
+                        Mode::CodeReview => {
+                            this.focus_handle.focus(window, cx);
+                        }
+                    }
                     cx.notify();
                 })
                 .ok();
@@ -605,9 +638,24 @@ impl AdeWindow {
         };
         let on_dismiss = {
             let weak = weak.clone();
-            Arc::new(move |_window: &mut Window, cx: &mut App| {
+            Arc::new(move |window: &mut Window, cx: &mut App| {
                 weak.update(cx, |this, cx| {
                     this.show_settings = false;
+                    // FIX-01: Restore focus to the appropriate view
+                    match this.mode {
+                        Mode::Terminal => {
+                            if let Some(tab) = this.tabs.get(this.active_tab_index) {
+                                if let Some(focus) =
+                                    tab.pane_container.read(cx).active_pane_focus_handle()
+                                {
+                                    focus.clone().focus(window, cx);
+                                }
+                            }
+                        }
+                        Mode::CodeReview => {
+                            this.focus_handle.focus(window, cx);
+                        }
+                    }
                     cx.notify();
                 })
                 .ok();
@@ -619,6 +667,37 @@ impl AdeWindow {
         modal_focus.focus(window, cx);
         self.show_settings = true;
         cx.notify();
+    }
+
+    /// Handle Cmd+Shift+T: toggle theme for the current mode and persist.
+    fn on_toggle_theme(
+        &mut self,
+        _: &input::ToggleTheme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let next = match crate::theme::active_theme_name() {
+            crate::theme::ThemeName::Dark => crate::theme::ThemeName::Light,
+            crate::theme::ThemeName::Light => crate::theme::ThemeName::Dark,
+        };
+        crate::theme::set_theme(next, cx);
+        // Persist to the mode-specific field
+        match self.mode {
+            Mode::Terminal => {
+                self.settings.terminal_theme_mode = match next {
+                    crate::theme::ThemeName::Dark => settings::ThemeMode::Dark,
+                    crate::theme::ThemeName::Light => settings::ThemeMode::Light,
+                };
+            }
+            Mode::CodeReview => {
+                self.settings.code_review_theme_mode = match next {
+                    crate::theme::ThemeName::Dark => settings::ThemeMode::Dark,
+                    crate::theme::ThemeName::Light => settings::ThemeMode::Light,
+                };
+            }
+        }
+        let _ = self.settings.save();
+        let _ = window;
     }
 
     /// Handle arrow keys in Code Review mode for panel switching (NAV-04).
@@ -745,6 +824,8 @@ impl Render for AdeWindow {
             .on_action(cx.listener(Self::on_select_tab_9))
             // Settings action
             .on_action(cx.listener(Self::on_open_settings))
+            // Theme toggle action (mode-aware)
+            .on_action(cx.listener(Self::on_toggle_theme))
             // Arrow key handler for Code Review panel switching (NAV-04)
             .when(self.mode == Mode::CodeReview, |d| {
                 d.on_key_down(cx.listener(Self::on_code_review_key_down))
@@ -833,21 +914,6 @@ fn main() {
         // Register global actions
         cx.on_action(|_: &Quit, cx| cx.quit());
 
-        cx.on_action(|_: &input::ToggleTheme, cx| {
-            let next = match crate::theme::active_theme_name() {
-                crate::theme::ThemeName::Dark => crate::theme::ThemeName::Light,
-                crate::theme::ThemeName::Light => crate::theme::ThemeName::Dark,
-            };
-            crate::theme::set_theme(next, cx);
-            // Persist the explicit theme choice (SET-02)
-            let mut s = settings::Settings::load();
-            s.theme_mode = match next {
-                crate::theme::ThemeName::Dark => settings::ThemeMode::Dark,
-                crate::theme::ThemeName::Light => settings::ThemeMode::Light,
-            };
-            let _ = s.save();
-        });
-
         // Register Quit keybinding (other keybindings set up in input module)
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
 
@@ -928,8 +994,8 @@ fn main() {
             // Create CodeReviewPanel entity
             let code_review_panel = cx.new(|_| code_review::CodeReviewPanel::new());
 
-            // Save theme_mode before app_settings is moved into the entity
-            let startup_theme_mode = app_settings.theme_mode;
+            // Save terminal_theme_mode before app_settings is moved into the entity
+            let startup_theme_mode = app_settings.terminal_theme_mode;
 
             // Create AdeWindow entity with tabs
             let window_entity = cx.new(|cx| AdeWindow {
@@ -981,11 +1047,14 @@ fn main() {
             let appearance_subscription = window_entity.update(cx, |_this, cx| {
                 cx.observe_window_appearance(
                     window,
-                    |_this: &mut AdeWindow, window: &mut Window, cx: &mut Context<AdeWindow>| {
-                        let current_mode = settings::Settings::load().theme_mode;
-                        if current_mode == settings::ThemeMode::System {
+                    |this: &mut AdeWindow, window: &mut Window, cx: &mut Context<AdeWindow>| {
+                        let mode_setting = match this.mode {
+                            Mode::Terminal => this.settings.terminal_theme_mode,
+                            Mode::CodeReview => this.settings.code_review_theme_mode,
+                        };
+                        if mode_setting == settings::ThemeMode::System {
                             let resolved =
-                                current_mode.resolve_with_appearance(window.appearance());
+                                mode_setting.resolve_with_appearance(window.appearance());
                             if resolved != crate::theme::active_theme_name() {
                                 crate::theme::set_theme(resolved, cx);
                             }
