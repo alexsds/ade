@@ -148,8 +148,10 @@ fn default_changes_panel_ratios() -> [f32; 2] {
 pub struct Settings {
     #[serde(default = "default_editor")]
     pub external_editor: EditorChoice,
+    #[serde(default = "default_theme_mode", alias = "theme_mode")]
+    pub terminal_theme_mode: ThemeMode,
     #[serde(default = "default_theme_mode")]
-    pub theme_mode: ThemeMode,
+    pub code_review_theme_mode: ThemeMode,
     #[serde(default = "default_history_panel_ratios")]
     pub history_panel_ratios: [f32; 3],
     #[serde(default = "default_changes_panel_ratios")]
@@ -160,7 +162,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             external_editor: default_editor(),
-            theme_mode: default_theme_mode(),
+            terminal_theme_mode: default_theme_mode(),
+            code_review_theme_mode: default_theme_mode(),
             history_panel_ratios: default_history_panel_ratios(),
             changes_panel_ratios: default_changes_panel_ratios(),
         }
@@ -477,7 +480,8 @@ mod tests {
     #[test]
     fn test_settings_default_has_system_theme() {
         let settings = Settings::default();
-        assert_eq!(settings.theme_mode, ThemeMode::System);
+        assert_eq!(settings.terminal_theme_mode, ThemeMode::System);
+        assert_eq!(settings.code_review_theme_mode, ThemeMode::System);
     }
 
     #[test]
@@ -486,11 +490,11 @@ mod tests {
         let path = dir.path().join("settings.json");
 
         let mut settings = Settings::default();
-        settings.theme_mode = ThemeMode::Light;
+        settings.terminal_theme_mode = ThemeMode::Light;
         settings.save_to(&path).unwrap();
 
         let loaded = Settings::load_from(&path);
-        assert_eq!(loaded.theme_mode, ThemeMode::Light);
+        assert_eq!(loaded.terminal_theme_mode, ThemeMode::Light);
     }
 
     #[test]
@@ -502,7 +506,8 @@ mod tests {
 
         let loaded = Settings::load_from(&path);
         assert_eq!(loaded.external_editor, EditorChoice::VsCode);
-        assert_eq!(loaded.theme_mode, ThemeMode::System);
+        assert_eq!(loaded.terminal_theme_mode, ThemeMode::System);
+        assert_eq!(loaded.code_review_theme_mode, ThemeMode::System);
     }
 
     #[test]
@@ -595,5 +600,34 @@ mod tests {
         let loaded = Settings::load_from(&path);
         assert_eq!(loaded.history_panel_ratios, [0.25, 0.25, 0.50]);
         assert_eq!(loaded.changes_panel_ratios, [0.25, 0.75]);
+    }
+
+    #[test]
+    fn test_settings_backward_compat_old_theme_mode_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        // Simulate existing settings.json with old field name
+        std::fs::write(&path, r#"{"theme_mode":"Dark"}"#).unwrap();
+
+        let loaded = Settings::load_from(&path);
+        // Old theme_mode maps to terminal_theme_mode via serde alias
+        assert_eq!(loaded.terminal_theme_mode, ThemeMode::Dark);
+        // code_review_theme_mode defaults to System (no value in old file)
+        assert_eq!(loaded.code_review_theme_mode, ThemeMode::System);
+    }
+
+    #[test]
+    fn test_settings_round_trip_split_themes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+
+        let mut settings = Settings::default();
+        settings.terminal_theme_mode = ThemeMode::Dark;
+        settings.code_review_theme_mode = ThemeMode::Light;
+        settings.save_to(&path).unwrap();
+
+        let loaded = Settings::load_from(&path);
+        assert_eq!(loaded.terminal_theme_mode, ThemeMode::Dark);
+        assert_eq!(loaded.code_review_theme_mode, ThemeMode::Light);
     }
 }

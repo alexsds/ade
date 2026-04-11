@@ -33,7 +33,7 @@ impl SettingsModal {
     ) -> Self {
         let settings = Settings::load();
         let selected_editor = settings.external_editor;
-        let selected_theme_mode = settings.theme_mode;
+        let selected_theme_mode = settings.terminal_theme_mode;
         let installed_editors: Vec<(EditorChoice, bool)> = EditorChoice::all()
             .iter()
             .map(|e| (*e, is_editor_installed(e)))
@@ -60,7 +60,7 @@ impl SettingsModal {
     /// Whether the user has changed any selection from the persisted value.
     fn is_dirty(&self) -> bool {
         self.selected_editor != self.current_settings.external_editor
-            || self.selected_theme_mode != self.current_settings.theme_mode
+            || self.selected_theme_mode != self.current_settings.terminal_theme_mode
     }
 
     /// Whether any dropdown is currently open.
@@ -72,7 +72,8 @@ impl SettingsModal {
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let new_settings = Settings {
             external_editor: self.selected_editor,
-            theme_mode: self.selected_theme_mode,
+            terminal_theme_mode: self.selected_theme_mode,
+            code_review_theme_mode: self.selected_theme_mode,
             ..self.current_settings.clone()
         };
         if let Err(e) = new_settings.save() {
@@ -89,7 +90,7 @@ impl SettingsModal {
     /// Call the on_dismiss callback to close the modal.
     fn dismiss(&self, window: &mut Window, cx: &mut Context<Self>) {
         // Revert theme preview if user didn't save
-        let resolved = self.current_settings.theme_mode.resolve();
+        let resolved = self.current_settings.terminal_theme_mode.resolve();
         if resolved != crate::theme::active_theme_name() {
             crate::theme::set_theme(resolved, &mut *cx);
         }
