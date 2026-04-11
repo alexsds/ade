@@ -17,8 +17,8 @@ use crate::git::types::{CommitInfo, DiffData, FileChange, FileDiff};
 use crate::theme;
 use crate::toolbar::format_changes_label;
 use gpui::{
-    Context, FontWeight, IntoElement, RenderImage, ScrollStrategy, SharedString, Styled,
-    UniformListScrollHandle, Window, div, prelude::*, px, svg,
+    Context, FontWeight, IntoElement, MouseButton, RenderImage, ScrollStrategy, SharedString,
+    Styled, UniformListScrollHandle, Window, div, prelude::*, px, relative, svg,
 };
 
 /// Which tab is active in the Code Review panel.
@@ -62,6 +62,20 @@ impl ActivePanel {
             ActivePanel::ChangesDiffView => ActivePanel::ChangesFileList,
         }
     }
+}
+
+/// State tracking an active panel divider drag within CodeReviewPanel.
+struct PanelDividerDrag {
+    /// Which divider is being dragged (0-indexed). History: 0 or 1. Changes: 0.
+    divider_index: usize,
+    /// Mouse x position at drag start.
+    start_x: f32,
+    /// Ratios at drag start (copy of history_ratios or changes_ratios, stored as Vec for uniformity).
+    start_ratios: Vec<f32>,
+    /// True if dragging in History tab, false for Changes tab.
+    is_history: bool,
+    /// Width of the container in pixels at drag start.
+    container_width: f32,
 }
 
 /// The Code Review panel entity, showing commit history and file changes.
@@ -162,11 +176,19 @@ pub struct CodeReviewPanel {
     /// Last file click tracking for manual double-click detection.
     /// GPUI's click_count() doesn't work in .app bundle context.
     last_file_click: Option<(usize, std::time::Instant, bool)>, // (index, time, is_changes_tab)
+
+    /// Panel width ratios for History tab [commit_list, file_list, diff_view], sums to 1.0
+    pub history_ratios: [f32; 3],
+    /// Panel width ratios for Changes tab [file_list, diff_view], sums to 1.0
+    pub changes_ratios: [f32; 2],
+    /// Active divider drag state (None when not dragging)
+    divider_drag: Option<PanelDividerDrag>,
 }
 
 impl CodeReviewPanel {
     /// Create a new empty CodeReviewPanel in loading state.
     pub fn new() -> Self {
+        let settings = crate::settings::Settings::load();
         Self {
             commits: Vec::new(),
             selected_commit_index: None,
@@ -210,6 +232,9 @@ impl CodeReviewPanel {
             changes_image_preview_state: None,
             on_file_double_click: None,
             last_file_click: None,
+            history_ratios: settings.history_panel_ratios,
+            changes_ratios: settings.changes_panel_ratios,
+            divider_drag: None,
         }
     }
 
@@ -1114,6 +1139,69 @@ impl CodeReviewPanel {
             _ => {}
         }
     }
+
+    /// Reload panel ratios from persisted settings.
+    pub fn reload_ratios_from_settings(&mut self) {
+        let settings = crate::settings::Settings::load();
+        self.history_ratios = settings.history_panel_ratios;
+        self.changes_ratios = settings.changes_panel_ratios;
+    }
+}
+
+/// Render a draggable vertical divider for code review panels.
+///
+/// The divider has an 8px hit area with a centered 1px visible line, matching
+/// the pane divider pattern in `panes/divider.rs`.
+fn render_panel_divider(
+    divider_index: usize,
+    is_history: bool,
+    current_ratios: Vec<f32>,
+    container_width: f32,
+    weak: gpui::WeakEntity<CodeReviewPanel>,
+) -> impl IntoElement {
+    let t = theme::theme();
+
+    let id_str = format!(
+        "cr-divider-{}-{}",
+        if is_history { "h" } else { "c" },
+        divider_index
+    );
+
+    let inner = div()
+        .w(px(1.0))
+        .h_full()
+        .bg(t.colors.border_default)
+        .flex_shrink_0();
+
+    div()
+        .id(gpui::ElementId::Name(id_str.into()))
+        .flex_shrink_0()
+        .w(t.spacing.sm)
+        .h_full()
+        .cursor_col_resize()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .child(inner)
+        .on_mouse_down(
+            MouseButton::Left,
+            move |event: &gpui::MouseDownEvent, _window: &mut gpui::Window, cx: &mut gpui::App| {
+                let start_x = f32::from(event.position.x);
+                let drag = PanelDividerDrag {
+                    divider_index,
+                    start_x,
+                    start_ratios: current_ratios.clone(),
+                    is_history,
+                    container_width,
+                };
+                weak.update(cx, |panel, cx| {
+                    panel.divider_drag = Some(drag);
+                    cx.notify();
+                })
+                .ok();
+            },
+        )
 }
 
 /// Render the review tab bar with Changes and History tabs.
@@ -1596,15 +1684,16 @@ impl Render for CodeReviewPanel {
                 "Changed Files".to_string()
             };
 
-            // Left panel: 280px with tab bar header + commit list
+            let hr = self.history_ratios;
+            let container_width = f32::from(window.viewport_size().width);
+
+            // Left panel: ratio-based width with tab bar header + commit list
             let left_panel = div()
-                .w(t.sizes.commit_panel_width)
+                .w(relative(hr[0]))
                 .flex_shrink_0()
                 .h_full()
                 .flex()
                 .flex_col()
-                .border_r_1()
-                .border_color(t.colors.border_subtle)
                 // Tab bar replaces "Commits" header (D-01)
                 .child(render_review_tab_bar(
                     self.active_tab,
@@ -1613,6 +1702,9 @@ impl Render for CodeReviewPanel {
                 ))
                 // Scrollable commit list
                 .child(div().flex_1().overflow_hidden().child(commit_list_content));
+
+            let divider_1 =
+                render_panel_divider(0, true, hr.to_vec(), container_width, weak.clone());
 
             // Commit detail or range header section
             let commit_detail_section: Option<gpui::AnyElement> = commit_detail.map(|detail| {
@@ -1631,118 +1723,181 @@ impl Render for CodeReviewPanel {
                 }
             });
 
+            // Sub-ratios for file list and diff within right area
+            let right_total = hr[1] + hr[2];
+            let file_ratio = if right_total > 0.0 {
+                hr[1] / right_total
+            } else {
+                0.5
+            };
+
             let diff_focus_color = t.colors.border_strong;
             let transparent_color = t.colors.transparent;
-            div()
+
+            let diff_content = {
+                let selected_path = self
+                    .selected_file_index
+                    .and_then(|i| self.files.get(i))
+                    .map(|f| f.path.as_str());
+                let is_image = selected_path
+                    .map(|p| diff_view::is_image_file(p))
+                    .unwrap_or(false);
+
+                if is_image {
+                    let path = selected_path.unwrap_or("");
+                    diff_view::render_image_preview(
+                        path,
+                        self.image_preview.as_ref(),
+                        self.image_preview_state.as_deref(),
+                        window.viewport_size(),
+                        &file_path_text_selection,
+                        file_path_on_drag_start.clone(),
+                        file_path_on_drag_move.clone(),
+                        file_path_on_drag_end.clone(),
+                    )
+                    .into_any_element()
+                } else if let Some(file_diff) = self.selected_file_diff().cloned() {
+                    diff_view::render_diff_view(
+                        &file_diff,
+                        &mut self.syntax_highlighter,
+                        &self.diff_scroll_handle,
+                        on_diff_visible_count.clone(),
+                        &diff_text_selection,
+                        diff_on_drag_start.clone(),
+                        diff_on_drag_move.clone(),
+                        diff_on_drag_end.clone(),
+                        &file_path_text_selection,
+                        file_path_on_drag_start.clone(),
+                        file_path_on_drag_move.clone(),
+                        file_path_on_drag_end.clone(),
+                    )
+                    .into_any_element()
+                } else {
+                    diff_view::render_diff_empty().into_any_element()
+                }
+            };
+
+            let divider_2 =
+                render_panel_divider(1, true, hr.to_vec(), container_width, weak.clone());
+
+            let right_area = div()
+                .id("right-area")
+                .flex_1()
                 .size_full()
                 .flex()
-                .flex_row()
-                .bg(t.colors.bg_base)
-                .child(left_panel)
+                .flex_col()
+                .children(commit_detail_section)
+                .children(metadata_bar)
                 .child(
                     div()
-                        .id("right-area")
+                        .id("files-and-diff")
                         .flex_1()
-                        .size_full()
+                        .w_full()
+                        .overflow_hidden()
                         .flex()
-                        .flex_col()
-                        .children(commit_detail_section)
-                        .children(metadata_bar)
+                        .flex_row()
                         .child(
                             div()
-                                .id("files-and-diff")
-                                .flex_1()
-                                .w_full()
-                                .overflow_hidden()
+                                .w(relative(file_ratio))
+                                .flex_shrink_0()
+                                .h_full()
                                 .flex()
-                                .flex_row()
+                                .flex_col()
                                 .child(
                                     div()
-                                        .w(t.sizes.commit_panel_width)
-                                        .flex_shrink_0()
-                                        .h_full()
-                                        .flex()
-                                        .flex_col()
-                                        .border_r_1()
-                                        .border_color(t.colors.border_subtle)
-                                        .child(
-                                            div()
-                                                .w_full()
-                                                .px(t.spacing.sm)
-                                                .py(t.spacing.sm)
-                                                .border_b_1()
-                                                .border_color(t.colors.border_default)
-                                                .text_xs()
-                                                .font_weight(FontWeight::BOLD)
-                                                .text_color(t.colors.text_secondary)
-                                                .child(files_header_text),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .overflow_hidden()
-                                                .child(file_list_content),
-                                        ),
+                                        .w_full()
+                                        .px(t.spacing.sm)
+                                        .py(t.spacing.sm)
+                                        .border_b_1()
+                                        .border_color(t.colors.border_default)
+                                        .text_xs()
+                                        .font_weight(FontWeight::BOLD)
+                                        .text_color(t.colors.text_secondary)
+                                        .child(files_header_text),
                                 )
-                                .child({
-                                    let diff_content = {
-                                        let selected_path = self
-                                            .selected_file_index
-                                            .and_then(|i| self.files.get(i))
-                                            .map(|f| f.path.as_str());
-                                        let is_image = selected_path
-                                            .map(|p| diff_view::is_image_file(p))
-                                            .unwrap_or(false);
-
-                                        if is_image {
-                                            let path = selected_path.unwrap_or("");
-                                            diff_view::render_image_preview(
-                                                path,
-                                                self.image_preview.as_ref(),
-                                                self.image_preview_state.as_deref(),
-                                                window.viewport_size(),
-                                                &file_path_text_selection,
-                                                file_path_on_drag_start.clone(),
-                                                file_path_on_drag_move.clone(),
-                                                file_path_on_drag_end.clone(),
-                                            )
-                                            .into_any_element()
-                                        } else if let Some(file_diff) =
-                                            self.selected_file_diff().cloned()
-                                        {
-                                            diff_view::render_diff_view(
-                                                &file_diff,
-                                                &mut self.syntax_highlighter,
-                                                &self.diff_scroll_handle,
-                                                on_diff_visible_count.clone(),
-                                                &diff_text_selection,
-                                                diff_on_drag_start.clone(),
-                                                diff_on_drag_move.clone(),
-                                                diff_on_drag_end.clone(),
-                                                &file_path_text_selection,
-                                                file_path_on_drag_start.clone(),
-                                                file_path_on_drag_move.clone(),
-                                                file_path_on_drag_end.clone(),
-                                            )
-                                            .into_any_element()
-                                        } else {
-                                            diff_view::render_diff_empty().into_any_element()
-                                        }
-                                    };
-                                    div()
-                                        .flex_1()
-                                        .size_full()
-                                        .overflow_hidden()
-                                        .border_t_2()
-                                        .border_color(if is_diff_view_active {
-                                            diff_focus_color
-                                        } else {
-                                            transparent_color
-                                        })
-                                        .child(diff_content)
-                                }),
+                                .child(div().flex_1().overflow_hidden().child(file_list_content)),
+                        )
+                        .child(divider_2)
+                        .child(
+                            div()
+                                .flex_1()
+                                .size_full()
+                                .overflow_hidden()
+                                .border_t_2()
+                                .border_color(if is_diff_view_active {
+                                    diff_focus_color
+                                } else {
+                                    transparent_color
+                                })
+                                .child(diff_content),
                         ),
+                );
+
+            // Outermost container with drag handlers
+            let weak_move = weak.clone();
+            let weak_up = weak.clone();
+            let min_width = f32::from(t.sizes.panel_min_width);
+            let mut outer = div().size_full().flex().flex_row().bg(t.colors.bg_base);
+            if self.divider_drag.is_some() {
+                outer = outer.cursor_col_resize();
+            }
+            outer
+                .on_mouse_move(
+                    move |event: &gpui::MouseMoveEvent,
+                          window: &mut gpui::Window,
+                          cx: &mut gpui::App| {
+                        let current_x = f32::from(event.position.x);
+                        let viewport_width = f32::from(window.viewport_size().width);
+                        weak_move
+                            .update(cx, |panel, cx| {
+                                if let Some(ref drag) = panel.divider_drag {
+                                    if !drag.is_history {
+                                        return;
+                                    }
+                                    let cw = if viewport_width > 1.0 {
+                                        viewport_width
+                                    } else {
+                                        drag.container_width
+                                    };
+                                    let pixel_delta = current_x - drag.start_x;
+                                    let ratio_delta = pixel_delta / cw;
+                                    let i = drag.divider_index;
+                                    if i + 1 < drag.start_ratios.len() {
+                                        let sum = drag.start_ratios[i] + drag.start_ratios[i + 1];
+                                        let min_ratio = min_width / cw;
+                                        let left = (drag.start_ratios[i] + ratio_delta)
+                                            .clamp(min_ratio, sum - min_ratio);
+                                        let right = sum - left;
+                                        panel.history_ratios[i] = left;
+                                        panel.history_ratios[i + 1] = right;
+                                    }
+                                    cx.notify();
+                                }
+                            })
+                            .ok();
+                    },
                 )
+                .on_mouse_up(
+                    MouseButton::Left,
+                    move |_event: &gpui::MouseUpEvent,
+                          _window: &mut gpui::Window,
+                          cx: &mut gpui::App| {
+                        weak_up
+                            .update(cx, |panel, cx| {
+                                if panel.divider_drag.take().is_some() {
+                                    let mut settings = crate::settings::Settings::load();
+                                    settings.history_panel_ratios = panel.history_ratios;
+                                    settings.changes_panel_ratios = panel.changes_ratios;
+                                    let _ = settings.save();
+                                    cx.notify();
+                                }
+                            })
+                            .ok();
+                    },
+                )
+                .child(left_panel)
+                .child(divider_1)
+                .child(right_area)
                 .into_any_element()
         } else {
             // === Changes tab: 2-column layout (D-07, D-08, D-09) ===
@@ -1893,15 +2048,16 @@ impl Render for CodeReviewPanel {
             );
 
             let t = theme::theme();
-            // Left panel: 240px with tab bar header + file list (D-08)
+            let cr = self.changes_ratios;
+            let container_width = f32::from(window.viewport_size().width);
+
+            // Left panel: ratio-based width with tab bar header + file list (D-08)
             let left_panel = div()
-                .w(t.sizes.commit_panel_width)
+                .w(relative(cr[0]))
                 .flex_shrink_0()
                 .h_full()
                 .flex()
                 .flex_col()
-                .border_r_1()
-                .border_color(t.colors.border_subtle)
                 // Tab bar (D-01)
                 .child(render_review_tab_bar(
                     self.active_tab,
@@ -1915,6 +2071,9 @@ impl Render for CodeReviewPanel {
                         .overflow_hidden()
                         .child(changes_file_list_content),
                 );
+
+            let divider =
+                render_panel_divider(0, false, cr.to_vec(), container_width, weak.clone());
 
             // Diff panel (D-09: full remaining width)
             let changes_diff_content = {
@@ -1962,12 +2121,71 @@ impl Render for CodeReviewPanel {
 
             let diff_focus_color = t.colors.border_strong;
             let transparent_color = t.colors.transparent;
-            div()
-                .size_full()
-                .flex()
-                .flex_row()
-                .bg(t.colors.bg_base)
+
+            // Outermost container with drag handlers
+            let weak_move = weak.clone();
+            let weak_up = weak.clone();
+            let min_width = f32::from(t.sizes.panel_min_width);
+            let mut outer = div().size_full().flex().flex_row().bg(t.colors.bg_base);
+            if self.divider_drag.is_some() {
+                outer = outer.cursor_col_resize();
+            }
+            outer
+                .on_mouse_move(
+                    move |event: &gpui::MouseMoveEvent,
+                          window: &mut gpui::Window,
+                          cx: &mut gpui::App| {
+                        let current_x = f32::from(event.position.x);
+                        let viewport_width = f32::from(window.viewport_size().width);
+                        weak_move
+                            .update(cx, |panel, cx| {
+                                if let Some(ref drag) = panel.divider_drag {
+                                    if drag.is_history {
+                                        return;
+                                    }
+                                    let cw = if viewport_width > 1.0 {
+                                        viewport_width
+                                    } else {
+                                        drag.container_width
+                                    };
+                                    let pixel_delta = current_x - drag.start_x;
+                                    let ratio_delta = pixel_delta / cw;
+                                    let i = drag.divider_index;
+                                    if i + 1 < drag.start_ratios.len() {
+                                        let sum = drag.start_ratios[i] + drag.start_ratios[i + 1];
+                                        let min_ratio = min_width / cw;
+                                        let left = (drag.start_ratios[i] + ratio_delta)
+                                            .clamp(min_ratio, sum - min_ratio);
+                                        let right = sum - left;
+                                        panel.changes_ratios[i] = left;
+                                        panel.changes_ratios[i + 1] = right;
+                                    }
+                                    cx.notify();
+                                }
+                            })
+                            .ok();
+                    },
+                )
+                .on_mouse_up(
+                    MouseButton::Left,
+                    move |_event: &gpui::MouseUpEvent,
+                          _window: &mut gpui::Window,
+                          cx: &mut gpui::App| {
+                        weak_up
+                            .update(cx, |panel, cx| {
+                                if panel.divider_drag.take().is_some() {
+                                    let mut settings = crate::settings::Settings::load();
+                                    settings.history_panel_ratios = panel.history_ratios;
+                                    settings.changes_panel_ratios = panel.changes_ratios;
+                                    let _ = settings.save();
+                                    cx.notify();
+                                }
+                            })
+                            .ok();
+                    },
+                )
                 .child(left_panel)
+                .child(divider)
                 .child(
                     div()
                         .flex_1()
@@ -4240,7 +4458,10 @@ mod tests {
         panel.select_commit(0);
         panel.select_commit_with_shift(2);
         panel.set_range_diff_keyed("oid1", "oid0", make_diff()); // wrong oldest
-        assert!(panel.diff_data.is_none(), "wrong-range diff must be discarded");
+        assert!(
+            panel.diff_data.is_none(),
+            "wrong-range diff must be discarded"
+        );
     }
 
     #[test]
@@ -4251,7 +4472,10 @@ mod tests {
         panel.select_commit_with_shift(2);
         // commits[0]="oid0" (newest), commits[2]="oid2" (oldest)
         panel.set_range_diff_keyed("oid2", "oid0", make_diff());
-        assert!(panel.diff_data.is_some(), "correct-range diff must be applied");
+        assert!(
+            panel.diff_data.is_some(),
+            "correct-range diff must be applied"
+        );
     }
 
     // --- Fix 3: Changes-tab image responses keyed by path ---
