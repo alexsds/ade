@@ -1,6 +1,7 @@
 //! Settings modal overlay for ADE.
 //!
-//! Centered modal with External Editor dropdown, Theme dropdown, and save/discard buttons.
+//! Centered modal with External Editor dropdown, two theme dropdowns (Terminal Theme
+//! and Code Review Theme), and save/discard buttons.
 //! Dismissed via Escape key or button clicks only.
 
 use std::sync::Arc;
@@ -11,14 +12,17 @@ use crate::assets;
 use crate::settings::{EditorChoice, Settings, ThemeMode, is_editor_installed};
 use crate::theme;
 
-/// Settings modal entity with editor dropdown, theme dropdown, and save/discard buttons.
+/// Settings modal entity with editor dropdown, two theme dropdowns, and save/discard buttons.
 pub struct SettingsModal {
     focus_handle: FocusHandle,
     current_settings: Settings,
     selected_editor: EditorChoice,
-    selected_theme_mode: ThemeMode,
+    selected_terminal_theme: ThemeMode,
+    selected_code_review_theme: ThemeMode,
     dropdown_open: bool,
-    theme_dropdown_open: bool,
+    terminal_theme_dropdown_open: bool,
+    code_review_theme_dropdown_open: bool,
+    pre_modal_theme: crate::theme::ThemeName,
     installed_editors: Vec<(EditorChoice, bool)>,
     on_save: Arc<dyn Fn(&mut Window, &mut App) + 'static>,
     on_dismiss: Arc<dyn Fn(&mut Window, &mut App) + 'static>,
@@ -33,7 +37,8 @@ impl SettingsModal {
     ) -> Self {
         let settings = Settings::load();
         let selected_editor = settings.external_editor;
-        let selected_theme_mode = settings.terminal_theme_mode;
+        let selected_terminal_theme = settings.terminal_theme_mode;
+        let selected_code_review_theme = settings.code_review_theme_mode;
         let installed_editors: Vec<(EditorChoice, bool)> = EditorChoice::all()
             .iter()
             .map(|e| (*e, is_editor_installed(e)))
@@ -43,9 +48,12 @@ impl SettingsModal {
             focus_handle: cx.focus_handle(),
             current_settings: settings,
             selected_editor,
-            selected_theme_mode,
+            selected_terminal_theme,
+            selected_code_review_theme,
             dropdown_open: false,
-            theme_dropdown_open: false,
+            terminal_theme_dropdown_open: false,
+            code_review_theme_dropdown_open: false,
+            pre_modal_theme: crate::theme::active_theme_name(),
             installed_editors,
             on_save,
             on_dismiss,
@@ -60,39 +68,40 @@ impl SettingsModal {
     /// Whether the user has changed any selection from the persisted value.
     fn is_dirty(&self) -> bool {
         self.selected_editor != self.current_settings.external_editor
-            || self.selected_theme_mode != self.current_settings.terminal_theme_mode
+            || self.selected_terminal_theme != self.current_settings.terminal_theme_mode
+            || self.selected_code_review_theme != self.current_settings.code_review_theme_mode
     }
 
     /// Whether any dropdown is currently open.
     fn any_dropdown_open(&self) -> bool {
-        self.dropdown_open || self.theme_dropdown_open
+        self.dropdown_open
+            || self.terminal_theme_dropdown_open
+            || self.code_review_theme_dropdown_open
     }
 
     /// Save the current selection and call the on_save callback.
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let new_settings = Settings {
             external_editor: self.selected_editor,
-            terminal_theme_mode: self.selected_theme_mode,
-            code_review_theme_mode: self.selected_theme_mode,
+            terminal_theme_mode: self.selected_terminal_theme,
+            code_review_theme_mode: self.selected_code_review_theme,
             ..self.current_settings.clone()
         };
         if let Err(e) = new_settings.save() {
             tracing::warn!("Failed to save settings: {}", e);
         }
         self.current_settings = new_settings;
-        // Apply theme immediately on save
-        let resolved = self.selected_theme_mode.resolve();
-        crate::theme::set_theme(resolved, &mut *cx);
+        // Theme application is handled by the on_save callback in main.rs
+        // (which reloads settings and applies the current mode's theme)
         let cb = self.on_save.clone();
         cb(window, &mut *cx);
     }
 
     /// Call the on_dismiss callback to close the modal.
     fn dismiss(&self, window: &mut Window, cx: &mut Context<Self>) {
-        // Revert theme preview if user didn't save
-        let resolved = self.current_settings.terminal_theme_mode.resolve();
-        if resolved != crate::theme::active_theme_name() {
-            crate::theme::set_theme(resolved, &mut *cx);
+        // Revert any live theme preview to the theme that was active before the modal opened
+        if self.pre_modal_theme != crate::theme::active_theme_name() {
+            crate::theme::set_theme(self.pre_modal_theme, &mut *cx);
         }
         let cb = self.on_dismiss.clone();
         cb(window, &mut *cx);
@@ -118,8 +127,9 @@ impl SettingsModal {
             .hover(|s| s.border_color(t.colors.border_strong))
             .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
                 this.dropdown_open = !this.dropdown_open;
-                // Mutual exclusion: close theme dropdown
-                this.theme_dropdown_open = false;
+                // Mutual exclusion: close theme dropdowns
+                this.terminal_theme_dropdown_open = false;
+                this.code_review_theme_dropdown_open = false;
                 cx.notify();
             }))
             .child(
@@ -136,11 +146,11 @@ impl SettingsModal {
             )
     }
 
-    /// Render the theme dropdown trigger button.
-    fn render_theme_trigger(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Render the terminal theme dropdown trigger button.
+    fn render_terminal_theme_trigger(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme();
         div()
-            .id("theme-dropdown-trigger")
+            .id("terminal-theme-dropdown-trigger")
             .h(t.sizes.dropdown_item_height)
             .w_full()
             .bg(t.colors.bg_surface)
@@ -155,16 +165,56 @@ impl SettingsModal {
             .cursor_pointer()
             .hover(|s| s.border_color(t.colors.border_strong))
             .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
-                this.theme_dropdown_open = !this.theme_dropdown_open;
-                // Mutual exclusion: close editor dropdown
+                this.terminal_theme_dropdown_open = !this.terminal_theme_dropdown_open;
+                // Mutual exclusion: close other dropdowns
                 this.dropdown_open = false;
+                this.code_review_theme_dropdown_open = false;
                 cx.notify();
             }))
             .child(
                 div()
                     .text_size(t.typography.body.size)
                     .text_color(t.colors.text_primary)
-                    .child(self.selected_theme_mode.display_name()),
+                    .child(self.selected_terminal_theme.display_name()),
+            )
+            .child(
+                svg()
+                    .path(assets::ICON_CHEVRON_DOWN)
+                    .size(px(14.0))
+                    .text_color(t.colors.text_secondary),
+            )
+    }
+
+    /// Render the code review theme dropdown trigger button.
+    fn render_code_review_theme_trigger(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::theme();
+        div()
+            .id("code-review-theme-dropdown-trigger")
+            .h(t.sizes.dropdown_item_height)
+            .w_full()
+            .bg(t.colors.bg_surface)
+            .border_1()
+            .border_color(t.colors.border_default)
+            .rounded(px(8.0))
+            .px(t.spacing.sm)
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            .cursor_pointer()
+            .hover(|s| s.border_color(t.colors.border_strong))
+            .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
+                this.code_review_theme_dropdown_open = !this.code_review_theme_dropdown_open;
+                // Mutual exclusion: close other dropdowns
+                this.dropdown_open = false;
+                this.terminal_theme_dropdown_open = false;
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .text_size(t.typography.body.size)
+                    .text_color(t.colors.text_primary)
+                    .child(self.selected_code_review_theme.display_name()),
             )
             .child(
                 svg()
@@ -285,17 +335,17 @@ impl SettingsModal {
             .child(list)
     }
 
-    /// Render the theme dropdown overlay. Follows the same pattern as the editor dropdown.
-    fn render_theme_dropdown_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Render the terminal theme dropdown overlay.
+    fn render_terminal_theme_dropdown_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme();
 
-        // Position below theme section:
-        // Title (~56px) + Editor section (~112px) + Theme heading+desc (~48px) + trigger (32px) + gap (4px)
+        // Position below terminal theme section:
+        // Title (~56px) + Editor section (~112px) + Terminal Theme heading+desc (~48px) + trigger (32px) + gap (4px)
         let list_top = 56.0 + 112.0 + 48.0 + 32.0 + 4.0;
         let content_padding = f32::from(t.sizes.modal_content_padding);
 
         let mut list = div()
-            .id("theme-dropdown-list")
+            .id("terminal-theme-dropdown-list")
             .absolute()
             .top(px(list_top))
             .left(px(content_padding))
@@ -311,11 +361,11 @@ impl SettingsModal {
             .flex_col();
 
         for mode in ThemeMode::all() {
-            let is_selected = *mode == self.selected_theme_mode;
+            let is_selected = *mode == self.selected_terminal_theme;
             let mode_copy = *mode;
             let mode_name = mode.display_name();
 
-            let item_id: SharedString = format!("theme-{}", mode_name).into();
+            let item_id: SharedString = format!("terminal-theme-{}", mode_name).into();
             let mut item = div()
                 .id(item_id)
                 .h(t.sizes.dropdown_item_height)
@@ -327,10 +377,10 @@ impl SettingsModal {
                 .gap(t.spacing.sm)
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
-                    this.selected_theme_mode = mode_copy;
-                    this.theme_dropdown_open = false;
+                    this.selected_terminal_theme = mode_copy;
+                    this.terminal_theme_dropdown_open = false;
                     // Live preview: apply theme immediately on selection
-                    let resolved = this.selected_theme_mode.resolve();
+                    let resolved = this.selected_terminal_theme.resolve();
                     crate::theme::set_theme(resolved, &mut *cx);
                     cx.notify();
                 }));
@@ -363,14 +413,110 @@ impl SettingsModal {
 
         // Container consumes clicks so they don't fall through to footer buttons
         div()
-            .id("theme-dropdown-overlay")
+            .id("terminal-theme-dropdown-overlay")
             .absolute()
             .size_full()
             .top_0()
             .left_0()
             .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
-                if this.theme_dropdown_open {
-                    this.theme_dropdown_open = false;
+                if this.terminal_theme_dropdown_open {
+                    this.terminal_theme_dropdown_open = false;
+                    cx.notify();
+                }
+            }))
+            .child(list)
+    }
+
+    /// Render the code review theme dropdown overlay.
+    fn render_code_review_theme_dropdown_overlay(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let t = theme::theme();
+
+        // Position below code review theme section:
+        // Title (~56px) + Editor section (~112px) + Terminal Theme section (~80px) +
+        // Code Review Theme heading+desc (~48px) + trigger (32px) + gap (4px)
+        let list_top = 56.0 + 112.0 + 80.0 + 48.0 + 32.0 + 4.0;
+        let content_padding = f32::from(t.sizes.modal_content_padding);
+
+        let mut list = div()
+            .id("code-review-theme-dropdown-list")
+            .absolute()
+            .top(px(list_top))
+            .left(px(content_padding))
+            .right(px(content_padding))
+            .max_h(px(200.0))
+            .overflow_y_scroll()
+            .bg(t.colors.bg_surface)
+            .border_1()
+            .border_color(t.colors.border_default)
+            .rounded(px(8.0))
+            .py(px(4.0))
+            .flex()
+            .flex_col();
+
+        for mode in ThemeMode::all() {
+            let is_selected = *mode == self.selected_code_review_theme;
+            let mode_copy = *mode;
+            let mode_name = mode.display_name();
+
+            let item_id: SharedString = format!("code-review-theme-{}", mode_name).into();
+            let mut item = div()
+                .id(item_id)
+                .h(t.sizes.dropdown_item_height)
+                .flex_shrink_0()
+                .px(t.spacing.sm)
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(t.spacing.sm)
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
+                    this.selected_code_review_theme = mode_copy;
+                    this.code_review_theme_dropdown_open = false;
+                    // Live preview: apply theme immediately on selection
+                    let resolved = this.selected_code_review_theme.resolve();
+                    crate::theme::set_theme(resolved, &mut *cx);
+                    cx.notify();
+                }));
+
+            if is_selected {
+                item = item.bg(t.colors.element_selected);
+            } else {
+                item = item.hover(|s| s.bg(t.colors.element_hover));
+            }
+
+            let check_space = if is_selected {
+                div().child(
+                    svg()
+                        .path(assets::ICON_CHECK)
+                        .size(px(14.0))
+                        .text_color(t.colors.text_primary),
+                )
+            } else {
+                div().w(px(14.0))
+            };
+
+            let label = div()
+                .text_size(t.typography.body.size)
+                .text_color(t.colors.text_primary)
+                .child(mode_name);
+
+            item = item.child(check_space).child(label);
+            list = list.child(item);
+        }
+
+        // Container consumes clicks so they don't fall through to footer buttons
+        div()
+            .id("code-review-theme-dropdown-overlay")
+            .absolute()
+            .size_full()
+            .top_0()
+            .left_0()
+            .on_click(cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
+                if this.code_review_theme_dropdown_open {
+                    this.code_review_theme_dropdown_open = false;
                     cx.notify();
                 }
             }))
@@ -398,8 +544,11 @@ impl Render for SettingsModal {
             .justify_center()
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
-                    if this.theme_dropdown_open {
-                        this.theme_dropdown_open = false;
+                    if this.terminal_theme_dropdown_open {
+                        this.terminal_theme_dropdown_open = false;
+                        cx.notify();
+                    } else if this.code_review_theme_dropdown_open {
+                        this.code_review_theme_dropdown_open = false;
                         cx.notify();
                     } else if this.dropdown_open {
                         this.dropdown_open = false;
@@ -458,7 +607,7 @@ impl Render for SettingsModal {
                             )
                             .child(self.render_trigger(cx)),
                     )
-                    // Theme section
+                    // Terminal Theme section
                     .child(
                         div()
                             .px(t.sizes.modal_content_padding)
@@ -471,15 +620,38 @@ impl Render for SettingsModal {
                                     .text_size(t.typography.heading.size)
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .text_color(t.colors.text_primary)
-                                    .child("Theme"),
+                                    .child("Terminal Theme"),
                             )
                             .child(
                                 div()
                                     .text_size(t.typography.body.size)
                                     .text_color(t.colors.text_secondary)
-                                    .child("Choose the appearance mode for ADE"),
+                                    .child("Theme for terminal mode"),
                             )
-                            .child(self.render_theme_trigger(cx)),
+                            .child(self.render_terminal_theme_trigger(cx)),
+                    )
+                    // Code Review Theme section
+                    .child(
+                        div()
+                            .px(t.sizes.modal_content_padding)
+                            .py(t.spacing.md)
+                            .flex()
+                            .flex_col()
+                            .gap(t.spacing.sm)
+                            .child(
+                                div()
+                                    .text_size(t.typography.heading.size)
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(t.colors.text_primary)
+                                    .child("Code Review Theme"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(t.typography.body.size)
+                                    .text_color(t.colors.text_secondary)
+                                    .child("Theme for code review mode"),
+                            )
+                            .child(self.render_code_review_theme_trigger(cx)),
                     )
                     // Footer with buttons
                     .child(
@@ -560,9 +732,13 @@ impl Render for SettingsModal {
                     .when(self.dropdown_open, |modal| {
                         modal.child(self.render_dropdown_overlay(cx))
                     })
-                    // Theme dropdown overlay
-                    .when(self.theme_dropdown_open, |modal| {
-                        modal.child(self.render_theme_dropdown_overlay(cx))
+                    // Terminal theme dropdown overlay
+                    .when(self.terminal_theme_dropdown_open, |modal| {
+                        modal.child(self.render_terminal_theme_dropdown_overlay(cx))
+                    })
+                    // Code review theme dropdown overlay
+                    .when(self.code_review_theme_dropdown_open, |modal| {
+                        modal.child(self.render_code_review_theme_dropdown_overlay(cx))
                     }),
             )
     }
