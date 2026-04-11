@@ -1139,7 +1139,6 @@ impl CodeReviewPanel {
             _ => {}
         }
     }
-
 }
 
 /// Render a draggable vertical divider for code review panels.
