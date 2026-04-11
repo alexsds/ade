@@ -641,7 +641,16 @@ impl AdeWindow {
             Arc::new(move |window: &mut Window, cx: &mut App| {
                 weak.update(cx, |this, cx| {
                     this.show_settings = false;
-                    // FIX-01: Restore focus to the appropriate view
+                    // Revert any live preview to the current mode's persisted theme
+                    let mode_theme = match this.mode {
+                        Mode::Terminal => this.settings.terminal_theme_mode,
+                        Mode::CodeReview => this.settings.code_review_theme_mode,
+                    };
+                    let resolved = mode_theme.resolve_with_appearance(window.appearance());
+                    if resolved != crate::theme::active_theme_name() {
+                        crate::theme::set_theme(resolved, &mut *cx);
+                    }
+                    // Restore focus to the appropriate view
                     match this.mode {
                         Mode::Terminal => {
                             if let Some(tab) = this.tabs.get(this.active_tab_index) {
@@ -661,7 +670,9 @@ impl AdeWindow {
                 .ok();
             })
         };
-        let modal = cx.new(|cx| settings_modal::SettingsModal::new(on_save, on_dismiss, cx));
+        let is_terminal = matches!(self.mode, Mode::Terminal);
+        let modal =
+            cx.new(|cx| settings_modal::SettingsModal::new(is_terminal, on_save, on_dismiss, cx));
         let modal_focus = modal.read(cx).focus_handle().clone();
         self.settings_modal = Some(modal);
         modal_focus.focus(window, cx);

@@ -22,7 +22,9 @@ pub struct SettingsModal {
     dropdown_open: bool,
     terminal_theme_dropdown_open: bool,
     code_review_theme_dropdown_open: bool,
-    pre_modal_theme: crate::theme::ThemeName,
+    /// True when opened from Terminal mode; false when from Code Review mode.
+    /// Live preview only applies when the changed dropdown matches the active mode.
+    is_terminal_mode: bool,
     installed_editors: Vec<(EditorChoice, bool)>,
     on_save: Arc<dyn Fn(&mut Window, &mut App) + 'static>,
     on_dismiss: Arc<dyn Fn(&mut Window, &mut App) + 'static>,
@@ -30,7 +32,9 @@ pub struct SettingsModal {
 
 impl SettingsModal {
     /// Create a new SettingsModal, loading current settings and detecting installed editors.
+    /// `is_terminal_mode`: true if opened from Terminal, false if from Code Review.
     pub fn new(
+        is_terminal_mode: bool,
         on_save: Arc<dyn Fn(&mut Window, &mut App) + 'static>,
         on_dismiss: Arc<dyn Fn(&mut Window, &mut App) + 'static>,
         cx: &mut Context<Self>,
@@ -53,7 +57,7 @@ impl SettingsModal {
             dropdown_open: false,
             terminal_theme_dropdown_open: false,
             code_review_theme_dropdown_open: false,
-            pre_modal_theme: crate::theme::active_theme_name(),
+            is_terminal_mode,
             installed_editors,
             on_save,
             on_dismiss,
@@ -98,11 +102,9 @@ impl SettingsModal {
     }
 
     /// Call the on_dismiss callback to close the modal.
+    /// Theme reversion is handled by the on_dismiss callback in main.rs,
+    /// which knows the current mode and applies the correct mode-specific theme.
     fn dismiss(&self, window: &mut Window, cx: &mut Context<Self>) {
-        // Revert any live theme preview to the theme that was active before the modal opened
-        if self.pre_modal_theme != crate::theme::active_theme_name() {
-            crate::theme::set_theme(self.pre_modal_theme, &mut *cx);
-        }
         let cb = self.on_dismiss.clone();
         cb(window, &mut *cx);
     }
@@ -376,12 +378,16 @@ impl SettingsModal {
                 .items_center()
                 .gap(t.spacing.sm)
                 .cursor_pointer()
-                .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
+                .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
                     this.selected_terminal_theme = mode_copy;
                     this.terminal_theme_dropdown_open = false;
-                    // Live preview: apply theme immediately on selection
-                    let resolved = this.selected_terminal_theme.resolve();
-                    crate::theme::set_theme(resolved, &mut *cx);
+                    // Live preview only when in terminal mode
+                    if this.is_terminal_mode {
+                        let resolved = this
+                            .selected_terminal_theme
+                            .resolve_with_appearance(window.appearance());
+                        crate::theme::set_theme(resolved, &mut *cx);
+                    }
                     cx.notify();
                 }));
 
@@ -472,12 +478,16 @@ impl SettingsModal {
                 .items_center()
                 .gap(t.spacing.sm)
                 .cursor_pointer()
-                .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
+                .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
                     this.selected_code_review_theme = mode_copy;
                     this.code_review_theme_dropdown_open = false;
-                    // Live preview: apply theme immediately on selection
-                    let resolved = this.selected_code_review_theme.resolve();
-                    crate::theme::set_theme(resolved, &mut *cx);
+                    // Live preview only when in code review mode
+                    if !this.is_terminal_mode {
+                        let resolved = this
+                            .selected_code_review_theme
+                            .resolve_with_appearance(window.appearance());
+                        crate::theme::set_theme(resolved, &mut *cx);
+                    }
                     cx.notify();
                 }));
 
@@ -719,7 +729,10 @@ impl Render for SettingsModal {
                                         .on_click(cx.listener(
                                             |this, _: &gpui::ClickEvent, window, cx| {
                                                 this.save(window, cx);
-                                                this.dismiss(window, cx);
+                                                // Don't call dismiss() here — on_save callback
+                                                // already closes the modal and applies the
+                                                // correct mode-specific theme. dismiss() would
+                                                // revert the theme to pre_modal_theme.
                                             },
                                         ));
                                 } else {

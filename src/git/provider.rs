@@ -307,10 +307,13 @@ impl GitProvider {
                                             GitResponse::WorkingTreeImageTooLarge { path }
                                         } else {
                                             match decode_image_bytes(&data) {
-                                                Ok(image) => {
-                                                    GitResponse::WorkingTreeImageData { path, image }
+                                                Ok(image) => GitResponse::WorkingTreeImageData {
+                                                    path,
+                                                    image,
+                                                },
+                                                Err(_) => {
+                                                    GitResponse::WorkingTreeImageError { path }
                                                 }
-                                                Err(_) => GitResponse::WorkingTreeImageError { path },
                                             }
                                         }
                                     }

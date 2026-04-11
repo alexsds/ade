@@ -1140,12 +1140,6 @@ impl CodeReviewPanel {
         }
     }
 
-    /// Reload panel ratios from persisted settings.
-    pub fn reload_ratios_from_settings(&mut self) {
-        let settings = crate::settings::Settings::load();
-        self.history_ratios = settings.history_panel_ratios;
-        self.changes_ratios = settings.changes_panel_ratios;
-    }
 }
 
 /// Render a draggable vertical divider for code review panels.

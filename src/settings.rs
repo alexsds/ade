@@ -26,17 +26,6 @@ impl ThemeMode {
         }
     }
 
-    /// Resolve the user's theme mode preference to a concrete ThemeName.
-    /// For System mode, defaults to Dark when no window context is available.
-    /// Prefer `resolve_with_appearance` when a window is accessible.
-    pub fn resolve(&self) -> crate::theme::ThemeName {
-        match self {
-            ThemeMode::Dark => crate::theme::ThemeName::Dark,
-            ThemeMode::Light => crate::theme::ThemeName::Light,
-            ThemeMode::System => crate::theme::ThemeName::Dark,
-        }
-    }
-
     /// Resolve the user's theme mode preference to a concrete ThemeName,
     /// using the window's appearance to determine System mode mapping.
     pub fn resolve_with_appearance(
@@ -512,18 +501,28 @@ mod tests {
 
     #[test]
     fn test_theme_mode_resolve_dark() {
-        assert_eq!(ThemeMode::Dark.resolve(), crate::theme::ThemeName::Dark);
+        use gpui::WindowAppearance;
+        assert_eq!(
+            ThemeMode::Dark.resolve_with_appearance(WindowAppearance::Dark),
+            crate::theme::ThemeName::Dark
+        );
+        assert_eq!(
+            ThemeMode::Dark.resolve_with_appearance(WindowAppearance::Light),
+            crate::theme::ThemeName::Dark
+        );
     }
 
     #[test]
     fn test_theme_mode_resolve_light() {
-        assert_eq!(ThemeMode::Light.resolve(), crate::theme::ThemeName::Light);
-    }
-
-    #[test]
-    fn test_theme_mode_resolve_system() {
-        // System currently defaults to Dark (placeholder until Phase 55)
-        assert_eq!(ThemeMode::System.resolve(), crate::theme::ThemeName::Dark);
+        use gpui::WindowAppearance;
+        assert_eq!(
+            ThemeMode::Light.resolve_with_appearance(WindowAppearance::Dark),
+            crate::theme::ThemeName::Light
+        );
+        assert_eq!(
+            ThemeMode::Light.resolve_with_appearance(WindowAppearance::Light),
+            crate::theme::ThemeName::Light
+        );
     }
 
     #[test]

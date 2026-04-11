@@ -844,7 +844,6 @@ mod tests {
     /// Marked #[ignore] because it spawns a real shell process and requires
     /// a PTY -- will fail in headless CI environments without a TTY.
     #[test]
-    #[ignore]
     fn test_new_terminal_spawns_pty() {
         let result = new_terminal(None, TerminalSize::new(80, 24));
         assert!(
