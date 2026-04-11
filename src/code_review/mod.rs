@@ -407,24 +407,6 @@ impl CodeReviewPanel {
             == Some(path)
     }
 
-    /// Set the Changes tab image preview from a decoded RenderImage.
-    pub fn set_changes_image(&mut self, image: Arc<RenderImage>) {
-        self.changes_image_preview = Some(image);
-        self.changes_image_preview_state = Some("loaded".to_string());
-    }
-
-    /// Set Changes tab image preview error state.
-    pub fn set_changes_image_error(&mut self) {
-        self.changes_image_preview = None;
-        self.changes_image_preview_state = Some("error".to_string());
-    }
-
-    /// Set Changes tab image preview too-large state.
-    pub fn set_changes_image_too_large(&mut self) {
-        self.changes_image_preview = None;
-        self.changes_image_preview_state = Some("too_large".to_string());
-    }
-
     /// Maximum commits the panel will hold (defense-in-depth, independent of provider cap).
     const MAX_PANEL_COMMITS: usize = 50_000;
 
