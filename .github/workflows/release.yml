@@ -1,0 +1,78 @@
+name: Release & Homebrew
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release & Update Homebrew
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" --generate-notes
+
+      - name: Compute tarball SHA256
+        id: sha
+        run: |
+          TAG="${{ github.ref_name }}"
+          TARBALL_URL="https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
+          curl -sL "$TARBALL_URL" -o source.tar.gz
+          SHA256=$(shasum -a 256 source.tar.gz | awk '{print $1}')
+          VERSION="${TAG#v}"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tarball URL: $TARBALL_URL"
+          echo "SHA256: $SHA256"
+          echo "Version: $VERSION"
+
+      - name: Update Homebrew formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/alexsds/homebrew-tap.git" tap-repo
+          cd tap-repo
+          mkdir -p Formula
+
+          cat > Formula/ade.rb << 'FORMULA'
+          class Ade < Formula
+            desc "Advanced Developer Environment - terminal with built-in git UI"
+            homepage "https://github.com/alexsds/ade"
+            url "https://github.com/alexsds/ade/archive/refs/tags/v__VERSION__.tar.gz"
+            sha256 "__SHA256__"
+            license "MIT"
+
+            depends_on :macos
+            depends_on "rust" => :build
+            depends_on "pkg-config" => :build
+
+            def install
+              system "cargo", "install", *std_cargo_args
+            end
+
+            test do
+              assert_match "ade", shell_output("#{bin}/ade --version 2>&1", 1)
+            end
+          end
+          FORMULA
+
+          # Replace placeholders with actual values
+          sed -i "s/__VERSION__/${{ steps.sha.outputs.version }}/g" Formula/ade.rb
+          sed -i "s/__SHA256__/${{ steps.sha.outputs.sha256 }}/g" Formula/ade.rb
+
+          # Remove leading whitespace from heredoc indentation
+          sed -i 's/^          //' Formula/ade.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/ade.rb
+          git commit -m "ade ${{ steps.sha.outputs.version }}"
+          git push
