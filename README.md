@@ -105,10 +105,12 @@ Independent theme settings for terminal and code review. Set your terminal to Da
 
 Pre-built `.dmg` available on the [Releases](https://github.com/alexsds/ade/releases) page.
 
-<!-- ### Homebrew
+### Homebrew
+
 ```bash
-brew install --cask ade
-``` -->
+brew tap alexsds/tap
+brew install ade
+```
 
 ### Build from source
 
@@ -207,7 +209,7 @@ cargo build --release
 - [x] MRU pane activation and selection clearing fixes
 - [x] Dark/Light/System theme with independent terminal and code review settings
 - [x] Resizable code review panels with persistent layout
-- [ ] Homebrew formula
+- [x] Homebrew formula
 
 ## Tech Stack
 
