@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [v2.5.2]
+
+### Fixed
+- Microphone access inside Ade — voice dictation in terminal programs (e.g. Claude Code `/voice`) now prompts for permission instead of failing with "No audio detected from microphone"
+
 ## [v2.5] - Customization
 
 ### Added
