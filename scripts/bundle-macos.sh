@@ -78,6 +78,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <true/>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Ade needs microphone access so terminal programs (e.g. voice dictation in Claude Code) can record audio.</string>
 </dict>
 </plist>
 PLIST
